@@ -1,0 +1,17 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/developers/layout,_N_T_/(dashboard)/developers/apiKeys/layout,_N_T_/(dashboard)/developers/apiKeys/page,_N_T_/developers/apiKeys"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/!KGRhc2hib2FyZCk/developers/apiKeys/__PAGE__",
+    "/!KGRhc2hib2FyZCk/developers/apiKeys",
+    "/!KGRhc2hib2FyZCk/developers",
+    "/!KGRhc2hib2FyZCk",
+    "/_index",
+    "/_head"
+  ]
+}

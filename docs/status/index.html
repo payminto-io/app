@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Payminto — Production Readiness Tracker</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131722; --panel2:#1a1f2e; --border:#232a3b;
+    --txt:#e6e9f0; --muted:#8b94a7; --accent:#6c8cff;
+    --done:#27c08a; --done-bg:rgba(39,192,138,.12);
+    --prog:#f0b429; --prog-bg:rgba(240,180,41,.12);
+    --pend:#8b94a7; --pend-bg:rgba(139,148,167,.10);
+    --crit:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 20px 80px}
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:8px}
+  h1{font-size:24px;margin:0;letter-spacing:-.3px}
+  .sub{color:var(--muted);font-size:13px;margin:2px 0 0}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .dot.done{background:var(--done)} .dot.prog{background:var(--prog)} .dot.pend{background:var(--pend)}
+
+  .overall{display:flex;gap:18px;flex-wrap:wrap;margin:22px 0 30px}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;flex:1;min-width:140px}
+  .stat .n{font-size:30px;font-weight:700;letter-spacing:-1px}
+  .stat .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.6px;margin-top:2px}
+  .bar{height:8px;border-radius:6px;background:var(--panel2);overflow:hidden;margin-top:10px;display:flex}
+  .bar i{height:100%;display:block}
+  .bar .b-done{background:var(--done)} .bar .b-prog{background:var(--prog)}
+
+  .filters{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap}
+  .filters button{background:var(--panel);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:.15s}
+  .filters button:hover{color:var(--txt);border-color:var(--accent)}
+  .filters button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+  .ms{background:var(--panel);border:1px solid var(--border);border-radius:14px;margin-bottom:18px;overflow:hidden}
+  .ms-head{display:flex;align-items:center;gap:14px;padding:18px 22px;cursor:pointer;user-select:none}
+  .ms-head:hover{background:var(--panel2)}
+  .ms-title{font-size:17px;font-weight:600;flex:1}
+  .ms-title small{display:block;color:var(--muted);font-weight:400;font-size:12.5px;margin-top:3px}
+  .badge{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:5px 11px;border-radius:20px;white-space:nowrap}
+  .badge.done{color:var(--done);background:var(--done-bg)}
+  .badge.prog{color:var(--prog);background:var(--prog-bg)}
+  .badge.pend{color:var(--pend);background:var(--pend-bg)}
+  .chev{color:var(--muted);transition:transform .2s}
+  .ms.collapsed .chev{transform:rotate(-90deg)}
+  .ms.collapsed .ms-body{display:none}
+  .ms-body{padding:4px 22px 18px}
+  .ms-prog{font-size:12px;color:var(--muted);padding:0 22px 14px}
+
+  ul.items{list-style:none;margin:0;padding:0}
+  ul.items li{display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--border);align-items:flex-start}
+  ul.items li:first-child{border-top:none}
+  .mark{width:20px;height:20px;border-radius:6px;flex:none;display:grid;place-items:center;font-size:12px;font-weight:700;margin-top:1px}
+  .mark.done{background:var(--done-bg);color:var(--done)}
+  .mark.prog{background:var(--prog-bg);color:var(--prog)}
+  .mark.pend{background:var(--pend-bg);color:var(--pend)}
+  .it-txt{flex:1}
+  .it-txt .t{font-weight:500}
+  .it-txt .d{color:var(--muted);font-size:13px;margin-top:2px}
+  .tag{font-size:10.5px;color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:1px 7px;margin-left:8px;vertical-align:middle}
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:34px;line-height:1.7}
+  code{background:var(--panel2);padding:1px 6px;border-radius:4px;font-size:12.5px;color:#c9d2e6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Payminto — Production Readiness Tracker</h1>
+      <p class="sub">Milestone status: what's done, what's pending. Generated 2026-05-25.</p>
+    </div>
+    <div class="legend">
+      <span><i class="dot done"></i> Done</span>
+      <span><i class="dot prog"></i> In&nbsp;progress</span>
+      <span><i class="dot pend"></i> Pending</span>
+    </div>
+  </header>
+
+  <div class="overall" id="overall"></div>
+
+  <div class="filters">
+    <button data-f="all" class="active">All</button>
+    <button data-f="done">Done</button>
+    <button data-f="prog">In progress</button>
+    <button data-f="pend">Pending</button>
+  </div>
+
+  <div id="board"></div>
+
+  <footer>
+    Sources: <code>docs/superpowers/specs/2026-05-25-payminto-production-readiness-design.md</code>,
+    <code>docs/EVM_SETTLEMENT.md</code>, <code>docs/OPERATIONS.md</code>.<br>
+    Backend test suite: 16/16 packages green · 0 failures at generation time.
+  </footer>
+</div>
+
+<script>
+const DATA = [
+  {
+    id:"M0", title:"M0 — Wiring & correctness quick wins",
+    sub:"Self-contained fixes; fully verified", status:"done",
+    items:[
+      {s:"done", t:"Live CoinGecko ticker", d:"Replaced hardcoded prices; verified live (BNB $661.17) with graceful fallback on outage.", tag:"backend"},
+      {s:"done", t:"Register BTC/TRX adapters", d:"All 5 chains now register (ETH/BASE/POLYGON/BTC/TRX); block monitoring active.", tag:"blockchain"},
+      {s:"done", t:"Fix CORS * + credentials", d:"Config-driven origins; safe wildcard without credentials by default. Tests added.", tag:"security"},
+      {s:"done", t:"Fix 2 failing withdrawal tests", d:"Seeded ETH/USDT pair in test setup. Full suite green.", tag:"tests"},
+    ]
+  },
+  {
+    id:"M2", title:"M2 — Real-time checkout + payment-link polish",
+    sub:"Instant SSE status on hosted checkout", status:"done",
+    items:[
+      {s:"done", t:"Real-time pub/sub broker", d:"internal/realtime — transport-agnostic Broker + in-memory impl (Redis-swappable).", tag:"backend"},
+      {s:"done", t:"SSE endpoint", d:"GET /api/v1/public/events/:reference_id streams payment-status changes.", tag:"backend"},
+      {s:"done", t:"Deposit-confirm publish hook", d:"Confirmed deposit → FILLED → event published. Integration tested.", tag:"backend"},
+      {s:"done", t:"Frontend EventSource + Live badge", d:"lib/realtime + usePaymentEvents hook; instant cache update + 'Live' indicator.", tag:"frontend"},
+      {s:"done", t:"Checkout polish", d:"Hid disabled card tab; fixed dead 'missed payment' link → Refresh status.", tag:"frontend"},
+      {s:"done", t:"Centralized constants", d:"internal/constants + frontend/lib/constants — no scattered magic values.", tag:"cleanup"},
+    ]
+  },
+  {
+    id:"M3", title:"M3 — Observability, email, ops hardening",
+    sub:"Metrics, email, error reporting, deploy docs", status:"done",
+    items:[
+      {s:"done", t:"Prometheus /metrics", d:"internal/metrics + middleware; route-templated labels; payments/webhooks/SSE counters.", tag:"backend"},
+      {s:"done", t:"Real SMTP email transport", d:"internal/email/transport — Sender interface (SMTP / Noop), wired into EmailService.", tag:"backend"},
+      {s:"done", t:"Sentry-ready error reporter", d:"observability/errors.go — no-op without DSN, Sentry when SENTRY_DSN set.", tag:"backend"},
+      {s:"done", t:"Config + .env.example + OPERATIONS.md", d:"All new env vars documented; deploy + migrations guide.", tag:"docs"},
+    ]
+  },
+  {
+    id:"M1", title:"M1 — Real on-chain signing & broadcast (EVM)",
+    sub:"EVM native sweep end-to-end done & reviewed; rest tracked", status:"prog",
+    items:[
+      {s:"done", t:"EVM transaction signer", d:"ethereum/signer.go — native + ERC-20, EIP-155; verified via sender recovery.", tag:"blockchain"},
+      {s:"done", t:"EVMSigner capability interface", d:"blockchain/evm_signer.go — sign/broadcast behind an interface.", tag:"blockchain"},
+      {s:"done", t:"Key resolver", d:"service/key_resolver.go — address → private key from vault mnemonic + path index, with verify guard.", tag:"backend"},
+      {s:"done", t:"EVM broadcaster", d:"service/evm_broadcaster.go — resolve key + select adapter + broadcast; SweepNative (balance − gas).", tag:"backend"},
+      {s:"done", t:"EVM native sweep service", d:"service/evm_sweep_service.go — claim-first, idempotent sweep of confirmed deposits → cold.", tag:"backend"},
+      {s:"done", t:"Sweep confirmation tracking", d:"service/evm_sweep_confirmer.go — broadcast→confirming→confirmed + ledger (idempotent).", tag:"backend"},
+      {s:"done", t:"Withdrawal broadcast (money-out)", d:"HotWalletSource resolves the merchant hot-wallet key; WithdrawalProcessingService signs+broadcasts native/ERC-20 to the merchant, stores real txHash/from/gasFee; reverts claim on failure.", tag:"backend"},
+      {s:"done", t:"Hot-wallet live balance + low-balance flag", d:"GET /wallets/hot/:id/balance + useHotWalletBalance hook; per-card balance with amber low-balance badge.", tag:"frontend"},
+      {s:"done", t:"Worker + DI + config wiring", d:"EVMSweepWorker (sweep + track each tick); COLD_WALLET_ETH config; registered in main.", tag:"backend"},
+      {s:"done", t:"Independent code review + fixes", d:"Fixed CRITICAL double-broadcast (claim-first), HIGH PathIndex truncation, MEDIUM gas-price cap.", tag:"review"},
+      {s:"pend", t:"Withdrawal confirmation-gating", d:"Advance sent→processed only after N confirmations (mirror EVMSweepConfirmer for Withdraw rows).", tag:"backend"},
+      {s:"pend", t:"ERC-20 two-phase gas-funded sweep", d:"Gas-tank top-up → token transfer to cold. Reuses signer + confirmer. Needs GAS_TANK_ETH.", tag:"backend"},
+      {s:"pend", t:"Failed/stuck-tx handling", d:"Fee-bump replacement; mark failed + revert deposit after N rounds.", tag:"backend"},
+      {s:"pend", t:"Live testnet verification", d:"Fund a Sepolia/Base-Sepolia deposit address, set COLD_WALLET_ETH, run full cycle.", tag:"ops"},
+      {s:"pend", t:"TRC-20 deposit parsing", d:"Verify getblockbynum address format with Nile fixtures before decoding.", tag:"blockchain"},
+      {s:"pend", t:"Tron tx signing", d:"createtransaction + sign txID flow.", tag:"blockchain"},
+      {s:"pend", t:"Bitcoin esplora adapter + UTXO signing", d:"Seed URL is Blockstream REST, incompatible with JSON-RPC adapter — needs rewrite, then PSBT signing.", tag:"blockchain"},
+    ]
+  },
+];
+
+const board = document.getElementById('board');
+let counts = {done:0, prog:0, pend:0, total:0};
+
+DATA.forEach((ms, idx) => {
+  const c = {done:0, prog:0, pend:0};
+  ms.items.forEach(i => { c[i.s]++; counts[i.s]++; counts.total++; });
+  const pct = Math.round((c.done / ms.items.length) * 100);
+
+  const el = document.createElement('div');
+  el.className = 'ms' + (ms.status==='done' ? ' collapsed' : '');
+  el.innerHTML = `
+    <div class="ms-head">
+      <span class="chev">▾</span>
+      <div class="ms-title">${ms.title}<small>${ms.sub}</small></div>
+      <span class="badge ${ms.status}">${ms.status==='done'?'Done':ms.status==='prog'?'In progress':'Pending'}</span>
+    </div>
+    <div class="ms-prog">${c.done}/${ms.items.length} done · ${pct}%
+      <div class="bar"><i class="b-done" style="width:${pct}%"></i></div>
+    </div>
+    <div class="ms-body">
+      <ul class="items">
+        ${ms.items.map(i => `
+          <li data-s="${i.s}">
+            <span class="mark ${i.s}">${i.s==='done'?'✓':i.s==='prog'?'◐':'○'}</span>
+            <div class="it-txt"><div class="t">${i.t}<span class="tag">${i.tag}</span></div><div class="d">${i.d}</div></div>
+          </li>`).join('')}
+      </ul>
+    </div>`;
+  el.querySelector('.ms-head').addEventListener('click', () => el.classList.toggle('collapsed'));
+  board.appendChild(el);
+});
+
+document.getElementById('overall').innerHTML = `
+  <div class="stat"><div class="n">${counts.done}</div><div class="l">Done</div></div>
+  <div class="stat"><div class="n">${counts.prog}</div><div class="l">In progress</div></div>
+  <div class="stat"><div class="n">${counts.pend}</div><div class="l">Pending</div></div>
+  <div class="stat"><div class="n">${Math.round(counts.done/counts.total*100)}%</div><div class="l">Overall complete
+    <div class="bar"><i class="b-done" style="width:${counts.done/counts.total*100}%"></i></div></div></div>`;
+
+document.querySelectorAll('.filters button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const f = btn.dataset.f;
+    document.querySelectorAll('.ms').forEach(ms => {
+      let any = false;
+      ms.querySelectorAll('li').forEach(li => {
+        const show = f==='all' || li.dataset.s===f;
+        li.style.display = show ? '' : 'none';
+        if (show) any = true;
+      });
+      ms.style.display = any ? '' : 'none';
+      if (f !== 'all') ms.classList.remove('collapsed');
+    });
+  });
+});
+</script>
+</body>
+</html>

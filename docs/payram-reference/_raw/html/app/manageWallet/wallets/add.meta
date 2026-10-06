@@ -1,0 +1,18 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/manageWallet/layout,_N_T_/(dashboard)/manageWallet/wallets/layout,_N_T_/(dashboard)/manageWallet/wallets/add/layout,_N_T_/(dashboard)/manageWallet/wallets/add/page,_N_T_/manageWallet/wallets/add"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/!KGRhc2hib2FyZCk/manageWallet/wallets/add/__PAGE__",
+    "/!KGRhc2hib2FyZCk/manageWallet/wallets/add",
+    "/!KGRhc2hib2FyZCk/manageWallet/wallets",
+    "/!KGRhc2hib2FyZCk/manageWallet",
+    "/!KGRhc2hib2FyZCk",
+    "/_index",
+    "/_head"
+  ]
+}

@@ -1,0 +1,1794 @@
+[
+  {
+    "kind": "request",
+    "t": 1775552557521,
+    "method": "GET",
+    "url": "http://localhost:8880/manageWallet/sweepContract",
+    "resourceType": "document",
+    "postData": null,
+    "headers": {
+      "upgrade-insecure-requests": "1",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": "\"macOS\""
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552557603,
+    "method": "GET",
+    "url": "http://localhost:8880/manageWallet/sweepContract",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/97a2c5b708ab828a.css",
+    "resourceType": "stylesheet",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/715be398208dca58.css",
+    "resourceType": "stylesheet",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/webpack-283bcacea9bb6f4e.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/4bd1b696-e5d7c65570c947b7.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3794-e2e541e45e5f80a8.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/main-app-56ae39829e35d7e8.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3841-9e61a5fd36450fff.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/5555-a2a13fc7cbca00eb.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/1908-2585ba1eba8410dc.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/layout-13d156d734c78d58.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/8437-893817e34645ee8c.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/9756-fec194b5e8f67781.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/8784-308483e28f64d474.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/6801-5a46ff87be8c4409.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557606,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/2722-c618a51628b96fa9.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557607,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/1205-96573ed79e60484e.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557607,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/(dashboard)/layout-7cc753890de94978.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557607,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/109f1dee-4df5537012fe59f8.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557607,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3169-138b5411a0acc174.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557607,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3940-0e93a3eb48502bc0.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557607,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3416-4a3ce84b19caa39d.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557607,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/(dashboard)/manageWallet/sweepContract/page-5afdc2d5a4000d59.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552557630,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/97a2c5b708ab828a.css",
+    "status": 200,
+    "contentType": "text/css; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557630,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/715be398208dca58.css",
+    "status": 200,
+    "contentType": "text/css; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557630,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/main-app-56ae39829e35d7e8.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557641,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/webpack-283bcacea9bb6f4e.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557657,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/5555-a2a13fc7cbca00eb.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "request",
+    "t": 1775552557660,
+    "method": "GET",
+    "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap",
+    "resourceType": "stylesheet",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552557666,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/1908-2585ba1eba8410dc.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557693,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3841-9e61a5fd36450fff.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557701,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/layout-13d156d734c78d58.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557707,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/8437-893817e34645ee8c.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557708,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3794-e2e541e45e5f80a8.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557717,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/9756-fec194b5e8f67781.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557733,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/8784-308483e28f64d474.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557748,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/6801-5a46ff87be8c4409.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557754,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/4bd1b696-e5d7c65570c947b7.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557779,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/1205-96573ed79e60484e.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557779,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/(dashboard)/layout-7cc753890de94978.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557779,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/109f1dee-4df5537012fe59f8.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557786,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3169-138b5411a0acc174.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557791,
+    "method": "GET",
+    "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap",
+    "status": 200,
+    "contentType": "text/css; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557804,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3416-4a3ce84b19caa39d.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557806,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/(dashboard)/manageWallet/sweepContract/page-5afdc2d5a4000d59.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557807,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3940-0e93a3eb48502bc0.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557813,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/2722-c618a51628b96fa9.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "request",
+    "t": 1775552557839,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFd2JQEk.woff2",
+    "resourceType": "font",
+    "postData": null,
+    "headers": {
+      "origin": "http://localhost:8880",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "https://fonts.googleapis.com/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557839,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecnFHGPc.woff2",
+    "resourceType": "font",
+    "postData": null,
+    "headers": {
+      "origin": "http://localhost:8880",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "https://fonts.googleapis.com/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557839,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLCz7Z1xlFd2JQEk.woff2",
+    "resourceType": "font",
+    "postData": null,
+    "headers": {
+      "origin": "http://localhost:8880",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "https://fonts.googleapis.com/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557839,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFd2JQEk.woff2",
+    "resourceType": "font",
+    "postData": null,
+    "headers": {
+      "origin": "http://localhost:8880",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "https://fonts.googleapis.com/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557839,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/payram-neon-green.3578fee0.svg",
+    "resourceType": "image",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557848,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/external-platform/all",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557848,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/external-platform/details",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557848,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/blockchains",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557848,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/blockchains",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557848,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/contract-address/blockchain/ETH/contract/sweep_approval",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557848,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/blockchain-contract/contract/factory_contract/address-contract/sweep_approval",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557849,
+    "method": "POST",
+    "url": "http://localhost:8080/api/v1/websocket-token/create?clientID=243242343",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552557849,
+    "method": "GET",
+    "url": "http://localhost:8880/project/all/dashboard?_rsc=1qg8y",
+    "resourceType": "fetch",
+    "postData": null,
+    "headers": {
+      "rsc": "1",
+      "next-router-segment-prefetch": "/_tree",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0",
+      "next-router-prefetch": "1",
+      "next-url": "/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36"
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552557915,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLCz7Z1xlFd2JQEk.woff2",
+    "status": 200,
+    "contentType": "font/woff2",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557918,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecnFHGPc.woff2",
+    "status": 200,
+    "contentType": "font/woff2",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557924,
+    "method": "GET",
+    "url": "http://localhost:8880/project/all/dashboard?_rsc=1qg8y",
+    "status": 200,
+    "contentType": "text/x-component",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557932,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFd2JQEk.woff2",
+    "status": 200,
+    "contentType": "font/woff2",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557934,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFd2JQEk.woff2",
+    "status": 200,
+    "contentType": "font/woff2",
+    "body": null
+  },
+  {
+    "kind": "request",
+    "t": 1775552557938,
+    "method": "GET",
+    "url": "http://localhost:8880/project/all/dashboard?_rsc=2r6h9",
+    "resourceType": "fetch",
+    "postData": null,
+    "headers": {
+      "rsc": "1",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0",
+      "next-router-prefetch": "1",
+      "next-router-state-tree": "%5B%22%22%2C%7B%7D%2Cnull%2C%22metadata-only%22%5D",
+      "next-url": "/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36"
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552557942,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/payram-neon-green.3578fee0.svg",
+    "status": 200,
+    "contentType": "image/svg+xml",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557968,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/contract-address/blockchain/ETH/contract/sweep_approval",
+    "status": 404,
+    "contentType": "application/json; charset=utf-8",
+    "body": {
+      "error": {
+        "code": "CONTRACT_ADDRESS_NOT_FOUND",
+        "message": "Contract Address not found."
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552557994,
+    "method": "GET",
+    "url": "http://localhost:8880/project/all/dashboard?_rsc=2r6h9",
+    "status": 200,
+    "contentType": "text/x-component",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552557970,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/blockchains",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "body": [
+      {
+        "id": 1,
+        "createdAt": "2026-04-05T20:39:05.576384Z",
+        "updatedAt": "2026-04-07T09:02:13.548005Z",
+        "code": "ETH",
+        "name": "Ethereum",
+        "family": "ETH_Family",
+        "client": "geth",
+        "height": 10608261,
+        "heightTimestamp": "2026-04-07T09:02:00Z",
+        "explorerAddress": "https://sepolia.etherscan.io/address/",
+        "explorerTransaction": "https://sepolia.etherscan.io/tx/",
+        "minConfirmations": 12,
+        "chainID": 11155111,
+        "status": "active",
+        "isSCW": true,
+        "blockchainFamilyID": 1,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 1,
+            "createdAt": "2026-04-05T20:39:09.566559Z",
+            "updatedAt": "2026-04-05T20:39:09.566559Z",
+            "blockchainId": 1,
+            "url": "https://ethereum-sepolia-rpc.publicnode.com",
+            "nodeType": "free",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "11155111",
+            "priority": 1
+          },
+          {
+            "id": 2,
+            "createdAt": "2026-04-05T20:39:09.591755Z",
+            "updatedAt": "2026-04-05T20:39:09.591755Z",
+            "blockchainId": 1,
+            "url": "https://1rpc.io/sepolia",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "11155111",
+            "priority": 2
+          },
+          {
+            "id": 3,
+            "createdAt": "2026-04-05T20:39:09.606278Z",
+            "updatedAt": "2026-04-05T20:39:09.606278Z",
+            "blockchainId": 1,
+            "url": "https://sepolia.drpc.org",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "11155111",
+            "priority": 3
+          },
+          {
+            "id": 4,
+            "createdAt": "2026-04-05T20:39:09.620811Z",
+            "updatedAt": "2026-04-05T20:39:09.620811Z",
+            "blockchainId": 1,
+            "url": "https://sepolia.gateway.tenderly.co",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "11155111",
+            "priority": 4
+          }
+        ],
+        "networkMode": "testnet"
+      },
+      {
+        "id": 3,
+        "createdAt": "2026-04-05T20:39:05.621849Z",
+        "updatedAt": "2026-04-07T09:02:34.329285Z",
+        "code": "TRX",
+        "name": "Tron",
+        "family": "TRX_Family",
+        "client": "trongrid",
+        "height": 66358813,
+        "heightTimestamp": "2026-04-07T09:02:33Z",
+        "explorerAddress": "https://nile.tronscan.org/#/address/",
+        "explorerTransaction": "https://nile.tronscan.org/#/transaction/",
+        "minConfirmations": 30,
+        "chainID": 3448148188,
+        "status": "active",
+        "isSCW": true,
+        "blockchainFamilyID": 3,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 13,
+            "createdAt": "2026-04-05T20:39:09.700671Z",
+            "updatedAt": "2026-04-05T20:39:09.700671Z",
+            "blockchainId": 3,
+            "url": "grpc.nile.trongrid.io:50051",
+            "nodeType": "free",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "3448148188",
+            "priority": 1
+          }
+        ],
+        "networkMode": "testnet"
+      },
+      {
+        "id": 4,
+        "createdAt": "2026-04-05T20:39:05.640323Z",
+        "updatedAt": "2026-04-07T09:02:36.826943Z",
+        "code": "BASE",
+        "name": "Base",
+        "family": "ETH_Family",
+        "client": "geth",
+        "height": 39892129,
+        "heightTimestamp": "2026-04-07T09:02:26Z",
+        "explorerAddress": "https://sepolia.basescan.org/address/",
+        "explorerTransaction": "https://sepolia.basescan.org/tx/",
+        "minConfirmations": 30,
+        "chainID": 84532,
+        "status": "active",
+        "isSCW": true,
+        "blockchainFamilyID": 1,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 5,
+            "createdAt": "2026-04-05T20:39:09.645049Z",
+            "updatedAt": "2026-04-05T20:39:09.645049Z",
+            "blockchainId": 4,
+            "url": "https://sepolia.base.org",
+            "nodeType": "free",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "84532",
+            "priority": 1
+          },
+          {
+            "id": 6,
+            "createdAt": "2026-04-05T20:39:09.650659Z",
+            "updatedAt": "2026-04-05T20:39:09.650659Z",
+            "blockchainId": 4,
+            "url": "https://base-sepolia-rpc.publicnode.com",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "84532",
+            "priority": 2
+          },
+          {
+            "id": 7,
+            "createdAt": "2026-04-05T20:39:09.660174Z",
+            "updatedAt": "2026-04-05T20:39:09.660174Z",
+            "blockchainId": 4,
+            "url": "https://base-sepolia.drpc.org",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "84532",
+            "priority": 3
+          },
+          {
+            "id": 8,
+            "createdAt": "2026-04-05T20:39:09.679708Z",
+            "updatedAt": "2026-04-05T20:39:09.679708Z",
+            "blockchainId": 4,
+            "url": "https://base-sepolia.gateway.tenderly.co",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "84532",
+            "priority": 4
+          }
+        ],
+        "networkMode": "testnet"
+      },
+      {
+        "id": 5,
+        "createdAt": "2026-04-05T20:39:05.657865Z",
+        "updatedAt": "2026-04-07T09:01:34.788335Z",
+        "code": "POLYGON",
+        "name": "Polygon",
+        "family": "ETH_Family",
+        "client": "geth",
+        "height": 36217801,
+        "heightTimestamp": "2026-04-07T09:01:17Z",
+        "explorerAddress": "https://amoy.polygonscan.com/address/",
+        "explorerTransaction": "https://amoy.polygonscan.com/tx/",
+        "minConfirmations": 30,
+        "chainID": 80002,
+        "status": "active",
+        "isSCW": true,
+        "blockchainFamilyID": 1,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 9,
+            "createdAt": "2026-04-05T20:39:09.684953Z",
+            "updatedAt": "2026-04-05T20:39:09.684953Z",
+            "blockchainId": 5,
+            "url": "https://polygon-amoy-bor-rpc.publicnode.com",
+            "nodeType": "free",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "80002",
+            "priority": 1
+          },
+          {
+            "id": 10,
+            "createdAt": "2026-04-05T20:39:09.691681Z",
+            "updatedAt": "2026-04-05T20:39:09.691681Z",
+            "blockchainId": 5,
+            "url": "https://rpc-amoy.polygon.technology",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "80002",
+            "priority": 2
+          },
+          {
+            "id": 11,
+            "createdAt": "2026-04-05T20:39:09.694678Z",
+            "updatedAt": "2026-04-05T20:39:09.694678Z",
+            "blockchainId": 5,
+            "url": "https://polygon-amoy.drpc.org",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "80002",
+            "priority": 3
+          },
+          {
+            "id": 12,
+            "createdAt": "2026-04-05T20:39:09.698418Z",
+            "updatedAt": "2026-04-05T20:39:09.698418Z",
+            "blockchainId": 5,
+            "url": "https://polygon-amoy.gateway.tenderly.co",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "80002",
+            "priority": 4
+          }
+        ],
+        "networkMode": "testnet"
+      },
+      {
+        "id": 2,
+        "createdAt": "2026-04-05T20:39:05.59979Z",
+        "updatedAt": "2026-04-07T08:54:37.849623Z",
+        "code": "BTC",
+        "name": "Bitcoin",
+        "family": "BTC_Family",
+        "client": "bitcoin_core",
+        "height": 4909501,
+        "heightTimestamp": "2026-04-07T10:54:31Z",
+        "explorerAddress": "https://blockstream.info/testnet/address/",
+        "explorerTransaction": "https://blockstream.info/testnet/tx/",
+        "minConfirmations": 2,
+        "chainID": null,
+        "status": "active",
+        "isSCW": false,
+        "blockchainFamilyID": 2,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 14,
+            "createdAt": "2026-04-05T20:39:09.704984Z",
+            "updatedAt": "2026-04-05T20:39:09.704984Z",
+            "blockchainId": 2,
+            "url": "13.211.216.231:18332",
+            "nodeType": "paid",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": "payram",
+            "authPassword": "bitpayramtest",
+            "chainIdentifier": "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943",
+            "priority": 1
+          }
+        ],
+        "networkMode": "testnet"
+      }
+    ]
+  },
+  {
+    "kind": "response",
+    "t": 1775552558042,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/external-platform/details",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "body": [
+      {
+        "id": 1,
+        "name": "Simplepay",
+        "logo": "http://localhost:8080/uploads/1_1775450511.png",
+        "networkCount": 5,
+        "currencyCount": 13
+      }
+    ]
+  },
+  {
+    "kind": "response",
+    "t": 1775552558046,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/external-platform/all",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "body": [
+      {
+        "id": 1,
+        "createdAt": "2026-04-06T04:32:53.750726Z",
+        "updatedAt": "2026-04-06T04:41:52.058386Z",
+        "name": "Simplepay",
+        "logoPath": "http://localhost:8080/uploads/1_1775450511.png",
+        "brandColor": "#caff54",
+        "website": "",
+        "successEndpoint": "",
+        "frontendEndpoint": null,
+        "cancelEndpoint": null,
+        "linkedInURL": null,
+        "twitterURL": null,
+        "discordURL": null,
+        "telegramURL": null,
+        "defaultPaymentBlockchainID": null,
+        "defaultPaymentBlockchainCurrencyID": null,
+        "emailSendRequestFrom": null,
+        "emailSendRequestReplyTo": null,
+        "externalPlatformBlockchainCurrencies": null
+      }
+    ]
+  },
+  {
+    "kind": "response",
+    "t": 1775552558016,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/blockchains",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "body": [
+      {
+        "id": 1,
+        "createdAt": "2026-04-05T20:39:05.576384Z",
+        "updatedAt": "2026-04-07T09:02:13.548005Z",
+        "code": "ETH",
+        "name": "Ethereum",
+        "family": "ETH_Family",
+        "client": "geth",
+        "height": 10608261,
+        "heightTimestamp": "2026-04-07T09:02:00Z",
+        "explorerAddress": "https://sepolia.etherscan.io/address/",
+        "explorerTransaction": "https://sepolia.etherscan.io/tx/",
+        "minConfirmations": 12,
+        "chainID": 11155111,
+        "status": "active",
+        "isSCW": true,
+        "blockchainFamilyID": 1,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 1,
+            "createdAt": "2026-04-05T20:39:09.566559Z",
+            "updatedAt": "2026-04-05T20:39:09.566559Z",
+            "blockchainId": 1,
+            "url": "https://ethereum-sepolia-rpc.publicnode.com",
+            "nodeType": "free",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "11155111",
+            "priority": 1
+          },
+          {
+            "id": 2,
+            "createdAt": "2026-04-05T20:39:09.591755Z",
+            "updatedAt": "2026-04-05T20:39:09.591755Z",
+            "blockchainId": 1,
+            "url": "https://1rpc.io/sepolia",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "11155111",
+            "priority": 2
+          },
+          {
+            "id": 3,
+            "createdAt": "2026-04-05T20:39:09.606278Z",
+            "updatedAt": "2026-04-05T20:39:09.606278Z",
+            "blockchainId": 1,
+            "url": "https://sepolia.drpc.org",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "11155111",
+            "priority": 3
+          },
+          {
+            "id": 4,
+            "createdAt": "2026-04-05T20:39:09.620811Z",
+            "updatedAt": "2026-04-05T20:39:09.620811Z",
+            "blockchainId": 1,
+            "url": "https://sepolia.gateway.tenderly.co",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "11155111",
+            "priority": 4
+          }
+        ],
+        "networkMode": "testnet"
+      },
+      {
+        "id": 3,
+        "createdAt": "2026-04-05T20:39:05.621849Z",
+        "updatedAt": "2026-04-07T09:02:34.329285Z",
+        "code": "TRX",
+        "name": "Tron",
+        "family": "TRX_Family",
+        "client": "trongrid",
+        "height": 66358813,
+        "heightTimestamp": "2026-04-07T09:02:33Z",
+        "explorerAddress": "https://nile.tronscan.org/#/address/",
+        "explorerTransaction": "https://nile.tronscan.org/#/transaction/",
+        "minConfirmations": 30,
+        "chainID": 3448148188,
+        "status": "active",
+        "isSCW": true,
+        "blockchainFamilyID": 3,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 13,
+            "createdAt": "2026-04-05T20:39:09.700671Z",
+            "updatedAt": "2026-04-05T20:39:09.700671Z",
+            "blockchainId": 3,
+            "url": "grpc.nile.trongrid.io:50051",
+            "nodeType": "free",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "3448148188",
+            "priority": 1
+          }
+        ],
+        "networkMode": "testnet"
+      },
+      {
+        "id": 4,
+        "createdAt": "2026-04-05T20:39:05.640323Z",
+        "updatedAt": "2026-04-07T09:02:36.826943Z",
+        "code": "BASE",
+        "name": "Base",
+        "family": "ETH_Family",
+        "client": "geth",
+        "height": 39892129,
+        "heightTimestamp": "2026-04-07T09:02:26Z",
+        "explorerAddress": "https://sepolia.basescan.org/address/",
+        "explorerTransaction": "https://sepolia.basescan.org/tx/",
+        "minConfirmations": 30,
+        "chainID": 84532,
+        "status": "active",
+        "isSCW": true,
+        "blockchainFamilyID": 1,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 5,
+            "createdAt": "2026-04-05T20:39:09.645049Z",
+            "updatedAt": "2026-04-05T20:39:09.645049Z",
+            "blockchainId": 4,
+            "url": "https://sepolia.base.org",
+            "nodeType": "free",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "84532",
+            "priority": 1
+          },
+          {
+            "id": 6,
+            "createdAt": "2026-04-05T20:39:09.650659Z",
+            "updatedAt": "2026-04-05T20:39:09.650659Z",
+            "blockchainId": 4,
+            "url": "https://base-sepolia-rpc.publicnode.com",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "84532",
+            "priority": 2
+          },
+          {
+            "id": 7,
+            "createdAt": "2026-04-05T20:39:09.660174Z",
+            "updatedAt": "2026-04-05T20:39:09.660174Z",
+            "blockchainId": 4,
+            "url": "https://base-sepolia.drpc.org",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "84532",
+            "priority": 3
+          },
+          {
+            "id": 8,
+            "createdAt": "2026-04-05T20:39:09.679708Z",
+            "updatedAt": "2026-04-05T20:39:09.679708Z",
+            "blockchainId": 4,
+            "url": "https://base-sepolia.gateway.tenderly.co",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "84532",
+            "priority": 4
+          }
+        ],
+        "networkMode": "testnet"
+      },
+      {
+        "id": 5,
+        "createdAt": "2026-04-05T20:39:05.657865Z",
+        "updatedAt": "2026-04-07T09:02:37.952169Z",
+        "code": "POLYGON",
+        "name": "Polygon",
+        "family": "ETH_Family",
+        "client": "geth",
+        "height": 36217843,
+        "heightTimestamp": "2026-04-07T09:02:20Z",
+        "explorerAddress": "https://amoy.polygonscan.com/address/",
+        "explorerTransaction": "https://amoy.polygonscan.com/tx/",
+        "minConfirmations": 30,
+        "chainID": 80002,
+        "status": "active",
+        "isSCW": true,
+        "blockchainFamilyID": 1,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 9,
+            "createdAt": "2026-04-05T20:39:09.684953Z",
+            "updatedAt": "2026-04-05T20:39:09.684953Z",
+            "blockchainId": 5,
+            "url": "https://polygon-amoy-bor-rpc.publicnode.com",
+            "nodeType": "free",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "80002",
+            "priority": 1
+          },
+          {
+            "id": 10,
+            "createdAt": "2026-04-05T20:39:09.691681Z",
+            "updatedAt": "2026-04-05T20:39:09.691681Z",
+            "blockchainId": 5,
+            "url": "https://rpc-amoy.polygon.technology",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "80002",
+            "priority": 2
+          },
+          {
+            "id": 11,
+            "createdAt": "2026-04-05T20:39:09.694678Z",
+            "updatedAt": "2026-04-05T20:39:09.694678Z",
+            "blockchainId": 5,
+            "url": "https://polygon-amoy.drpc.org",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "80002",
+            "priority": 3
+          },
+          {
+            "id": 12,
+            "createdAt": "2026-04-05T20:39:09.698418Z",
+            "updatedAt": "2026-04-05T20:39:09.698418Z",
+            "blockchainId": 5,
+            "url": "https://polygon-amoy.gateway.tenderly.co",
+            "nodeType": "free",
+            "isPreferred": false,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": null,
+            "authPassword": null,
+            "chainIdentifier": "80002",
+            "priority": 4
+          }
+        ],
+        "networkMode": "testnet"
+      },
+      {
+        "id": 2,
+        "createdAt": "2026-04-05T20:39:05.59979Z",
+        "updatedAt": "2026-04-07T08:54:37.849623Z",
+        "code": "BTC",
+        "name": "Bitcoin",
+        "family": "BTC_Family",
+        "client": "bitcoin_core",
+        "height": 4909501,
+        "heightTimestamp": "2026-04-07T10:54:31Z",
+        "explorerAddress": "https://blockstream.info/testnet/address/",
+        "explorerTransaction": "https://blockstream.info/testnet/tx/",
+        "minConfirmations": 2,
+        "chainID": null,
+        "status": "active",
+        "isSCW": false,
+        "blockchainFamilyID": 2,
+        "isCreate2Supported": false,
+        "rpcNodes": [
+          {
+            "id": 14,
+            "createdAt": "2026-04-05T20:39:09.704984Z",
+            "updatedAt": "2026-04-05T20:39:09.704984Z",
+            "blockchainId": 2,
+            "url": "13.211.216.231:18332",
+            "nodeType": "paid",
+            "isPreferred": true,
+            "isActive": true,
+            "maxDailyCalls": null,
+            "apiKey": null,
+            "authUsername": "payram",
+            "authPassword": "bitpayramtest",
+            "chainIdentifier": "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943",
+            "priority": 1
+          }
+        ],
+        "networkMode": "testnet"
+      }
+    ]
+  },
+  {
+    "kind": "response",
+    "t": 1775552558058,
+    "method": "POST",
+    "url": "http://localhost:8080/api/v1/websocket-token/create?clientID=243242343",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "body": {
+      "id": 36,
+      "createdAt": "2026-04-07T09:02:38.01667581Z",
+      "updatedAt": "2026-04-07T09:02:38.01667581Z",
+      "token": "c042bc46ea5f9b4a2aff0f17519ece32",
+      "serverUrl": "ws://localhost:8080",
+      "expiry": "2026-04-08T09:02:38.01343064Z",
+      "clientId": "243242343",
+      "memberId": 1,
+      "Member": null
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552558016,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/blockchain-contract/contract/factory_contract/address-contract/sweep_approval",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "body": [
+      {
+        "id": 1,
+        "createdAt": "2026-04-05T20:39:06.027224Z",
+        "updatedAt": "2026-04-05T20:39:06.027224Z",
+        "blockchainCode": "ETH",
+        "contractType": "factory_contract",
+        "abi": "[\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidByteCode\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidContractAddressGenerated\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidFundCollectorAddress\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidFundCollectorSet\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidGlobalFeeCollectorSet\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidOwner\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidSalt\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"ReentrancyGuardReentrantCall\",\n    \"type\": \"error\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"admin\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"contractAddress\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": false,\n        \"internalType\": \"bytes32\",\n        \"name\": \"_salt\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"ContractDeployed\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"depositAddress\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"bytes32\",\n        \"name\": \"salt\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"DepositWalletDeployed\",\n    \"type\": \"event\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"salt\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"internalType\": \"address\",\n        \"name\": \"fundCollector\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"createFundSweeperContract\",\n    \"outputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"\",\n        \"type\": \"address\"\n      }\n    ],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"salt\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"internalType\": \"bytes\",\n        \"name\": \"bytecode\",\n        \"type\": \"bytes\"\n      }\n    ],\n    \"name\": \"deployContract\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"fundSweeperImplementation\",\n    \"outputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"\",\n        \"type\": \"address\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"globalFeeCollectorContract\",\n    \"outputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"\",\n        \"type\": \"address\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32[]\",\n        \"name\": \"salts\",\n        \"type\": \"bytes32[]\"\n      },\n      {\n        \"internalType\": \"bytes\",\n        \"name\": \"bytecode\",\n        \"type\": \"bytes\"\n      }\n    ],\n    \"name\": \"multipleDeployContract\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  }\n]",
+        "bytecode": null,
+        "address": "0x405236Bc33C454232a62B45D6145eEF337966C89",
+        "description": "factory_contract",
+        "status": "active",
+        "blockchain_id": 1,
+        "currencyStandard": "ERC20",
+        "blockchain": {
+          "id": 1,
+          "createdAt": "2026-04-05T20:39:05.576384Z",
+          "updatedAt": "2026-04-07T09:02:13.548005Z",
+          "code": "ETH",
+          "name": "Ethereum",
+          "family": "ETH_Family",
+          "client": "geth",
+          "height": 10608261,
+          "heightTimestamp": "2026-04-07T09:02:00Z",
+          "explorerAddress": "https://sepolia.etherscan.io/address/",
+          "explorerTransaction": "https://sepolia.etherscan.io/tx/",
+          "minConfirmations": 12,
+          "chainID": 11155111,
+          "status": "active",
+          "isSCW": true,
+          "blockchainFamilyID": 1,
+          "isCreate2Supported": false
+        }
+      },
+      {
+        "id": 2,
+        "createdAt": "2026-04-05T20:39:06.591877Z",
+        "updatedAt": "2026-04-05T20:39:06.591877Z",
+        "blockchainCode": "TRX",
+        "contractType": "factory_contract",
+        "abi": "[\n  {\n    \"inputs\": [],\n    \"name\": \"AccessControlBadConfirmation\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"account\",\n        \"type\": \"address\"\n      },\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"neededRole\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"AccessControlUnauthorizedAccount\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"target\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"AddressEmptyCode\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"caller\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"AlreadyUpgraded\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"string\",\n        \"name\": \"reason\",\n        \"type\": \"string\"\n      }\n    ],\n    \"name\": \"ContractUpgradeFailed\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"implementation\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"ERC1967InvalidImplementation\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"ERC1967NonPayable\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"FailedInnerCall\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"addr\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"FundCollectorAlreadyAdded\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"addr\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"FundCollectorNotPresent\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"addr\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"InvalidAdminAddress\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidByteCode\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidContractAddressGenerated\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"addr\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"InvalidFundCollectorAddress\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidFundCollectorSet\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"addr\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"InvalidFundSweeperImplementationAddress\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"addr\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"InvalidFundSweeperProxyAddress\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"addr\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"InvalidGlobalFeeCollectorContractAddress\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidGlobalFeeCollectorSet\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidInitialization\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidOwner\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"InvalidSalt\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"NotInitializing\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"ReentrancyGuardReentrantCall\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"UUPSUnauthorizedCallContext\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"slot\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"UUPSUnsupportedProxiableUUID\",\n    \"type\": \"error\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"caller\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"UpgradeNotAllowedToSender\",\n    \"type\": \"error\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"oldAdmin\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"newAdmin\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"AdminChanged\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"admin\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"contractAddress\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": false,\n        \"internalType\": \"bytes32\",\n        \"name\": \"_salt\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"ContractDeployed\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"admin\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"proxyAddress\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"newImplementation\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"ContractUpgraded\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"depositAddress\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"bytes32\",\n        \"name\": \"salt\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"DepositWalletDeployed\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"oldImplementation\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"newImplementation\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"FundSweeperImplementationChanged\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": false,\n        \"internalType\": \"uint64\",\n        \"name\": \"version\",\n        \"type\": \"uint64\"\n      }\n    ],\n    \"name\": \"Initialized\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"bytes32\",\n        \"name\": \"previousAdminRole\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"bytes32\",\n        \"name\": \"newAdminRole\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"RoleAdminChanged\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"account\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"sender\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"RoleGranted\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"account\",\n        \"type\": \"address\"\n      },\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"sender\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"RoleRevoked\",\n    \"type\": \"event\"\n  },\n  {\n    \"anonymous\": false,\n    \"inputs\": [\n      {\n        \"indexed\": true,\n        \"internalType\": \"address\",\n        \"name\": \"implementation\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"Upgraded\",\n    \"type\": \"event\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"DEFAULT_ADMIN_ROLE\",\n    \"outputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"UPGRADE_INTERFACE_VERSION\",\n    \"outputs\": [\n      {\n        \"internalType\": \"string\",\n        \"name\": \"\",\n        \"type\": \"string\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"Version\",\n    \"outputs\": [\n      {\n        \"internalType\": \"string\",\n        \"name\": \"\",\n        \"type\": \"string\"\n      }\n    ],\n    \"stateMutability\": \"pure\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"newAdmin\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"changeAdmin\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"fundCollector\",\n        \"type\": \"address\"\n      },\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"salt\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"createFundSweeperContract\",\n    \"outputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"\",\n        \"type\": \"address\"\n      }\n    ],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"salt\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"internalType\": \"bytes\",\n        \"name\": \"bytecode\",\n        \"type\": \"bytes\"\n      }\n    ],\n    \"name\": \"deployContract\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"fundSweeperImplementation\",\n    \"outputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"\",\n        \"type\": \"address\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"fundCollector\",\n        \"type\": \"address\"\n      },\n      {\n        \"internalType\": \"address\",\n        \"name\": \"owner\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"getCreationByteCode\",\n    \"outputs\": [\n      {\n        \"internalType\": \"bytes\",\n        \"name\": \"\",\n        \"type\": \"bytes\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"getRoleAdmin\",\n    \"outputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"internalType\": \"uint256\",\n        \"name\": \"index\",\n        \"type\": \"uint256\"\n      }\n    ],\n    \"name\": \"getRoleMember\",\n    \"outputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"\",\n        \"type\": \"address\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"name\": \"getRoleMemberCount\",\n    \"outputs\": [\n      {\n        \"internalType\": \"uint256\",\n        \"name\": \"\",\n        \"type\": \"uint256\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"globalFeeCollectorContract\",\n    \"outputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"\",\n        \"type\": \"address\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"internalType\": \"address\",\n        \"name\": \"account\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"grantRole\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"internalType\": \"address\",\n        \"name\": \"account\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"hasRole\",\n    \"outputs\": [\n      {\n        \"internalType\": \"bool\",\n        \"name\": \"\",\n        \"type\": \"bool\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"_fundSweeperImplementation\",\n        \"type\": \"address\"\n      },\n      {\n        \"internalType\": \"address\",\n        \"name\": \"_globalFeeCollectorContract\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"initialize\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32[]\",\n        \"name\": \"salts\",\n        \"type\": \"bytes32[]\"\n      },\n      {\n        \"internalType\": \"bytes\",\n        \"name\": \"bytecode\",\n        \"type\": \"bytes\"\n      }\n    ],\n    \"name\": \"multipleDeployContract\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [],\n    \"name\": \"proxiableUUID\",\n    \"outputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"\",\n        \"type\": \"bytes32\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"internalType\": \"address\",\n        \"name\": \"callerConfirmation\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"renounceRole\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes32\",\n        \"name\": \"role\",\n        \"type\": \"bytes32\"\n      },\n      {\n        \"internalType\": \"address\",\n        \"name\": \"account\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"revokeRole\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"_fundSweeperImplementation\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"setFundSweeperImplementation\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"bytes4\",\n        \"name\": \"interfaceId\",\n        \"type\": \"bytes4\"\n      }\n    ],\n    \"name\": \"supportsInterface\",\n    \"outputs\": [\n      {\n        \"internalType\": \"bool\",\n        \"name\": \"\",\n        \"type\": \"bool\"\n      }\n    ],\n    \"stateMutability\": \"view\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"fundSweeperProxyAddress\",\n        \"type\": \"address\"\n      }\n    ],\n    \"name\": \"upgradeFundSweeperContract\",\n    \"outputs\": [],\n    \"stateMutability\": \"nonpayable\",\n    \"type\": \"function\"\n  },\n  {\n    \"inputs\": [\n      {\n        \"internalType\": \"address\",\n        \"name\": \"newImplementation\",\n        \"type\": \"address\"\n      },\n      {\n        \"internalType\": \"bytes\",\n        \"name\": \"data\",\n        \"type\": \"bytes\"\n      }\n    ],\n    \"name\": \"upgradeToAndCall\",\n    \"outputs\": [],\n    \"stateMutability\": \"payable\",\n    \"type\": \"function\"\n  }\n]",
+        "bytecode": null,
+        "address": "TLEkHb3oYLot9Giv9Qxpq4rJQqhYHXxUgX",
+        "description": "factory_contract",
+        "status": "active",
+        "blockchain_id": 3,
+        "currencyStandard": "TRC20",
+        "blockchain": {
+          "id": 3,
+          "createdAt": "2026-04-05T20:39:05.621849Z",
+          "updatedAt": "2026-04-07T09:02:34.329285Z",
+          "code": "TRX",
+          "name": "Tron",
+          "family": "TRX_Family",
+          "client": "trongrid",
+          "height": 66358813,
+          "heightTimestamp": "2026-04-07T09:02:33Z",
+          "explorerAddress": "https://nile.tronscan.org/#/address/",
+          "explorerTransaction": "https://nile.tronscan.org/#/transaction/",
+          "minConfirmations": 30,
+          "chainID": 3448148188,
+          "status": "active",
+          "isSCW": true,
+          "blockchainFamilyID": 3,
+          "isCreate2Supported": false
+        }
+      }
+    ]
+  },
+  {
+    "kind": "request",
+    "t": 1775552558070,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/ethereum-eth-logo.cda4f2bf.svg",
+    "resourceType": "image",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552558070,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/connect-loader.f9568baa.gif",
+    "resourceType": "image",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552558070,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/tron-trx-logo.3e77fb8d.png",
+    "resourceType": "image",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/manageWallet/sweepContract",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552558093,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/connect-loader.f9568baa.gif",
+    "status": 200,
+    "contentType": "image/gif",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552558094,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/tron-trx-logo.3e77fb8d.png",
+    "status": 200,
+    "contentType": "image/png",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552558100,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/ethereum-eth-logo.cda4f2bf.svg",
+    "status": 200,
+    "contentType": "image/svg+xml",
+    "body": null
+  }
+]

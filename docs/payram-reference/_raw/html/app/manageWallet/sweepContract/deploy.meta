@@ -1,0 +1,18 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/manageWallet/layout,_N_T_/(dashboard)/manageWallet/sweepContract/layout,_N_T_/(dashboard)/manageWallet/sweepContract/deploy/layout,_N_T_/(dashboard)/manageWallet/sweepContract/deploy/page,_N_T_/manageWallet/sweepContract/deploy"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/!KGRhc2hib2FyZCk/manageWallet/sweepContract/deploy/__PAGE__",
+    "/!KGRhc2hib2FyZCk/manageWallet/sweepContract/deploy",
+    "/!KGRhc2hib2FyZCk/manageWallet/sweepContract",
+    "/!KGRhc2hib2FyZCk/manageWallet",
+    "/!KGRhc2hib2FyZCk",
+    "/_index",
+    "/_head"
+  ]
+}

@@ -1,0 +1,32 @@
+# Go
+backend/tmp/
+*.exe
+*.test
+*.out
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+
+# Contracts
+contracts/cache/
+contracts/out/
+
+# Environment
+.env
+.env.local
+.env.production
+*.local.json
+
+# Docker
+docker/postgres/data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

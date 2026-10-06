@@ -1,0 +1,946 @@
+[
+  {
+    "kind": "request",
+    "t": 1775552715919,
+    "method": "GET",
+    "url": "http://localhost:8880/payments",
+    "resourceType": "document",
+    "postData": null,
+    "headers": {
+      "upgrade-insecure-requests": "1",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": "\"macOS\""
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552715957,
+    "method": "GET",
+    "url": "http://localhost:8880/payments",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/97a2c5b708ab828a.css",
+    "resourceType": "stylesheet",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/715be398208dca58.css",
+    "resourceType": "stylesheet",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/webpack-283bcacea9bb6f4e.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/4bd1b696-e5d7c65570c947b7.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3794-e2e541e45e5f80a8.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/main-app-56ae39829e35d7e8.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3841-9e61a5fd36450fff.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/5555-a2a13fc7cbca00eb.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/1908-2585ba1eba8410dc.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715961,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/layout-13d156d734c78d58.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/8437-893817e34645ee8c.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/9756-fec194b5e8f67781.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/8708-bc008644f462f3a6.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/5121-06e00dcf0f72500a.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/6801-5a46ff87be8c4409.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/2722-c618a51628b96fa9.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/5910-ee29a000938f3dfc.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/1957-a8d6cdb24d69e63c.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/9229-165039b7d3cfb031.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/(public)/payments/page-75261f000e0cf554.js",
+    "resourceType": "script",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552715962,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/d750f7b35207409c.css",
+    "resourceType": "stylesheet",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552715978,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/715be398208dca58.css",
+    "status": 200,
+    "contentType": "text/css; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552715981,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/d750f7b35207409c.css",
+    "status": 200,
+    "contentType": "text/css; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552715983,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/css/97a2c5b708ab828a.css",
+    "status": 200,
+    "contentType": "text/css; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552715997,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/webpack-283bcacea9bb6f4e.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716001,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/main-app-56ae39829e35d7e8.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "request",
+    "t": 1775552716011,
+    "method": "GET",
+    "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap",
+    "resourceType": "stylesheet",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552716024,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/5555-a2a13fc7cbca00eb.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716024,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/1908-2585ba1eba8410dc.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716028,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3841-9e61a5fd36450fff.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716037,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/layout-13d156d734c78d58.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716040,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/3794-e2e541e45e5f80a8.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716065,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/8437-893817e34645ee8c.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716065,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/9756-fec194b5e8f67781.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716065,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/8708-bc008644f462f3a6.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716066,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/4bd1b696-e5d7c65570c947b7.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716090,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/5121-06e00dcf0f72500a.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716090,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/6801-5a46ff87be8c4409.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716090,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/1957-a8d6cdb24d69e63c.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716090,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/9229-165039b7d3cfb031.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716095,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/app/(public)/payments/page-75261f000e0cf554.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716101,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/2722-c618a51628b96fa9.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716183,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/chunks/5910-ee29a000938f3dfc.js",
+    "status": 200,
+    "contentType": "application/javascript; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716269,
+    "method": "GET",
+    "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap",
+    "status": 200,
+    "contentType": "text/css; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "request",
+    "t": 1775552716297,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/ticker",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716297,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/blockchain-currency/reference/null",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716298,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/wallet/reference/null",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716298,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/wallets/reference/null",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716298,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/external-platform/reference/null",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716298,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/payment/reference/null",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716298,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/payment-channels/reference/null",
+    "resourceType": "xhr",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "accept": "application/json, text/plain, */*",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716308,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecnFHGPc.woff2",
+    "resourceType": "font",
+    "postData": null,
+    "headers": {
+      "origin": "http://localhost:8880",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "https://fonts.googleapis.com/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716308,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFd2JQEk.woff2",
+    "resourceType": "font",
+    "postData": null,
+    "headers": {
+      "origin": "http://localhost:8880",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "https://fonts.googleapis.com/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716308,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFd2JQEk.woff2",
+    "resourceType": "font",
+    "postData": null,
+    "headers": {
+      "origin": "http://localhost:8880",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "https://fonts.googleapis.com/",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "request",
+    "t": 1775552716308,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/favicon.54533583.png",
+    "resourceType": "image",
+    "postData": null,
+    "headers": {
+      "sec-ch-ua-platform": "\"macOS\"",
+      "referer": "http://localhost:8880/payments",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/147.0.7727.15 Safari/537.36",
+      "sec-ch-ua": "\"HeadlessChrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+      "sec-ch-ua-mobile": "?0"
+    }
+  },
+  {
+    "kind": "response",
+    "t": 1775552716380,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecnFHGPc.woff2",
+    "status": 200,
+    "contentType": "font/woff2",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716381,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFd2JQEk.woff2",
+    "status": 200,
+    "contentType": "font/woff2",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716394,
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFd2JQEk.woff2",
+    "status": 200,
+    "contentType": "font/woff2",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716403,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/blockchain-currency/reference/null",
+    "status": 404,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716403,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/wallets/reference/null",
+    "status": 404,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716403,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/wallet/reference/null",
+    "status": 404,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716403,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/payment-channels/reference/null",
+    "status": 404,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716403,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/payment/reference/null",
+    "status": 404,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716403,
+    "method": "GET",
+    "url": "http://localhost:8880/null/api/v1/external-platform/reference/null",
+    "status": 404,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552716418,
+    "method": "GET",
+    "url": "http://localhost:8880/_next/static/media/favicon.54533583.png",
+    "status": 200,
+    "contentType": "image/png",
+    "body": null
+  },
+  {
+    "kind": "response",
+    "t": 1775552717867,
+    "method": "GET",
+    "url": "http://localhost:8080/api/v1/ticker",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "body": [
+      {
+        "blockchainCode": "ETH",
+        "currencyCode": "ETH",
+        "tokenAddress": "0x0000000000000000000000000000000000000000",
+        "standard": "ETH",
+        "walletPrecision": 18,
+        "family": "ETH_Family",
+        "price": "2075.0569"
+      },
+      {
+        "blockchainCode": "ETH",
+        "currencyCode": "USDC",
+        "tokenAddress": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+        "standard": "ERC20",
+        "walletPrecision": 6,
+        "family": "ETH_Family",
+        "price": "1.0"
+      },
+      {
+        "blockchainCode": "ETH",
+        "currencyCode": "USDT",
+        "tokenAddress": "0xBC7155A7BB411563a5B518b76F2c1EC51b380632",
+        "standard": "ERC20",
+        "walletPrecision": 6,
+        "family": "ETH_Family",
+        "price": "1.0"
+      },
+      {
+        "blockchainCode": "BTC",
+        "currencyCode": "BTC",
+        "tokenAddress": "0x0000000000000000000000000000000000000000",
+        "standard": "BTC",
+        "walletPrecision": 8,
+        "family": "BTC_Family",
+        "price": "67613.4389"
+      },
+      {
+        "blockchainCode": "TRX",
+        "currencyCode": "USDT",
+        "tokenAddress": "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj",
+        "standard": "TRC20",
+        "walletPrecision": 6,
+        "family": "TRX_Family",
+        "price": "1.0"
+      },
+      {
+        "blockchainCode": "BASE",
+        "currencyCode": "USDC",
+        "tokenAddress": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+        "standard": "ERC20",
+        "walletPrecision": 6,
+        "family": "ETH_Family",
+        "price": "1.0"
+      },
+      {
+        "blockchainCode": "BASE",
+        "currencyCode": "ETH",
+        "tokenAddress": "0x0000000000000000000000000000000000000000",
+        "standard": "ETH",
+        "walletPrecision": 18,
+        "family": "ETH_Family",
+        "price": "2075.0569"
+      },
+      {
+        "blockchainCode": "BASE",
+        "currencyCode": "CBBTC",
+        "tokenAddress": "0xcbB7C0006F23900c38EB856149F799620fcb8A4a",
+        "standard": "ERC20",
+        "walletPrecision": 8,
+        "family": "ETH_Family",
+        "price": "67613.4389"
+      },
+      {
+        "blockchainCode": "ETH",
+        "currencyCode": "CBBTC",
+        "tokenAddress": "0xcbB7C0006F23900c38EB856149F799620fcb8A4a",
+        "standard": "ERC20",
+        "walletPrecision": 8,
+        "family": "ETH_Family",
+        "price": "67613.4389"
+      },
+      {
+        "blockchainCode": "POLYGON",
+        "currencyCode": "POL",
+        "tokenAddress": "0x0000000000000000000000000000000000000000",
+        "standard": "POL",
+        "walletPrecision": 18,
+        "family": "ETH_Family",
+        "price": "0.088935"
+      },
+      {
+        "blockchainCode": "POLYGON",
+        "currencyCode": "USDC",
+        "tokenAddress": "0x8B0180f2101c8260d49339abfEe87927412494B4",
+        "standard": "USDC",
+        "walletPrecision": 6,
+        "family": "ETH_Family",
+        "price": "1.0"
+      },
+      {
+        "blockchainCode": "POLYGON",
+        "currencyCode": "USDT",
+        "tokenAddress": "0x8B0180f2101c8260d49339abfEe87927412494B4",
+        "standard": "USDT",
+        "walletPrecision": 6,
+        "family": "ETH_Family",
+        "price": "1.0"
+      },
+      {
+        "blockchainCode": "TRX",
+        "currencyCode": "TRX",
+        "tokenAddress": "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+        "standard": "TRX",
+        "walletPrecision": 6,
+        "family": "TRX_Family",
+        "price": "0.31024622045682104"
+      }
+    ]
+  }
+]

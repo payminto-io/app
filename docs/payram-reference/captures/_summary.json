@@ -1,0 +1,535 @@
+{
+  "base": "http://localhost:8880",
+  "total": 75,
+  "succeeded": 75,
+  "failed": 0,
+  "totalInteractions": 158,
+  "results": [
+    {
+      "route": "/createPassword",
+      "slug": "createPassword",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/forgotPassword",
+      "slug": "forgotPassword",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/login",
+      "slug": "login",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/",
+      "slug": "root",
+      "ok": true,
+      "interactions": 7,
+      "error": null
+    },
+    {
+      "route": "/setPassword",
+      "slug": "setPassword",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/signup",
+      "slug": "signup",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/gasFeeWallet/add",
+      "slug": "manageWallet-gasFeeWallet-add",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/gasFeeWallet/edit",
+      "slug": "manageWallet-gasFeeWallet-edit",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/wallets/details/1",
+      "slug": "manageWallet-wallets-details-id",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/settings/mobileApp",
+      "slug": "settings-mobileApp",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/settings/paymentsApp",
+      "slug": "settings-paymentsApp",
+      "ok": true,
+      "interactions": 3,
+      "error": null
+    },
+    {
+      "route": "/addresses",
+      "slug": "addresses",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/pay",
+      "slug": "pay",
+      "ok": true,
+      "interactions": 0,
+      "error": null
+    },
+    {
+      "route": "/success",
+      "slug": "success",
+      "ok": true,
+      "interactions": 0,
+      "error": null
+    },
+    {
+      "route": "/referral/demo",
+      "slug": "referral-token",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/dashboard",
+      "slug": "dashboard",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/project/all/dashboard",
+      "slug": "project-projectId-dashboard",
+      "ok": true,
+      "interactions": 7,
+      "error": null
+    },
+    {
+      "route": "/about",
+      "slug": "about",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/developers/apiKeys",
+      "slug": "developers-apiKeys",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/deposit-wallet",
+      "slug": "manageWallet-deposit-wallet",
+      "ok": true,
+      "interactions": 5,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/gasFeeWallet",
+      "slug": "manageWallet-gasFeeWallet",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/hot-wallet/1",
+      "slug": "manageWallet-hot-wallet-id",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/hot-wallet",
+      "slug": "manageWallet-hot-wallet",
+      "ok": true,
+      "interactions": 3,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/sweepContract/deploy",
+      "slug": "manageWallet-sweepContract-deploy",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/manageWallet",
+      "slug": "manageWallet",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/sweepContract",
+      "slug": "manageWallet-sweepContract",
+      "ok": true,
+      "interactions": 3,
+      "error": null
+    },
+    {
+      "route": "/developers/documentation",
+      "slug": "developers-documentation",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/wallets/add",
+      "slug": "manageWallet-wallets-add",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/wallets/cold",
+      "slug": "manageWallet-wallets-cold",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/manageWallet/wallets",
+      "slug": "manageWallet-wallets",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/merchantMock",
+      "slug": "merchantMock",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/onramp-payments",
+      "slug": "onramp-payments",
+      "ok": true,
+      "interactions": 4,
+      "error": null
+    },
+    {
+      "route": "/project/all/accounts/userBalance",
+      "slug": "project-projectId-accounts-userBalance",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/project/all/accounts/revenue",
+      "slug": "project-projectId-accounts-revenue",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/project/all/customers",
+      "slug": "project-projectId-customers",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/project/all/growth/analytics",
+      "slug": "project-projectId-growth-analytics",
+      "ok": true,
+      "interactions": 4,
+      "error": null
+    },
+    {
+      "route": "/project/all/growth/analytics/promoter/1",
+      "slug": "project-projectId-growth-analytics-promoter-promoterId",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/project/all/growth/campaigns",
+      "slug": "project-projectId-growth-campaigns",
+      "ok": true,
+      "interactions": 3,
+      "error": null
+    },
+    {
+      "route": "/project/all/payments/allPayments",
+      "slug": "project-projectId-payments-allPayments",
+      "ok": true,
+      "interactions": 9,
+      "error": null
+    },
+    {
+      "route": "/project/all/payments/createPaymentLink",
+      "slug": "project-projectId-payments-createPaymentLink",
+      "ok": true,
+      "interactions": 3,
+      "error": null
+    },
+    {
+      "route": "/settings/account",
+      "slug": "settings-account",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/settings/activityLog",
+      "slug": "settings-activityLog",
+      "ok": true,
+      "interactions": 8,
+      "error": null
+    },
+    {
+      "route": "/settings/adminControl",
+      "slug": "settings-adminControl",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/api",
+      "slug": "settings-api",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/checkoutAppearance",
+      "slug": "settings-checkoutAppearance",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/branding",
+      "slug": "settings-branding",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/settings/integrations",
+      "slug": "settings-integrations",
+      "ok": true,
+      "interactions": 4,
+      "error": null
+    },
+    {
+      "route": "/settings/emailConfig",
+      "slug": "settings-emailConfig",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/paymentChannels",
+      "slug": "settings-paymentChannels",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/paymentMethods",
+      "slug": "settings-paymentMethods",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings",
+      "slug": "settings",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/policyManagement",
+      "slug": "settings-policyManagement",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/roleManagement",
+      "slug": "settings-roleManagement",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/roleManagement/role/1",
+      "slug": "settings-roleManagement-role-roleId",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/settings/testTokens",
+      "slug": "settings-testTokens",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/userManagement",
+      "slug": "settings-userManagement",
+      "ok": true,
+      "interactions": 4,
+      "error": null
+    },
+    {
+      "route": "/settings/updater",
+      "slug": "settings-updater",
+      "ok": true,
+      "interactions": 3,
+      "error": null
+    },
+    {
+      "route": "/settings/webhook",
+      "slug": "settings-webhook",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/walletManagement",
+      "slug": "settings-walletManagement",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/settings/withdrawal",
+      "slug": "settings-withdrawal",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/sweepIn",
+      "slug": "sweepIn",
+      "ok": true,
+      "interactions": 4,
+      "error": null
+    },
+    {
+      "route": "/sweepIn/eth",
+      "slug": "sweepIn-eth",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/sweepIn/btc",
+      "slug": "sweepIn-btc",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/sweepIn/usdc",
+      "slug": "sweepIn-usdc",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/sweepIn/usdt",
+      "slug": "sweepIn-usdt",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/withdraw/address-book",
+      "slug": "withdraw-address-book",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/withdraw/address-book/1",
+      "slug": "withdraw-address-book-id",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/withdraw/referral-payouts",
+      "slug": "withdraw-referral-payouts",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/withdraw/refunds",
+      "slug": "withdraw-refunds",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/withdraw/user-payouts",
+      "slug": "withdraw-user-payouts",
+      "ok": true,
+      "interactions": 4,
+      "error": null
+    },
+    {
+      "route": "/payments",
+      "slug": "payments",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/project/all/payments/invoice",
+      "slug": "project-projectId-payments-invoice",
+      "ok": true,
+      "interactions": 2,
+      "error": null
+    },
+    {
+      "route": "/project/all/payments/missed-payments",
+      "slug": "project-projectId-payments-missed-payments",
+      "ok": true,
+      "interactions": 5,
+      "error": null
+    },
+    {
+      "route": "/settings/account/all",
+      "slug": "settings-account-projectId",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    },
+    {
+      "route": "/developers/webhook",
+      "slug": "developers-webhook",
+      "ok": true,
+      "interactions": 1,
+      "error": null
+    }
+  ],
+  "ranAt": "2026-04-07T09:05:37.654Z"
+}

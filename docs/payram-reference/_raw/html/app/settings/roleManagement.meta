@@ -1,0 +1,17 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/settings/layout,_N_T_/(dashboard)/settings/roleManagement/layout,_N_T_/(dashboard)/settings/roleManagement/page,_N_T_/settings/roleManagement"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/!KGRhc2hib2FyZCk/settings/roleManagement/__PAGE__",
+    "/!KGRhc2hib2FyZCk/settings/roleManagement",
+    "/!KGRhc2hib2FyZCk/settings",
+    "/!KGRhc2hib2FyZCk",
+    "/_index",
+    "/_head"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/withdraw/layout,_N_T_/(dashboard)/withdraw/user-payouts/layout,_N_T_/(dashboard)/withdraw/user-payouts/page,_N_T_/withdraw/user-payouts"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/!KGRhc2hib2FyZCk/withdraw/user-payouts/__PAGE__",
+    "/!KGRhc2hib2FyZCk/withdraw/user-payouts",
+    "/!KGRhc2hib2FyZCk/withdraw",
+    "/!KGRhc2hib2FyZCk",
+    "/_index",
+    "/_head"
+  ]
+}

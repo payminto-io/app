@@ -1,0 +1,30 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://localhost:8880",
+      "localStorage": [
+        {
+          "name": "payram_root_exists",
+          "value": "true"
+        },
+        {
+          "name": "payram_access_token",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10"
+        },
+        {
+          "name": "payram_token_expiry",
+          "value": "1775553316934"
+        },
+        {
+          "name": "payram_user",
+          "value": "{\"id\":1,\"createdAt\":\"2026-04-06T04:32:21.066879Z\",\"updatedAt\":\"2026-04-06T04:32:21.116968Z\",\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsImVtYWlsIjoicmVjc2FnYXJqZXRoaUBnbWFpbC5jb20iLCJyb2xlcyI6WyJyb290Il0sInBlcm1zIjpbIndyaXRlX3dpdGhkcmF3YWxfYXBwcm92ZSJdLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NTU1MzMxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTZ9.uRSxDE46Bif8n_2SLvC3R8pjhcCq8WWOPZNIEXb5n10\",\"refreshToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsInR5cCI6InJlZnJlc2giLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NjE1NzIxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTYsImp0aSI6IjEtMTc3NTU1MjQxNjkxOTA1ODI5MyJ9.448VH_SY2P-ODMN-uB_--eMYjCOOd7EvtV1QBuT9u-k\",\"status\":\"active\",\"memberID\":1,\"member\":{\"id\":1,\"createdAt\":\"2026-04-06T04:32:21.066879Z\",\"updatedAt\":\"2026-04-06T04:32:21.116968Z\",\"name\":\"\",\"email\":\"recsagarjethi@gmail.com\",\"customer_id\":\"root\",\"level\":0,\"group\":\"vip-0\",\"state\":\"active\",\"username\":null,\"resetPasswordRequired\":false,\"resetpasswordtoken\":null,\"memberType\":\"internal\"},\"roleID\":1,\"role\":{\"id\":1,\"createdAt\":\"2026-04-05T20:39:04.847178Z\",\"updatedAt\":\"2026-04-05T20:39:04.847178Z\",\"name\":\"root\",\"displayName\":\"Root\",\"description\":\"Root role has all permissions\"},\"expiresIn\":900,\"tokenType\":\"Bearer\",\"resetPasswordRequired\":false}"
+        },
+        {
+          "name": "payram_refresh_token",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOjEsInR5cCI6InJlZnJlc2giLCJpc3MiOiJwYXlyYW0tY29yZSIsImV4cCI6MTc3NjE1NzIxNiwibmJmIjoxNzc1NTUyNDE2LCJpYXQiOjE3NzU1NTI0MTYsImp0aSI6IjEtMTc3NTU1MjQxNjkxOTA1ODI5MyJ9.448VH_SY2P-ODMN-uB_--eMYjCOOd7EvtV1QBuT9u-k"
+        }
+      ]
+    }
+  ]
+}

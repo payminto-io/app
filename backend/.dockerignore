@@ -1,0 +1,8 @@
+.env
+.env.*
+.git
+.gitignore
+server
+migrate
+coverage.out
+*.test

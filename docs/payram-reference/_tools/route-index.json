@@ -1,0 +1,1355 @@
+[
+  {
+    "slug": "about",
+    "route": "/about",
+    "interactions": 1,
+    "title": "Payram | About",
+    "h1": "Hello, About Payram",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | About Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Hello, About Payram"
+  },
+  {
+    "slug": "addresses",
+    "route": "/addresses",
+    "interactions": 1,
+    "title": "Payram",
+    "h1": "",
+    "buttons": [
+      "Generate Addresses",
+      "Get Balances"
+    ],
+    "inputs": [],
+    "apiCalls": [],
+    "snippet": "Payram Enter xPub or Seed Phrase: Select Network: Ethereum Polygon (Matic) Bitcoin Bitcoin Testnet Tron Generate Addresses Get Balances No addresses generated yet."
+  },
+  {
+    "slug": "createPassword",
+    "route": "/createPassword",
+    "interactions": 1,
+    "title": "Payram | Dashboard",
+    "h1": "",
+    "buttons": [
+      "Network",
+      "Currency",
+      "Network",
+      "Currency"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}/analytics/groups",
+      "POST /api/v1/external-platform/{id}/analytics/groups/{id}/graph/{id}/data"
+    ],
+    "snippet": "Payram | Dashboard Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Dashboard Last 30 Days Al"
+  },
+  {
+    "slug": "dashboard",
+    "route": "/dashboard",
+    "interactions": 2,
+    "title": "Payram | Dashboard",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Dashboard Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Last 30 Days"
+  },
+  {
+    "slug": "developers-apiKeys",
+    "route": "/developers/apiKeys",
+    "interactions": 1,
+    "title": "Payram | API Keys",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | API Keys Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Developers / API Keys Coming Soon"
+  },
+  {
+    "slug": "developers-documentation",
+    "route": "/developers/documentation",
+    "interactions": 1,
+    "title": "Payram | Documentation",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Documentation Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Developers"
+  },
+  {
+    "slug": "developers-webhook",
+    "route": "/developers/webhook",
+    "interactions": 1,
+    "title": "Payram | Webhook",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Webhook Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Developers / Webhook Coming Soon! "
+  },
+  {
+    "slug": "forgotPassword",
+    "route": "/forgotPassword",
+    "interactions": 1,
+    "title": "Payram | Dashboard",
+    "h1": "",
+    "buttons": [
+      "Network",
+      "Currency",
+      "Network",
+      "Currency"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}/analytics/groups",
+      "POST /api/v1/external-platform/{id}/analytics/groups/{id}/graph/{id}/data"
+    ],
+    "snippet": "Payram | Dashboard Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Dashboard Last 30 Days Al"
+  },
+  {
+    "slug": "login",
+    "route": "/login",
+    "interactions": 1,
+    "title": "Payram | Dashboard",
+    "h1": "",
+    "buttons": [
+      "Network",
+      "Currency",
+      "Network",
+      "Currency"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/{id}/analytics/groups",
+      "POST /api/v1/external-platform/{id}/analytics/groups/{id}/graph/{id}/data"
+    ],
+    "snippet": "Payram | Dashboard Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Dashboard Last 30 Days Al"
+  },
+  {
+    "slug": "manageWallet",
+    "route": "/manageWallet",
+    "interactions": 1,
+    "title": "Payram | Manage Wallet",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Manage Wallet Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile"
+  },
+  {
+    "slug": "manageWallet-deposit-wallet",
+    "route": "/manageWallet/deposit-wallet",
+    "interactions": 5,
+    "title": "Payram | Deposit Wallet",
+    "h1": "Deposit wallet",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/configuration/key/wallet_connect_id",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/configuration/default",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/wallets"
+    ],
+    "snippet": "Payram | Deposit Wallet Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management / Deposit"
+  },
+  {
+    "slug": "manageWallet-gasFeeWallet",
+    "route": "/manageWallet/gasFeeWallet",
+    "interactions": 2,
+    "title": "Payram | Secret Vault",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/secrets-vaults",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | Secret Vault Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management Wallet Mana"
+  },
+  {
+    "slug": "manageWallet-gasFeeWallet-add",
+    "route": "/manageWallet/gasFeeWallet/add",
+    "interactions": 2,
+    "title": "Payram",
+    "h1": "Add Secret Vault:",
+    "buttons": [],
+    "inputs": [
+      "Wallet Name",
+      "Private key"
+    ],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/secrets-vault-activities",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management Add Secret Vault: Add the "
+  },
+  {
+    "slug": "manageWallet-gasFeeWallet-edit",
+    "route": "/manageWallet/gasFeeWallet/edit",
+    "interactions": 2,
+    "title": "Payram",
+    "h1": "Add Secret Vault:",
+    "buttons": [],
+    "inputs": [
+      "Wallet Name",
+      "Private key"
+    ],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/secrets-vault-activities",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management Add Secret Vault: Add the "
+  },
+  {
+    "slug": "manageWallet-hot-wallet",
+    "route": "/manageWallet/hot-wallet",
+    "interactions": 3,
+    "title": "Payram | Hot Wallet",
+    "h1": "Hot wallet",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/configuration/key/wallet_connect_id",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/configuration/default",
+      "GET /api/v1/wallets"
+    ],
+    "snippet": "Payram | Hot Wallet Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management / Hot wallet "
+  },
+  {
+    "slug": "manageWallet-hot-wallet-id",
+    "route": "/manageWallet/hot-wallet/1",
+    "interactions": 2,
+    "title": "Payram | Hot Wallet",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/wallets/{id}",
+      "GET /api/v1/configuration/key/wallet_connect_id",
+      "GET /api/v1/configuration/default",
+      "GET /api/v1/blockchain-currency"
+    ],
+    "snippet": "Payram | Hot Wallet Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management / Hot wallet "
+  },
+  {
+    "slug": "manageWallet-sweepContract",
+    "route": "/manageWallet/sweepContract",
+    "interactions": 3,
+    "title": "Payram | Sweep Contract",
+    "h1": "Deployed Contracts",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/contract-address/blockchain/ETH/contract/sweep_approval",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchain-contract/contract/factory_contract/address-contract/sweep_approval"
+    ],
+    "snippet": "Payram | Sweep Contract Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management / Sweep C"
+  },
+  {
+    "slug": "manageWallet-sweepContract-deploy",
+    "route": "/manageWallet/sweepContract/deploy",
+    "interactions": 2,
+    "title": "Payram | Deploy Contract",
+    "h1": "Tron TRC 20 Sweep Contract",
+    "buttons": [
+      "Select Wallet"
+    ],
+    "inputs": [
+      "Fund Collector Wallet"
+    ],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/contract-address/blockchain/TRX/contract/sweep_approval",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/configuration/default",
+      "GET /api/v1/blockchain-contract/blockchain/TRX/contract/factory_contract"
+    ],
+    "snippet": "Payram | Deploy Contract Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Tron TRC 20 Sweep Contract"
+  },
+  {
+    "slug": "manageWallet-wallets",
+    "route": "/manageWallet/wallets",
+    "interactions": 2,
+    "title": "Payram | Wallet Management",
+    "h1": "Wallet Management",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/wallets"
+    ],
+    "snippet": "Payram | Wallet Management Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management / Wall"
+  },
+  {
+    "slug": "manageWallet-wallets-add",
+    "route": "/manageWallet/wallets/add",
+    "interactions": 2,
+    "title": "Payram | Wallets",
+    "h1": "Select Your Wallet Type",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Wallets Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management / Wallets / Add "
+  },
+  {
+    "slug": "manageWallet-wallets-cold",
+    "route": "/manageWallet/wallets/cold",
+    "interactions": 1,
+    "title": "Payram | Wallets",
+    "h1": "Set Up Your Cold Wallet",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/wallets"
+    ],
+    "snippet": "Payram | Wallets Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management / Wallets Set Up"
+  },
+  {
+    "slug": "manageWallet-wallets-details-id",
+    "route": "/manageWallet/wallets/details/1",
+    "interactions": 2,
+    "title": "Payram",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/wallets/{id}",
+      "GET /api/v1/wallets/balance"
+    ],
+    "snippet": "Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Wallet management / Wallets / Wallet Details"
+  },
+  {
+    "slug": "merchantMock",
+    "route": "/merchantMock",
+    "interactions": 1,
+    "title": "Payram | Merchant Mock",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Merchant Mock Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile"
+  },
+  {
+    "slug": "onramp-payments",
+    "route": "/onramp-payments",
+    "interactions": 4,
+    "title": "Payram | Onramp Payments",
+    "h1": "Onramp payments",
+    "buttons": [
+      "Read more"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/onramper-payments",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/payment-channels",
+      "GET /api/v1/wallets",
+      "GET /api/v1/onramper-payments/metrics",
+      "GET /api/v1/payments-app",
+      "GET /api/v1/payment-channels/project/{id}",
+      "GET /api/v1/blockchain-currency",
+      "GET /api/v1/project/{id}/blockchain-currency"
+    ],
+    "snippet": "Payram | Onramp Payments Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Onramp payments See on-ram"
+  },
+  {
+    "slug": "pay",
+    "route": "/pay",
+    "interactions": 0,
+    "title": "Payram",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [],
+    "snippet": "Payram Error loading payment session data."
+  },
+  {
+    "slug": "payments",
+    "route": "/payments",
+    "interactions": 1,
+    "title": "Payram | Payments",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /null/api/v1/blockchain-currency/reference/null",
+      "GET /null/api/v1/wallets/reference/null",
+      "GET /null/api/v1/wallet/reference/null",
+      "GET /null/api/v1/payment-channels/reference/null",
+      "GET /null/api/v1/payment/reference/null",
+      "GET /null/api/v1/external-platform/reference/null",
+      "GET /api/v1/ticker"
+    ],
+    "snippet": "Payram | Payments To, Amount in USD $0.00 Send 0.00 PayRam is a self-hosted payments software that is publicly downloadable and independently deployed by merchants or individuals. PayRam makes no repr"
+  },
+  {
+    "slug": "project-projectId-accounts-revenue",
+    "route": "/project/all/accounts/revenue",
+    "interactions": 2,
+    "title": "Payram | Revenue",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Revenue Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Accounts / Revenue Coming Soon! We"
+  },
+  {
+    "slug": "project-projectId-accounts-userBalance",
+    "route": "/project/all/accounts/userBalance",
+    "interactions": 2,
+    "title": "Payram | User Balance",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | User Balance Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Accounts / User Balance Comin"
+  },
+  {
+    "slug": "project-projectId-customers",
+    "route": "/project/all/customers",
+    "interactions": 2,
+    "title": "Payram | Customers",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Customers Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Customers Coming Soon! We're alm"
+  },
+  {
+    "slug": "project-projectId-dashboard",
+    "route": "/project/all/dashboard",
+    "interactions": 7,
+    "title": "Payram | Dashboard",
+    "h1": "",
+    "buttons": [
+      "Network",
+      "Currency",
+      "Network",
+      "Currency"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/{id}/analytics/groups",
+      "POST /api/v1/external-platform/{id}/analytics/groups/{id}/graph/{id}/data"
+    ],
+    "snippet": "Payram | Dashboard Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Dashboard Last 30 Days All Time "
+  },
+  {
+    "slug": "project-projectId-growth-analytics",
+    "route": "/project/all/growth/analytics",
+    "interactions": 4,
+    "title": "Payram | Analytics",
+    "h1": "Growth Dashboard",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/external-platform/{id}/analytics/total_revenue",
+      "POST /api/v1/external-platform/{id}/analytics/referee_count",
+      "POST /api/v1/external-platform/{id}/analytics/promoters",
+      "POST /api/v1/external-platform/{id}/analytics/promoters_count",
+      "POST /api/v1/external-platform/{id}/analytics/reward_claimed",
+      "POST /api/v1/external-platform/{id}/analytics/reward_value",
+      "GET /api/v1/external-platform/{id}/referral/campaigns",
+      "POST /api/v1/external-platform/{id}/analytics/campaign_count"
+    ],
+    "snippet": "Payram | Analytics Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Growth / Dashboard Integrate wit"
+  },
+  {
+    "slug": "project-projectId-growth-analytics-promoter-promoterId",
+    "route": "/project/all/growth/analytics/promoter/1",
+    "interactions": 2,
+    "title": "Payram | Promoter",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/{id}/referral/campaigns"
+    ],
+    "snippet": "Payram | Promoter Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Growth / Dashboard / Promoter"
+  },
+  {
+    "slug": "project-projectId-growth-campaigns",
+    "route": "/project/all/growth/campaigns",
+    "interactions": 3,
+    "title": "Payram | Campaigns",
+    "h1": "Campaigns",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}/referral/campaigns",
+      "POST /api/v1/external-platform/{id}/analytics/reward_value"
+    ],
+    "snippet": "Payram | Campaigns Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Growth / Campaigns Integrate wit"
+  },
+  {
+    "slug": "project-projectId-payments-allPayments",
+    "route": "/project/all/payments/allPayments",
+    "interactions": 9,
+    "title": "Payram | All Payments",
+    "h1": "",
+    "buttons": [
+      "Filled",
+      "Partially Filled",
+      "Pending",
+      "Over Filled",
+      "Cancelled"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/external-platform/{id}/payment/summary",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create",
+      "POST /api/v1/external-platform/{id}/payment/search"
+    ],
+    "snippet": "Payram | All Payments Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Payments / All Payments Last "
+  },
+  {
+    "slug": "project-projectId-payments-createPaymentLink",
+    "route": "/project/all/payments/createPaymentLink",
+    "interactions": 3,
+    "title": "Payram | Create Payment Link",
+    "h1": "Create Payment Link",
+    "buttons": [],
+    "inputs": [
+      "amount"
+    ],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/{id}/members",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | Create Payment Link Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Payments / Create Paym"
+  },
+  {
+    "slug": "project-projectId-payments-invoice",
+    "route": "/project/all/payments/invoice",
+    "interactions": 2,
+    "title": "Payram | Invoice",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Invoice Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Payments / Invoice Coming Soon! We"
+  },
+  {
+    "slug": "project-projectId-payments-missed-payments",
+    "route": "/project/all/payments/missed-payments",
+    "interactions": 5,
+    "title": "Payram | Missed Payments",
+    "h1": "Missed blockchain payments",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/missed-deposit",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Missed Payments Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Missed blockchain payments"
+  },
+  {
+    "slug": "referral-token",
+    "route": "/referral/demo",
+    "interactions": 1,
+    "title": "Payram",
+    "h1": "",
+    "buttons": [
+      "Reload the Page"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/referral/referrers"
+    ],
+    "snippet": "Payram Your session is over Reload the Page"
+  },
+  {
+    "slug": "root",
+    "route": "/",
+    "interactions": 7,
+    "title": "Payram | Dashboard",
+    "h1": "",
+    "buttons": [
+      "Network",
+      "Currency",
+      "Network",
+      "Currency"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}/analytics/groups",
+      "POST /api/v1/external-platform/{id}/analytics/groups/{id}/graph/{id}/data"
+    ],
+    "snippet": "Payram | Dashboard Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Dashboard Last 30 Days Al"
+  },
+  {
+    "slug": "setPassword",
+    "route": "/setPassword",
+    "interactions": 1,
+    "title": "Payram | Dashboard",
+    "h1": "",
+    "buttons": [
+      "Network",
+      "Currency",
+      "Network",
+      "Currency"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/{id}/analytics/groups",
+      "POST /api/v1/external-platform/{id}/analytics/groups/{id}/graph/{id}/data"
+    ],
+    "snippet": "Payram | Dashboard Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Dashboard Last 30 Days Al"
+  },
+  {
+    "slug": "settings",
+    "route": "/settings",
+    "interactions": 1,
+    "title": "Payram | Settings",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Settings Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings GENERAL Account Manage s"
+  },
+  {
+    "slug": "settings-account",
+    "route": "/settings/account",
+    "interactions": 2,
+    "title": "Payram | Account",
+    "h1": "Account",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/system",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Account Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / Account Account Manage "
+  },
+  {
+    "slug": "settings-account-projectId",
+    "route": "/settings/account/all",
+    "interactions": 1,
+    "title": "Payram | Account",
+    "h1": "Account",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/system"
+    ],
+    "snippet": "Payram | Account Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / Account Account Manage "
+  },
+  {
+    "slug": "settings-activityLog",
+    "route": "/settings/activityLog",
+    "interactions": 8,
+    "title": "Payram | Activity Log",
+    "h1": "Activity Log",
+    "buttons": [
+      "1",
+      "2",
+      "12"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/activity-log/event-categories",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/internalMembers",
+      "GET /api/v1/activity-log"
+    ],
+    "snippet": "Payram | Activity Log Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / Activity Log Activ"
+  },
+  {
+    "slug": "settings-adminControl",
+    "route": "/settings/adminControl",
+    "interactions": 1,
+    "title": "Payram | Admin Control",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | Admin Control Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! We're "
+  },
+  {
+    "slug": "settings-api",
+    "route": "/settings/api",
+    "interactions": 1,
+    "title": "Payram | API Settings",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | API Settings Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! We're a"
+  },
+  {
+    "slug": "settings-branding",
+    "route": "/settings/branding",
+    "interactions": 2,
+    "title": "Payram | Branding",
+    "h1": "Brand Settings",
+    "buttons": [
+      "Reset to Default"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Branding Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Brand Settings Customize"
+  },
+  {
+    "slug": "settings-checkoutAppearance",
+    "route": "/settings/checkoutAppearance",
+    "interactions": 1,
+    "title": "Payram | Checkout Appearance",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | Checkout Appearance Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! "
+  },
+  {
+    "slug": "settings-emailConfig",
+    "route": "/settings/emailConfig",
+    "interactions": 1,
+    "title": "Payram | Email Config",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Email Config Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! We're a"
+  },
+  {
+    "slug": "settings-integrations",
+    "route": "/settings/integrations",
+    "interactions": 4,
+    "title": "Payram | Integrations",
+    "h1": "Integrations",
+    "buttons": [
+      "Node Details",
+      "Email Server",
+      "Wallet Connect ID"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/config/smtp/",
+      "GET /api/v1/configuration/key/wallet_connect_id"
+    ],
+    "snippet": "Payram | Integrations Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / Integrations Integ"
+  },
+  {
+    "slug": "settings-mobileApp",
+    "route": "/settings/mobileApp",
+    "interactions": 2,
+    "title": "Payram | Integrations",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/system"
+    ],
+    "snippet": "Payram | Integrations Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / Mobile Appl"
+  },
+  {
+    "slug": "settings-paymentChannels",
+    "route": "/settings/paymentChannels",
+    "interactions": 1,
+    "title": "Payram | Payment Channels",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/payment-channels",
+      "GET /api/v1/blockchain-currency",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | Payment Channels Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / Payment Channe"
+  },
+  {
+    "slug": "settings-paymentMethods",
+    "route": "/settings/paymentMethods",
+    "interactions": 1,
+    "title": "Payram | Payment Methods",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Payment Methods Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! We'r"
+  },
+  {
+    "slug": "settings-paymentsApp",
+    "route": "/settings/paymentsApp",
+    "interactions": 3,
+    "title": "Payram",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/{id}/members",
+      "GET /api/v1/configuration/default"
+    ],
+    "snippet": "Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Payment QR Generator Generate QR co"
+  },
+  {
+    "slug": "settings-policyManagement",
+    "route": "/settings/policyManagement",
+    "interactions": 1,
+    "title": "Payram | Policy Management",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Policy Management Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! We"
+  },
+  {
+    "slug": "settings-roleManagement",
+    "route": "/settings/roleManagement",
+    "interactions": 1,
+    "title": "Payram | Role Management",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Role Management Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Coming Soon! We're almost "
+  },
+  {
+    "slug": "settings-roleManagement-role-roleId",
+    "route": "/settings/roleManagement/role/1",
+    "interactions": 2,
+    "title": "Payram | Edit Role",
+    "h1": "",
+    "buttons": [
+      "Edit Permissions"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | Edit Role Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / Role Management Admin"
+  },
+  {
+    "slug": "settings-testTokens",
+    "route": "/settings/testTokens",
+    "interactions": 1,
+    "title": "Payram | Test Tokens",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Test Tokens Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! We're al"
+  },
+  {
+    "slug": "settings-updater",
+    "route": "/settings/updater",
+    "interactions": 3,
+    "title": "Payram | Updater",
+    "h1": "System Updater",
+    "buttons": [
+      "Check for Updates",
+      "View Full History"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/health",
+      "GET /api/v1/system/updater/history",
+      "GET /api/v1/version",
+      "GET /api/v1/system/updater/status",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/system/updater/inspect",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Updater Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings System Updater Current Ve"
+  },
+  {
+    "slug": "settings-userManagement",
+    "route": "/settings/userManagement",
+    "interactions": 4,
+    "title": "Payram | User Management",
+    "h1": "User Management",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/roles",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/internalMembers",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | User Management Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / User Management"
+  },
+  {
+    "slug": "settings-walletManagement",
+    "route": "/settings/walletManagement",
+    "interactions": 1,
+    "title": "Payram | Wallet Management",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details"
+    ],
+    "snippet": "Payram | Wallet Management Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! We"
+  },
+  {
+    "slug": "settings-webhook",
+    "route": "/settings/webhook",
+    "interactions": 1,
+    "title": "Payram | Webhook Settings",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Webhook Settings Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings Coming Soon! We'"
+  },
+  {
+    "slug": "settings-withdrawal",
+    "route": "/settings/withdrawal",
+    "interactions": 1,
+    "title": "Payram | Withdrawal",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/configuration/key/withdrawal-payout-min-amount",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create"
+    ],
+    "snippet": "Payram | Withdrawal Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Settings / Withdrawal Withdrawa"
+  },
+  {
+    "slug": "signup",
+    "route": "/signup",
+    "interactions": 1,
+    "title": "Payram | Dashboard",
+    "h1": "",
+    "buttons": [
+      "Network",
+      "Currency",
+      "Network",
+      "Currency"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}/analytics/groups",
+      "POST /api/v1/external-platform/{id}/analytics/groups/{id}/graph/{id}/data"
+    ],
+    "snippet": "Payram | Dashboard Payram Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Dashboard Last 30 Days Al"
+  },
+  {
+    "slug": "success",
+    "route": "/success",
+    "interactions": 0,
+    "title": "Payram",
+    "h1": "Your payment is successful!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [],
+    "snippet": "Payram Your payment is successful! Own your payments"
+  },
+  {
+    "slug": "sweepIn",
+    "route": "/sweepIn",
+    "interactions": 4,
+    "title": "Payram | Funds Consolidation",
+    "h1": "Funds Consolidation",
+    "buttons": [
+      "Funds",
+      "Transaction History"
+    ],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchain/ETH",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/configuration/default",
+      "GET /api/v1/addresses/balance",
+      "GET /api/v1/sweeps"
+    ],
+    "snippet": "Payram | Funds Consolidation Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Funds Consolidation Fu"
+  },
+  {
+    "slug": "sweepIn-btc",
+    "route": "/sweepIn/btc",
+    "interactions": 1,
+    "title": "Payram | Sweep BTC",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details"
+    ],
+    "snippet": "Payram | Sweep BTC Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile"
+  },
+  {
+    "slug": "sweepIn-eth",
+    "route": "/sweepIn/eth",
+    "interactions": 1,
+    "title": "Payram | Sweep ETH",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/{id}"
+    ],
+    "snippet": "Payram | Sweep ETH Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile"
+  },
+  {
+    "slug": "sweepIn-usdc",
+    "route": "/sweepIn/usdc",
+    "interactions": 1,
+    "title": "Payram | Sweep USDC",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Sweep USDC Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile"
+  },
+  {
+    "slug": "sweepIn-usdt",
+    "route": "/sweepIn/usdt",
+    "interactions": 1,
+    "title": "Payram | Sweep USDT",
+    "h1": "",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Sweep USDT Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile"
+  },
+  {
+    "slug": "withdraw-address-book",
+    "route": "/withdraw/address-book",
+    "interactions": 2,
+    "title": "Payram | Address Book",
+    "h1": "Address Book",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchain-currency",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/recipients/",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Address Book Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Withdraw / Address Book Addre"
+  },
+  {
+    "slug": "withdraw-address-book-id",
+    "route": "/withdraw/address-book/1",
+    "interactions": 1,
+    "title": "Payram | Address Book",
+    "h1": "Address Book",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/recipients/",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/blockchain-currency"
+    ],
+    "snippet": "Payram | Address Book Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Withdraw / Address Book Addre"
+  },
+  {
+    "slug": "withdraw-referral-payouts",
+    "route": "/withdraw/referral-payouts",
+    "interactions": 2,
+    "title": "Payram | Referral Payouts",
+    "h1": "Referral Payouts",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/blockchains",
+      "GET /api/v1/external-platform/details",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/{id}/referral/payouts"
+    ],
+    "snippet": "Payram | Referral Payouts Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Withdraw / Referral Payou"
+  },
+  {
+    "slug": "withdraw-refunds",
+    "route": "/withdraw/refunds",
+    "interactions": 1,
+    "title": "Payram | Refunds",
+    "h1": "Coming Soon!",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/external-platform/{id}",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/blockchains"
+    ],
+    "snippet": "Payram | Refunds Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Withdraw / Refunds Coming Soon! We"
+  },
+  {
+    "slug": "withdraw-user-payouts",
+    "route": "/withdraw/user-payouts",
+    "interactions": 4,
+    "title": "Payram | User Payouts",
+    "h1": "Create Payouts",
+    "buttons": [],
+    "inputs": [],
+    "apiCalls": [
+      "GET /api/v1/external-platform/{id}/withdrawal",
+      "GET /api/v1/blockchains",
+      "POST /api/v1/websocket-token/create",
+      "GET /api/v1/external-platform/{id}",
+      "GET /api/v1/external-platform/details",
+      "GET /api/v1/wallets"
+    ],
+    "snippet": "Payram | User Payouts Testnet Mode All Projects Dashboard Payments Onramp Growth ASSETS Funds Consolidation Wallet management Withdraw GENERAL Developers Settings Profile Withdraw / Payouts Create Pay"
+  }
+]

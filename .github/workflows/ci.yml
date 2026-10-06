@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: payminto/backend/go.mod
+          cache-dependency-path: payminto/backend/go.sum
+      - name: Lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          working-directory: payminto/backend
+      - name: Vet
+        working-directory: payminto/backend
+        run: go vet ./...
+      - name: Unit and package tests
+        working-directory: payminto/backend
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: PostgreSQL integration gate
+        working-directory: payminto/backend
+        run: |
+          set -o pipefail
+          docker info
+          go test -tags=integration ./internal/database ./internal/paymentlifecycle/postgres -count=1 -json | tee integration-test.json
+          if grep -q '"Action":"skip"' integration-test.json; then
+            echo "A required PostgreSQL integration test skipped; CI requires every migration and lifecycle contract test to execute"
+            exit 1
+          fi
+      - name: Build binary
+        working-directory: payminto/backend
+        run: go build ./cmd/server/
+      - name: Build backend image
+        working-directory: payminto/backend
+        run: docker build --tag payminto-backend:ci .
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: payminto/frontend/package-lock.json
+      - name: Install
+        working-directory: payminto/frontend
+        run: npm ci
+      - name: Test
+        working-directory: payminto/frontend
+        run: npm test
+      - name: Lint
+        working-directory: payminto/frontend
+        run: npm run lint
+      - name: Build application
+        working-directory: payminto/frontend
+        run: npm run build
+      - name: Build frontend image
+        working-directory: payminto/frontend
+        run: docker build --tag payminto-frontend:ci .
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Test
+        working-directory: payminto/contracts
+        run: forge test -vvv

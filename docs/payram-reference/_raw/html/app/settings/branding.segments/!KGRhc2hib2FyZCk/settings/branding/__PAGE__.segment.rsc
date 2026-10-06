@@ -1,0 +1,7 @@
+1:"$Sreact.fragment"
+2:I[5018,["9756","static/chunks/9756-fec194b5e8f67781.js","3424","static/chunks/app/(dashboard)/settings/branding/page-d4b88b20ecde85fb.js"],"Breadcrumbs"]
+3:I[27802,["9756","static/chunks/9756-fec194b5e8f67781.js","3424","static/chunks/app/(dashboard)/settings/branding/page-d4b88b20ecde85fb.js"],"default"]
+4:I[90484,[],"OutletBoundary"]
+5:"$Sreact.suspense"
+0:{"buildId":"Y3_jV3HzAa_VSInU9veh1","rsc":["$","$1","c",{"children":[["$","div",null,{"className":"p-4 sm:p-6","children":[["$","header",null,{"className":"flex sticky top-0 left-0 z-10 flex-row justify-between items-center py-4 px-4 sm:px-6 pr-glass backdrop-blur-[var(--pr-glass-blur)] transition-pr-micro","children":[["$","div",null,{"className":"flex items-center","children":["$","$L2",null,{}]}],["$","div",null,{"className":"flex items-center gap-3"}]]}],["$","div",null,{"className":"mb-6","children":[["$","h1",null,{"className":"text-2xl font-semibold text-pr-text mb-2","children":"Brand Settings"}],["$","p",null,{"className":"text-pr-text-secondary","children":"Customize your brand appearance and colors"}]]}],["$","div",null,{"className":"max-w-3xl","children":["$","$L3",null,{"title":"Brand Color","description":"Choose your primary brand color. This color will be used for buttons, highlights, and other branded elements throughout your application.","className":"mb-6 shadow-pr-sm"}]}]]}],null,["$","$L4",null,{"children":["$","$5",null,{"name":"Next.MetadataOutlet","children":"$@6"}]}]]}],"loading":null,"isPartial":false}
+6:null

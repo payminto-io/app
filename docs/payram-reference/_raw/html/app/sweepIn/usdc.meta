@@ -1,0 +1,17 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/sweepIn/layout,_N_T_/(dashboard)/sweepIn/usdc/layout,_N_T_/(dashboard)/sweepIn/usdc/page,_N_T_/sweepIn/usdc"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/!KGRhc2hib2FyZCk/sweepIn/usdc/__PAGE__",
+    "/!KGRhc2hib2FyZCk/sweepIn/usdc",
+    "/!KGRhc2hib2FyZCk/sweepIn",
+    "/!KGRhc2hib2FyZCk",
+    "/_index",
+    "/_head"
+  ]
+}

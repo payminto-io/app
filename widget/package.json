@@ -1,0 +1,13 @@
+{
+  "name": "@payminto/widget",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --minify --outfile=dist/payminto-widget.js --format=iife",
+    "dev": "esbuild src/index.ts --bundle --outfile=dist/payminto-widget.js --format=iife --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}

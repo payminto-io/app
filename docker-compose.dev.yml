@@ -1,0 +1,62 @@
+# LOCAL DEVELOPMENT ONLY. This second development stack intentionally uses
+# testnet, plaintext PostgreSQL on the private Compose network, and AutoMigrate.
+# It runs the built backend image; it does not provide source hot reload.
+name: payminto-development-backend
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: payminto
+      POSTGRES_PASSWORD: payminto_dev
+      POSTGRES_DB: payminto
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payminto"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: payminto
+      POSTGRES_USERNAME: payminto
+      POSTGRES_PASSWORD: payminto_dev
+      POSTGRES_SSL_MODE: disable
+      POSTGRES_SCHEMA_MODE: auto-migrate
+      POSTGRES_ALLOW_INSECURE_LOCAL: "false"
+      REDIS_URL: redis://redis:6379
+      SERVER: DEVELOPMENT
+      BLOCKCHAIN_NETWORK_TYPE: testnet
+      API_PORT: 8080
+      JWT_SECRET: payminto-development-jwt-secret-not-for-production
+      CUSTODY_ENABLED: "true"
+      VAULT_PASSPHRASE: payminto-development-vault-passphrase-only
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+volumes:
+  postgres_data:

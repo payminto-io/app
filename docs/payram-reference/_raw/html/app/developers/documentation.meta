@@ -1,0 +1,17 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/(dashboard)/layout,_N_T_/(dashboard)/developers/layout,_N_T_/(dashboard)/developers/documentation/layout,_N_T_/(dashboard)/developers/documentation/page,_N_T_/developers/documentation"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/!KGRhc2hib2FyZCk/developers/documentation/__PAGE__",
+    "/!KGRhc2hib2FyZCk/developers/documentation",
+    "/!KGRhc2hib2FyZCk/developers",
+    "/!KGRhc2hib2FyZCk",
+    "/_index",
+    "/_head"
+  ]
+}
