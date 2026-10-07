@@ -9,8 +9,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField, TextInput } from "@/components/ui/form-field";
 import { Button } from "@/components/ui/button";
 
 export function CreateProjectDialog({
@@ -43,37 +42,25 @@ export function CreateProjectDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>New Project</DialogTitle>
-            <DialogDescription>
-              Create a new external platform project. An API key will be
-              generated automatically.
-            </DialogDescription>
+            <DialogTitle>New project</DialogTitle>
+            <DialogDescription>An API key is generated with it and shown once.</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2">
-            <Label htmlFor="ep-name">Project Name</Label>
-            <Input
-              id="ep-name"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="My Store"
-            />
-          </div>
+          <FormField label="Name" htmlFor="ep-name">
+            <TextInput id="ep-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="My store" />
+          </FormField>
 
-          <div className="space-y-2">
-            <Label htmlFor="ep-website">Website URL</Label>
-            <Input
+          <FormField label="Website" htmlFor="ep-website" hint="Optional">
+            <TextInput
               id="ep-website"
               type="url"
               value={websiteURL}
               onChange={(e) => setWebsiteURL(e.target.value)}
               placeholder="https://example.com"
             />
-            <p className="text-[11px] text-muted-foreground">Optional</p>
-          </div>
+          </FormField>
 
           <DialogFooter>
             <Button
@@ -84,7 +71,7 @@ export function CreateProjectDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={isPending || !name.trim()}>
-              {isPending ? "Creating..." : "Create Project"}
+              {isPending ? "Creating..." : "Create project"}
             </Button>
           </DialogFooter>
         </form>

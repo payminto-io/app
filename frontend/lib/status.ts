@@ -32,6 +32,7 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   errored: { label: "Error", tone: "bad", glyph: "x" },
   // settlement and withdrawals
   pending_approval: { label: "Awaiting approval", tone: "wait", glyph: "clock" },
+  pending_otp: { label: "Awaiting code", tone: "wait", glyph: "clock" },
   approved: { label: "Approved", tone: "note", glyph: "circle" },
   sent: { label: "Sent", tone: "wait", glyph: "clock" },
   processed: { label: "Settled", tone: "ok", glyph: "check" },
@@ -39,6 +40,18 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   seen: { label: "Seen", tone: "note", glyph: "circle" },
   final: { label: "Final", tone: "ok", glyph: "check" },
   reorged: { label: "Reorged", tone: "bad", glyph: "x" },
+  // address pool
+  available: { label: "Available", tone: "note", glyph: "circle" },
+  used: { label: "Used", tone: "mute", glyph: "check" },
+  locked: { label: "Locked", tone: "wait", glyph: "clock" },
+  // system
+  running: { label: "Running", tone: "ok", glyph: "check" },
+  stopped: { label: "Stopped", tone: "mute", glyph: "minus" },
+  healthy: { label: "Healthy", tone: "ok", glyph: "check" },
+  ok: { label: "Healthy", tone: "ok", glyph: "check" },
+  up: { label: "Up", tone: "ok", glyph: "check" },
+  degraded: { label: "Degraded", tone: "wait", glyph: "clock" },
+  down: { label: "Down", tone: "bad", glyph: "x" },
   // generic
   active: { label: "Active", tone: "ok", glyph: "check" },
   inactive: { label: "Inactive", tone: "mute", glyph: "minus" },
@@ -47,6 +60,7 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   completed: { label: "Completed", tone: "ok", glyph: "check" },
   failed: { label: "Failed", tone: "bad", glyph: "x" },
   delivered: { label: "Delivered", tone: "ok", glyph: "check" },
+  retrying: { label: "Retrying", tone: "wait", glyph: "clock" },
   success: { label: "Success", tone: "ok", glyph: "check" },
   failure: { label: "Failure", tone: "bad", glyph: "x" },
   resolved: { label: "Resolved", tone: "ok", glyph: "check" },
@@ -62,4 +76,28 @@ export function statusMeta(status: string): StatusMeta {
       glyph: "circle",
     }
   );
+}
+
+/**
+ * Rail position from a payment intent state alone. A paid intent is Received
+ * and Final; Settled is never filled here because the payment API carries no
+ * settlement record yet. Cancelled and failed paint the first open segment
+ * bad; expired stays empty because nothing was lost.
+ */
+export function paymentRail(state: string): { step: 0 | 1 | 2 | 3; failed: boolean } {
+  switch (state.toLowerCase()) {
+    case "confirming":
+    case "partially_filled":
+      return { step: 1, failed: false };
+    case "filled":
+    case "confirmed":
+    case "closed":
+    case "over_filled":
+      return { step: 2, failed: false };
+    case "cancelled":
+    case "failed":
+      return { step: 0, failed: true };
+    default:
+      return { step: 0, failed: false };
+  }
 }
