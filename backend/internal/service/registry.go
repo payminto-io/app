@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -676,7 +677,8 @@ func (r *ServiceRegistry) MissedDepositRepo() repository.MissedDepositRepository
 
 // blockchainCurrencyAssetResolver maps a blockchain_currencies id to chain-qualified ledger assets.
 // Every Record* caller carries a blockchain_currencies id, so this is the only table it may read.
-// The native asset comes from the chain's own native row; a chain without one fails rather than guessing.
+// The native asset comes from the chain's own native row; without one Native is empty and only a
+// journal that books gas fails (gasLines), never a gas-free one.
 func blockchainCurrencyAssetResolver() AssetResolver {
 	return func(tx *gorm.DB, blockchainCurrencyID uint) (Assets, error) {
 		var bc models.BlockchainCurrency
@@ -692,8 +694,11 @@ func blockchainCurrencyAssetResolver() AssetResolver {
 		}
 		var native models.BlockchainCurrency
 		err := tx.Where("blockchain_id = ? AND LOWER(standard) = 'native'", bc.BlockchainID).First(&native).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return Assets{Asset: asset}, nil
+		}
 		if err != nil {
-			return Assets{}, fmt.Errorf("chain %s has no native currency row to book gas in: %w", bc.BlockchainCode, err)
+			return Assets{}, fmt.Errorf("chain %s native currency row: %w", bc.BlockchainCode, err)
 		}
 		return Assets{Asset: asset, Native: chainAsset(native.CurrencyCode, native.BlockchainCode)}, nil
 	}

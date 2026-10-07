@@ -47,7 +47,7 @@ type AccountRow struct {
 	ID        AccountID   `gorm:"primarykey"`
 	OwnerType OwnerType   `gorm:"type:varchar(16);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:1"`
 	OwnerID   string      `gorm:"type:varchar(128);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:2"`
-	Asset     string      `gorm:"type:varchar(16);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:3"`
+	Asset     string      `gorm:"type:varchar(32);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:3"`
 	Kind      AccountKind `gorm:"type:varchar(16);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:4"`
 	CreatedAt time.Time   `gorm:"not null"`
 }
@@ -68,9 +68,11 @@ type JournalRow struct {
 	RequestHash    string      `gorm:"type:char(64);not null"`
 	PostedAt       time.Time   `gorm:"not null;index"`
 	Metadata       Metadata    `gorm:"type:jsonb;not null"`
-	// PostingTxID is stamped by a Postgres trigger; lines may only join a journal from the same transaction.
-	PostingTxID int64     `gorm:"type:bigint;not null;default:0"`
-	CreatedAt   time.Time `gorm:"not null"`
+	// PostingTxID and PostingStartedAt are stamped by a Postgres trigger; lines may only join a journal
+	// from the same transaction (both must match, so a restored cluster reusing xids cannot unseal).
+	PostingTxID      int64     `gorm:"type:bigint;not null;default:0"`
+	PostingStartedAt time.Time `gorm:"not null;default:'1970-01-01 00:00:00+00'"`
+	CreatedAt        time.Time `gorm:"not null"`
 }
 
 func (JournalRow) TableName() string { return "ledger_journals" }
@@ -80,7 +82,7 @@ type LineRow struct {
 	ID        uint            `gorm:"primarykey"`
 	JournalID JournalID       `gorm:"not null;index"`
 	AccountID AccountID       `gorm:"not null;index"`
-	Asset     string          `gorm:"type:varchar(16);not null"`
+	Asset     string          `gorm:"type:varchar(32);not null"`
 	Amount    decimal.Decimal `gorm:"type:numeric(38,18);not null"`
 	CreatedAt time.Time       `gorm:"not null"`
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/models"
@@ -29,7 +28,8 @@ type LedgerService struct {
 }
 
 // Assets is what a blockchain_currencies row maps to: the asset itself and the chain's native asset gas is paid in.
-// Codes are chain-qualified (USDC.BASE, ETH.BASE) because custody is per chain.
+// Codes are chain-qualified (USDC.BASE, ETH.BASE) because custody is per chain. Native is empty when the
+// chain has no native row; that only fails a journal that actually books gas.
 type Assets struct {
 	Asset  string
 	Native string
@@ -72,28 +72,31 @@ func line(code, asset string, kind ledger.AccountKind, amount decimal.Decimal) l
 }
 
 // gasLines books gas in the chain's native asset: an expense against the platform's native holdings.
-func gasLines(expenseCode string, native string, gas decimal.Decimal) []ledger.Line {
+func gasLines(expenseCode string, a Assets, gas decimal.Decimal) ([]ledger.Line, error) {
 	if gas.IsZero() {
-		return nil
+		return nil, nil
+	}
+	if a.Native == "" {
+		return nil, fmt.Errorf("ledger: %s has no native asset to book gas in; seed the chain's native currency row", a.Asset)
 	}
 	return []ledger.Line{
-		line(expenseCode, native, ledger.KindExpense, gas),
-		line("crypto_assets", native, ledger.KindAsset, gas.Neg()),
-	}
+		line(expenseCode, a.Native, ledger.KindExpense, gas),
+		line("crypto_assets", a.Native, ledger.KindAsset, gas.Neg()),
+	}, nil
 }
 
-func newJournal(kind ledger.JournalKind, reference string, refID, blockchainCurrencyID uint, lines ...[]ledger.Line) ledger.Journal {
+func newJournal(kind ledger.JournalKind, reference string, refID, blockchainCurrencyID uint, lines []ledger.Line, gas []ledger.Line, gasErr error) (ledger.Journal, error) {
+	if gasErr != nil {
+		return ledger.Journal{}, gasErr
+	}
 	id := strconv.FormatUint(uint64(refID), 10)
-	j := ledger.Journal{
+	return ledger.Journal{
 		Kind:           kind,
 		Reference:      ledger.Reference{Type: reference, ID: id},
 		IdempotencyKey: "payminto:" + reference + ":" + id,
 		Metadata:       map[string]any{"blockchain_currency_id": blockchainCurrencyID},
-	}
-	for _, group := range lines {
-		j.Lines = append(j.Lines, group...)
-	}
-	return j
+		Lines:          append(lines, gas...),
+	}, nil
 }
 
 // txDB is implemented by repositories that can expose the handle the plain Record* methods open their own transaction on.
@@ -112,7 +115,7 @@ func (s *LedgerService) InTransaction(ctx context.Context, fn func(tx *gorm.DB) 
 
 // record writes the journal and then the legacy entries inside tx; with a nil tx it opens its own transaction.
 // A replayed journal key skips the legacy write too, so retries never duplicate rows.
-func (s *LedgerService) record(ctx context.Context, tx *gorm.DB, blockchainCurrencyID uint, entries repository.LedgerEntries, build func(Assets) ledger.Journal) error {
+func (s *LedgerService) record(ctx context.Context, tx *gorm.DB, blockchainCurrencyID uint, entries repository.LedgerEntries, build func(Assets) (ledger.Journal, error)) error {
 	if err := entries.Validate(); err != nil {
 		return fmt.Errorf("unbalanced ledger entries: %w", err)
 	}
@@ -131,7 +134,11 @@ func (s *LedgerService) record(ctx context.Context, tx *gorm.DB, blockchainCurre
 		if err != nil {
 			return fmt.Errorf("ledger: resolve assets for blockchain currency %d: %w", blockchainCurrencyID, err)
 		}
-		receipt, err := s.journal.PostIn(ctx, tx, build(assets))
+		j, err := build(assets)
+		if err != nil {
+			return err
+		}
+		receipt, err := s.journal.PostIn(ctx, tx, j)
 		if err != nil {
 			return err
 		}
@@ -179,7 +186,7 @@ func (s *LedgerService) ReconcileStoredBalances(ctx context.Context, accounts []
 		}
 		derived := decimal.Zero
 		for _, b := range balances {
-			if b.Account.Kind == ledger.KindLiability && (b.Account.Asset == code || strings.HasPrefix(b.Account.Asset, code+".")) {
+			if b.Account.Kind == ledger.KindLiability && ledger.CurrencyOfAsset(b.Account.Asset) == code {
 				derived = derived.Add(b.Natural)
 			}
 		}
@@ -220,11 +227,11 @@ func (s *LedgerService) RecordPaymentDepositIn(ctx context.Context, tx *gorm.DB,
 			Reference:   "payment",
 		}},
 	}
-	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) ledger.Journal {
+	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) (ledger.Journal, error) {
 		return newJournal(ledger.KindPayment, "payment", paymentID, blockchainCurrencyID, []ledger.Line{
 			line("crypto_assets", a.Asset, ledger.KindAsset, amount),
 			line("merchant_balance", a.Asset, ledger.KindLiability, amount.Neg()),
-		})
+		}, nil, nil)
 	})
 }
 
@@ -276,11 +283,12 @@ func (s *LedgerService) RecordSweepIn(ctx context.Context, tx *gorm.DB, sweepID 
 			Reference:   "sweep",
 		}},
 	}
-	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) ledger.Journal {
+	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) (ledger.Journal, error) {
+		gas, err := gasLines("sweep_gas", a, gasCost)
 		return newJournal(ledger.KindTransfer, "sweep", sweepID, blockchainCurrencyID, []ledger.Line{
 			line("cold_wallet_assets", a.Asset, ledger.KindAsset, amount),
 			line("crypto_assets", a.Asset, ledger.KindAsset, amount.Neg()),
-		}, gasLines("sweep_gas", a.Native, gasCost))
+		}, gas, err)
 	})
 }
 
@@ -323,11 +331,12 @@ func (s *LedgerService) RecordWithdrawalIn(ctx context.Context, tx *gorm.DB, wit
 			Reference:   "withdrawal",
 		}},
 	}
-	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) ledger.Journal {
+	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) (ledger.Journal, error) {
+		gas, err := gasLines("withdrawal_gas", a, gasCost)
 		return newJournal(ledger.KindSettlement, "withdrawal", withdrawalID, blockchainCurrencyID, []ledger.Line{
 			line("merchant_balance", a.Asset, ledger.KindLiability, amount),
 			line("crypto_assets", a.Asset, ledger.KindAsset, amount.Neg()),
-		}, gasLines("withdrawal_gas", a.Native, gasCost))
+		}, gas, err)
 	})
 }
 
@@ -361,8 +370,9 @@ func (s *LedgerService) RecordGasFeeIn(ctx context.Context, tx *gorm.DB, txID ui
 			Reference:   "gas_fee",
 		}},
 	}
-	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) ledger.Journal {
-		return newJournal(ledger.KindFee, "gas_fee", txID, blockchainCurrencyID, gasLines("gas_fee", a.Native, gasCost))
+	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) (ledger.Journal, error) {
+		gas, err := gasLines("gas_fee", a, gasCost)
+		return newJournal(ledger.KindFee, "gas_fee", txID, blockchainCurrencyID, nil, gas, err)
 	})
 }
 
@@ -397,11 +407,11 @@ func (s *LedgerService) RecordDuplicateDepositIn(ctx context.Context, tx *gorm.D
 			Reference:   "duplicate_deposit",
 		}},
 	}
-	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) ledger.Journal {
+	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) (ledger.Journal, error) {
 		return newJournal(ledger.KindAdjustment, "duplicate_deposit", depositID, blockchainCurrencyID, []ledger.Line{
 			line("crypto_assets", a.Asset, ledger.KindAsset, amount),
 			line("unclaimed_deposit", a.Asset, ledger.KindIncome, amount.Neg()),
-		})
+		}, nil, nil)
 	})
 }
 
@@ -435,11 +445,11 @@ func (s *LedgerService) RecordReferralPayoutIn(ctx context.Context, tx *gorm.DB,
 			Reference:   "referral_reward",
 		}},
 	}
-	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) ledger.Journal {
+	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) (ledger.Journal, error) {
 		return newJournal(ledger.KindSettlement, "referral_reward", rewardID, blockchainCurrencyID, []ledger.Line{
 			line("referral_rewards_payable", a.Asset, ledger.KindLiability, amount),
 			line("crypto_assets", a.Asset, ledger.KindAsset, amount.Neg()),
-		})
+		}, nil, nil)
 	})
 }
 
@@ -473,7 +483,8 @@ func (s *LedgerService) RecordAddressDeploymentIn(ctx context.Context, tx *gorm.
 			Reference:   "address_deployment",
 		}},
 	}
-	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) ledger.Journal {
-		return newJournal(ledger.KindFee, "address_deployment", deploymentID, blockchainCurrencyID, gasLines("deployment_gas", a.Native, gasCost))
+	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) (ledger.Journal, error) {
+		gas, err := gasLines("deployment_gas", a, gasCost)
+		return newJournal(ledger.KindFee, "address_deployment", deploymentID, blockchainCurrencyID, nil, gas, err)
 	})
 }
