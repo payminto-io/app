@@ -45,7 +45,7 @@ func NewEmptyTestDB(t *testing.T) (*gorm.DB, func()) {
 	if dsn := os.Getenv("PAYMINTO_INTEGRATION_DATABASE_URL"); dsn != "" {
 		return newIsolatedSchemaTestDB(t, dsn)
 	}
-	testcontainers.SkipIfProviderIsNotHealthy(t)
+	requireContainerProvider(t)
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -133,4 +133,21 @@ func newIsolatedSchemaTestDB(t *testing.T, dsn string) (*gorm.DB, func()) {
 		}
 	}
 	return db, cleanup
+}
+
+// requireContainerProvider fails rather than skips: a skipped integration run printed "ok" and hid real failures.
+func requireContainerProvider(t *testing.T) {
+	t.Helper()
+	if os.Getenv("PAYMINTO_INTEGRATION_ALLOW_SKIP") == "1" {
+		testcontainers.SkipIfProviderIsNotHealthy(t)
+		return
+	}
+	provider, err := testcontainers.NewDockerProvider()
+	if err != nil {
+		t.Fatalf("integration tests need Docker (set DOCKER_HOST, or PAYMINTO_INTEGRATION_ALLOW_SKIP=1 to skip): %v", err)
+	}
+	defer provider.Close()
+	if err := provider.Health(context.Background()); err != nil {
+		t.Fatalf("integration tests need a healthy Docker (set DOCKER_HOST, or PAYMINTO_INTEGRATION_ALLOW_SKIP=1 to skip): %v", err)
+	}
 }

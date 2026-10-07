@@ -32,6 +32,14 @@ test:
 	cd frontend && npm test
 	cd contracts && forge test
 
+# Colima exposes Docker at a per-user socket; the reaper must mount the VM's own socket.
+test-integration:
+	cd backend && \
+	if [ -z "$$DOCKER_HOST" ] && [ -S "$$HOME/.colima/default/docker.sock" ]; then \
+		export DOCKER_HOST=unix://$$HOME/.colima/default/docker.sock TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock; \
+	fi; \
+	go test -tags=integration -count=1 ./...
+
 lint:
 	cd backend && golangci-lint run
 	cd frontend && npm run lint
