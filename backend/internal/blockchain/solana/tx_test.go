@@ -106,3 +106,36 @@ func TestInstructionLayouts(t *testing.T) {
 		t.Fatal("create ATA idempotent layout wrong")
 	}
 }
+
+func TestDecodeTransaction_RoundTrip(t *testing.T) {
+	feePayer, owner := newTestSigner(t), newTestSigner(t)
+	ata, _ := AssociatedTokenAddress(owner.PublicKey(), fxUSDC, TokenProgram)
+	hot, _ := AssociatedTokenAddress(feePayer.PublicKey(), fxUSDC, TokenProgram)
+	ixs := []Instruction{
+		ComputeBudgetSetUnitPrice(7),
+		TokenTransferChecked(TokenProgram, ata, fxUSDC, hot, owner.PublicKey(), 5, 6),
+		TokenCloseAccount(TokenProgram, ata, feePayer.PublicKey(), owner.PublicKey()),
+	}
+	msg, err := CompileMessage(feePayer.PublicKey(), MustPublicKey("GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC"), ixs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, _ := Sign(msg, []Signer{feePayer, owner})
+	back, err := DecodeTransactionBase64(tx.Base64())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := back.Verify(); err != nil {
+		t.Fatalf("decoded tx does not verify: %v", err)
+	}
+	if string(back.Message.Serialize()) != string(msg.Serialize()) {
+		t.Fatal("message round trip differs")
+	}
+	got, err := back.Message.Instruction(back.Message.Instructions[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProgramID != TokenProgram || got.Accounts[0].Pubkey != ata || !got.Accounts[0].Writable || got.Accounts[3].Pubkey != owner.PublicKey() || !got.Accounts[3].Signer || got.Accounts[1].Writable {
+		t.Fatalf("expanded instruction wrong: %+v", got)
+	}
+}

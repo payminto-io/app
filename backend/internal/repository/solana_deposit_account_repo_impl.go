@@ -63,7 +63,7 @@ func (r *solanaDepositAccountRepository) UpdateCursors(id uint, tokenAccountCurs
 		updates["owner_cursor"] = ownerCursor
 	}
 	if lastSeenSlot > 0 {
-		updates["last_seen_slot"] = gorm.Expr("GREATEST(last_seen_slot, ?)", lastSeenSlot)
+		updates["last_seen_slot"] = gorm.Expr("CASE WHEN last_seen_slot > ? THEN last_seen_slot ELSE ? END", lastSeenSlot, lastSeenSlot)
 	}
 	return r.db.Model(&models.SolanaDepositAccount{}).Where("id = ?", id).Updates(updates).Error
 }
