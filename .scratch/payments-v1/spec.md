@@ -88,7 +88,7 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 09 | Solana adapter, USDC and USDT side by side | Solana | 08 |
 | 10 | Conversion at receipt | Blockchain | 01, 09 |
 | 11 | Settlement policy, destinations, approvals, runs | Blockchain | 08, 10 |
-| 12 | BitGo custody adapter and conformance suite | Blockchain | 08, 11 |
+| 12 | BitGo custody provider (EVM and Solana) and Solana in custody | Blockchain + Solana | 08, 09 |
 | 13 | Live and test environment isolation | Principal | 01 |
 | 14 | Hosted checkout rendering every link option | Frontend | 04, 07, 09 |
 | 15 | Compose with mocks, CI, release pipeline | DevOps | 05, 08 |
@@ -96,6 +96,7 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 17 | Public checkout projection fields | Backend | 03, 05, 09 |
 | 18 | Dashboard per-asset totals and mobile tables | Frontend | 01 |
 | 19 | Chainlink CRE research, market fit and module spec | Chainlink | - |
+| 29 | NOWNodes as the RPC provider | DevOps + Solana | 09 |
 | 20 | CRE install-time option, configuration and dashboard settings | DevOps + Frontend | 19 |
 | 21 | CRE module: port, service, none and mock providers, verifier, storage, routes | Chainlink | 01, 20 |
 | 21b | CRE settlement gate | Chainlink + Blockchain | 11, 21, 24 |
