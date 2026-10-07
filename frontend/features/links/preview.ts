@@ -100,7 +100,7 @@ export function buildRenderModel(form: LinkForm, ctx: PreviewContext): RenderMod
     });
   });
 
-  let reason = unavailable(ctx.link?.status ?? null, input, ctx.link?.uses_count ?? 0, now);
+  let reason: RenderModel["unavailable_reason"] = unavailable(ctx.link?.status ?? null, input, ctx.link?.uses_count ?? 0, now);
   if (!reason && methods.length === 0) reason = "no_methods_available";
 
   const isItems = input.amount_mode === "line_items";

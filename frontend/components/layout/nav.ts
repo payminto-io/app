@@ -9,6 +9,7 @@ import {
   Gift,
   Key,
   LayoutDashboard,
+  Link2,
   Server,
   Settings,
   Shield,
@@ -37,7 +38,8 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     items: [
       { label: "Home", href: "/dashboard", icon: LayoutDashboard, exact: true },
-      { label: "Payments", href: "/dashboard/payments", icon: CreditCard, keywords: ["links", "create"] },
+      { label: "Payments", href: "/dashboard/payments", icon: CreditCard, keywords: ["create"] },
+      { label: "Links", href: "/dashboard/links", icon: Link2, keywords: ["payment links", "qr", "checkout"] },
       { label: "Customers", href: "/dashboard/customers", icon: BookUser },
     ],
   },

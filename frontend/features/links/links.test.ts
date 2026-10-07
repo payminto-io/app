@@ -92,7 +92,7 @@ describe("form state", () => {
     const f = formFromLink(l);
     expect(f.customer.name).toEqual({ mode: "required", prefill: "Ada" });
     const back = formToInput(f);
-    const { id: _id, status: _s, environment: _e, short_code: _c, url: _u, total: _t, uses_count: _n, revision: _r, published_at: _p, created_at: _ca, updated_at: _ua, ...input } = l;
+    const input = Object.fromEntries(Object.keys(back).map((k) => [k, l[k as keyof PaymentLink]]));
     expect(back).toEqual(input);
   });
 
