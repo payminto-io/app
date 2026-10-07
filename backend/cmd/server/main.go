@@ -12,12 +12,14 @@ import (
 
 	"github.com/payminto/payminto/backend/internal/api"
 	"github.com/payminto/payminto/backend/internal/config"
+	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
 	"github.com/payminto/payminto/backend/internal/database"
 	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/observability"
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/service"
 	"github.com/payminto/payminto/backend/internal/worker"
+	"github.com/shopspring/decimal"
 )
 
 // managerAdapter adapts worker.Manager to the service.WorkerManager interface,
@@ -193,7 +195,22 @@ func main() {
 	if checkoutHost == "" {
 		checkoutHost = fmt.Sprintf("http://localhost:%d", cfg.Server.Port)
 	}
+	paymentSwitch, err := modules.WirePaymentSwitch(modules.Deps{
+		DB:           db,
+		Config:       cfg,
+		Ledger:       reg.Journal(),
+		ChainDeposit: chaindeposit.NewPaymintoBackend(openPayminto(reg.PaymentService()), reg.PaymentRepo(), reg.DepositRepo(), db),
+		Events:       modules.EmitterEvents{Emitter: reg.EventEmitterService()},
+		Fees:         modules.FeesAdapter{Port: reg.FeesModule().Port},
+		Environment:  envModule,
+	})
+	if err != nil {
+		log.Fatalf("payment switch: %v", err)
+	}
+	mgr.Register(paymentSwitch.Reconciler)
+
 	router := api.NewRouter(api.RouterConfig{
+		PaymentSwitch:     paymentSwitch,
 		DB:                db,
 		AuthSvc:           reg.AuthService(),
 		JWTTokenSvc:       reg.JWTTokenService(),
@@ -281,4 +298,20 @@ func main() {
 		observability.Logger().Error("worker manager stop error", "err", err)
 	}
 	observability.Logger().Info("shutdown complete")
+}
+
+// openPayminto adapts PaymentService.CreatePayment for the chaindeposit connector (the connector package must not
+// import internal/service). The invoice id is written in the same insert as the request.
+func openPayminto(payments *service.PaymentService) chaindeposit.PaymentOpener {
+	return func(amount decimal.Decimal, invoiceID, chainCode, currencyCode string, memberID, platformID uint) (chaindeposit.Opened, error) {
+		result, err := payments.CreatePayment(service.CreatePaymentInput{AmountInUSD: amount, InvoiceID: &invoiceID, BlockchainCode: chainCode, CurrencyCode: currencyCode}, memberID, platformID)
+		if err != nil {
+			return chaindeposit.Opened{}, err
+		}
+		out := chaindeposit.Opened{Reference: result.Payment.ReferenceID, ExpiresAt: result.Payment.ExpiresAt}
+		if result.DepositAddress != nil {
+			out.Address = result.DepositAddress.Address
+		}
+		return out, nil
+	}
 }

@@ -62,6 +62,14 @@ func (s *EventEmitterService) EmitNotification(payload NotificationPayload) erro
 	return s.emit(models.EventTypeNotificationSend, payload)
 }
 
+// EmitDomain enqueues a named, versioned domain event from a module (MODULES.md rule 9); consumers select by type.
+func (s *EventEmitterService) EmitDomain(eventType string, payload any) error {
+	if eventType == "" {
+		return fmt.Errorf("domain event type required")
+	}
+	return s.emit(eventType, payload)
+}
+
 // emit serialises the payload and creates an EEEvent row.
 func (s *EventEmitterService) emit(eventType string, payload any) error {
 	data, err := json.Marshal(payload)

@@ -17,8 +17,8 @@ import (
 
 var (
 	canonicalIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
-	currencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)
-	positiveInteger = regexp.MustCompile(`^[1-9][0-9]*$`)
+	currencyPattern    = regexp.MustCompile(`^[A-Z]{3}$`)
+	positiveInteger    = regexp.MustCompile(`^[1-9][0-9]*$`)
 )
 
 type Adapter struct {
