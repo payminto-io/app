@@ -2,6 +2,13 @@
 
 Everything below runs locally. Nothing is deployed to a public network. Screens marked "Sample data" are dev previews of the real pages.
 
+## Demo video
+
+Check demo here: [watch the Payminto demo video (88s, 1080p)](https://github.com/payminto-io/app/releases/download/demo-video/payminto-demo.mp4).
+Release page: [payminto-io/app releases / demo-video](https://github.com/payminto-io/app/releases/tag/demo-video).
+Google Drive copy (720p): [payminto-demo.mp4](https://drive.google.com/file/d/13POEbpjWp8JizZvbvDrBnDwHbbNwgTzd/view).
+It covers the problem, who it is for, the market, the product, why multichain and composable, why Solana, Chainlink CRE and NOWNodes verification, and traction.
+
 ## Pitch deck
 
 Check the pitch deck here: [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1QpXIgz82kQVeH15eYvIeyOrCwypKGi2K/view).
