@@ -185,6 +185,7 @@ var (
 	ErrStaleVersion       = errors.New("fees: rule is not the latest version of its lineage")
 	ErrSurchargeForbidden = errors.New("fees: method does not allow a customer surcharge")
 	ErrSnapshotConflict   = errors.New("fees: payment already carries a different fee rule snapshot")
+	ErrPaymentNotFound    = errors.New("fees: payment request not found")
 )
 
 // ValidationError names the offending field so the API can point at it.
