@@ -93,7 +93,7 @@ func main() {
 			if err := config.CheckModeMatch(cfg.Blockchain.NetworkType, modeRepo); err != nil {
 				log.Fatalf("mode enforcement: %v", err)
 			}
-			if err := envModule.Stamp(context.Background(), db); err != nil {
+			if err := envModule.Finalize(context.Background(), db, cfg.Blockchain.NetworkType); err != nil {
 				log.Fatalf("environment: %v", err)
 			}
 			log.Printf("  environment: database stamped %s", envModule.Environment)
