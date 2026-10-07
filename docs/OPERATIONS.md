@@ -44,6 +44,8 @@ Optional / feature flags:
 - `SENTRY_DSN` — enables error reporting; empty = structured logging only.
 - `POSTGRES_LEDGER_APP_ROLE` — role that `cmd/migrate` narrows to `SELECT, INSERT`
   on the ledger tables after applying migrations (also `--ledger-app-role`).
+- `FEES_SURCHARGE_FORBIDDEN_METHODS`, `FEES_ASSET_PRECISION`, `FEES_OPERATOR_PLATFORM_ID` - fee
+  rules (see Fee rules below and `backend/internal/fees/README.md`).
 - `SMTP_HOST/PORT/USERNAME/PASSWORD/FROM` — enables real email; otherwise emails
   are logged (no-op transport).
 
@@ -78,6 +80,25 @@ own the ledger tables, holds no `UPDATE`, `DELETE`, `TRUNCATE` or `TRIGGER` on t
 `SELECT` and `INSERT`; any other state refuses to start. Every environment also refuses to boot
 when the ledger tables, triggers or functions are missing, and validate mode additionally requires
 migration `2026100701` recorded as applied.
+
+### Fee rules
+
+Migration `2026100702` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`, which backs the
+constraint that no two fee rules for one scope are active at the same instant.
+`btree_gist` is a trusted extension (PostgreSQL 13 and later), so the migration role needs
+`CREATE` on the database rather than superuser.
+If the migration role lacks it, the migration fails and leaves nothing applied; run once as a
+role that has it, then rerun `cmd/migrate`:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+```
+
+The application role needs `SELECT, INSERT, UPDATE` on `fee_rules` (triggers allow only closing
+`effective_to`), `SELECT, INSERT` on `fee_snapshots`, and `UPDATE` on `payment_requests` for the
+legacy `fee_rule_id`/`fee_rule_version` columns.
+Fee rule management is limited to the platform in `FEES_OPERATOR_PLATFORM_ID`; in staging and
+production the admin routes answer 403 until it is set.
 
 ## Observability
 
