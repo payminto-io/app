@@ -46,6 +46,12 @@ type SolanaDepositConfig struct {
 	MaxAnomaliesPerAccountPerDay int
 	// ExpiredScan is how often an expired account's balance is read for late money.
 	ExpiredScan time.Duration
+	// ExpiredScanFor is how long after watch_until the expired scan keeps reading an account; it bounds
+	// the scanned set to the accounts that expired within it instead of every account ever created.
+	ExpiredScanFor time.Duration
+	// MaxUnresolvedPolls is how many polls unresolved signatures may keep an account from expiring;
+	// past it the account expires with an anomaly and the expired scan keeps retrying them.
+	MaxUnresolvedPolls int
 }
 
 func (c SolanaDepositConfig) withDefaults() SolanaDepositConfig {
@@ -84,6 +90,12 @@ func (c SolanaDepositConfig) withDefaults() SolanaDepositConfig {
 	if c.ExpiredScan <= 0 {
 		c.ExpiredScan = 24 * time.Hour
 	}
+	if c.ExpiredScanFor <= 0 {
+		c.ExpiredScanFor = 90 * 24 * time.Hour
+	}
+	if c.MaxUnresolvedPolls <= 0 {
+		c.MaxUnresolvedPolls = 36
+	}
 	return c
 }
 
@@ -93,6 +105,7 @@ const (
 	anomalyLateBalance          = "solana_late_balance"
 	anomalyLatePayment          = "late_payment"
 	anomalyDropCheckUnavailable = "solana_evidence_unavailable"
+	anomalyUnresolvedAtExpiry   = "solana_unresolved_at_expiry"
 )
 
 // SolanaDepositService detects SPL deposits by polling signatures per watched account, records
@@ -178,9 +191,10 @@ func (s *SolanaDepositService) PollOnce(ctx context.Context) (int, error) {
 }
 
 // expireAccounts reads each account past watch_until once more: a balance with no deposit recorded
-// is late money and an anomaly; accounts holding a held or unresolved signature stay watched.
+// is late money and an anomaly. A held signature keeps the account watched; unresolved ones do so
+// only within MaxUnresolvedPolls, then the account expires with an anomaly and they stay tracked.
 func (s *SolanaDepositService) expireAccounts(ctx context.Context, now time.Time) error {
-	due, err := s.accounts.ListExpiring(now, 200)
+	due, err := s.accounts.ListExpiring(now, s.cfg.MaxUnresolvedPolls, 200)
 	if err != nil {
 		return err
 	}
@@ -193,8 +207,14 @@ func (s *SolanaDepositService) expireAccounts(ctx context.Context, now time.Time
 	}
 	for i := range due {
 		acct := &due[i]
-		if acct.HeldSignature != "" || len(decodeSignatures(acct.UnresolvedSignatures)) > 0 {
-			continue
+		if unresolved := decodeSignatures(acct.UnresolvedSignatures); len(unresolved) > 0 {
+			for _, sig := range unresolved {
+				a := solana.Anomaly{Kind: anomalyUnresolvedAtExpiry, Signature: sig, To: acct.TokenAccount, Mint: acct.Mint,
+					Detail: fmt.Sprintf("still unresolved after %d polls; account expired, retried on the expired scan", acct.UnresolvedAttempts)}
+				if err := s.recordAnomaly(acct, a); err != nil {
+					log.Printf("[solana] unresolved-at-expiry anomaly for %s: %v", sig, err)
+				}
+			}
 		}
 		bal := balances[acct.TokenAccount]
 		s.flagLateBalance(acct, bal)
@@ -208,7 +228,7 @@ func (s *SolanaDepositService) expireAccounts(ctx context.Context, now time.Time
 
 // scanExpired reads expired accounts' balances on ExpiredScan and flags anything that arrived.
 func (s *SolanaDepositService) scanExpired(ctx context.Context, now time.Time) error {
-	list, err := s.accounts.ListExpiredDue(now, 500)
+	list, err := s.accounts.ListExpiredDue(now, now.Add(-s.cfg.ExpiredScanFor), 500)
 	if err != nil || len(list) == 0 {
 		return err
 	}
@@ -218,15 +238,38 @@ func (s *SolanaDepositService) scanExpired(ctx context.Context, now time.Time) e
 	}
 	for i := range list {
 		acct := &list[i]
+		updates := map[string]any{"token_poll_after": now.Add(s.cfg.ExpiredScan), "last_polled_at": now}
+		if unresolved := decodeSignatures(acct.UnresolvedSignatures); len(unresolved) > 0 {
+			updates["unresolved_signatures"] = encodeSignatures(s.retryUnresolved(ctx, acct, unresolved))
+		}
 		bal := balances[acct.TokenAccount]
 		if bal != acct.LastBalanceRaw {
 			s.flagLateBalance(acct, bal)
 		}
-		if err := s.accounts.Update(acct.ID, map[string]any{"last_balance_raw": bal, "token_poll_after": now.Add(s.cfg.ExpiredScan), "last_polled_at": now}); err != nil {
+		updates["last_balance_raw"] = bal
+		if err := s.accounts.Update(acct.ID, updates); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// retryUnresolved processes an expired account's unresolved signatures once and returns those still unresolved.
+func (s *SolanaDepositService) retryUnresolved(ctx context.Context, acct *models.SolanaDepositAccount, sigs []string) []string {
+	watch, err := watchFor(acct)
+	if err != nil {
+		return sigs
+	}
+	var still []string
+	for _, sig := range sigs {
+		if _, err := s.processSignature(ctx, acct, watch, sig); err != nil {
+			if !errors.Is(err, errTransientFetch) {
+				log.Printf("[solana] expired %s unresolved %s: %v", acct.TokenAccount, sig, err)
+			}
+			still = append(still, sig)
+		}
+	}
+	return still
 }
 
 // flagLateBalance records an anomaly when an account holds more than its recorded deposits.
@@ -324,6 +367,8 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 		for _, sig := range unresolved {
 			n, err := s.processSignature(ctx, acct, watch, sig)
 			if errors.Is(err, errTransientFetch) {
+				// Tracked on its own: it must not hold the cursor again when the address is listed.
+				seen[sig] = true
 				still = append(still, sig)
 				continue
 			}
@@ -334,6 +379,11 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 			recorded += n
 		}
 		updates["unresolved_signatures"] = encodeSignatures(still)
+		if len(still) > 0 {
+			updates["unresolved_attempts"] = acct.UnresolvedAttempts + 1
+		} else {
+			updates["unresolved_attempts"] = 0
+		}
 	}
 
 	balanceMoved := balance != acct.LastBalanceRaw

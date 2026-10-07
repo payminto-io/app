@@ -15,10 +15,12 @@ type SolanaDepositAccountRepository interface {
 	ListByStatus(status string, limit int) ([]models.SolanaDepositAccount, error)
 	// ListDue returns watching accounts whose token poll is due, least recently polled first.
 	ListDue(now time.Time, limit int) ([]models.SolanaDepositAccount, error)
-	// ListExpiring returns watching accounts past watch_until.
-	ListExpiring(now time.Time, limit int) ([]models.SolanaDepositAccount, error)
-	// ListExpiredDue returns expired accounts whose slow balance scan is due.
-	ListExpiredDue(now time.Time, limit int) ([]models.SolanaDepositAccount, error)
+	// ListExpiring returns watching accounts past watch_until that may expire: no held signature, and
+	// unresolved signatures only once they have been retried minUnresolvedPolls times.
+	ListExpiring(now time.Time, minUnresolvedPolls, limit int) ([]models.SolanaDepositAccount, error)
+	// ListExpiredDue returns expired accounts whose slow balance scan is due, for accounts whose
+	// watch_until is after scanFrom (the scan stops for accounts expired longer than that).
+	ListExpiredDue(now, scanFrom time.Time, limit int) ([]models.SolanaDepositAccount, error)
 	// ExpireWatching moves watching accounts past watch_until to expired; returns how many.
 	ExpireWatching(now time.Time) (int64, error)
 	// Update applies column updates by id.
@@ -78,18 +80,22 @@ func (r *solanaDepositAccountRepository) ListDue(now time.Time, limit int) ([]mo
 	return out, q.Find(&out).Error
 }
 
-func (r *solanaDepositAccountRepository) ListExpiring(now time.Time, limit int) ([]models.SolanaDepositAccount, error) {
+func (r *solanaDepositAccountRepository) ListExpiring(now time.Time, minUnresolvedPolls, limit int) ([]models.SolanaDepositAccount, error) {
 	var out []models.SolanaDepositAccount
-	q := r.db.Where("status = ? AND watch_until IS NOT NULL AND watch_until < ?", models.SolanaDepositAccountWatching, now).Order("id ASC")
+	q := r.db.Where("status = ? AND watch_until IS NOT NULL AND watch_until < ?", models.SolanaDepositAccountWatching, now).
+		Where("held_signature IS NULL OR held_signature = ''").
+		Where("unresolved_signatures IS NULL OR unresolved_signatures = '' OR unresolved_attempts >= ?", minUnresolvedPolls).
+		Order("watch_until ASC").Order("id ASC")
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
 	return out, q.Find(&out).Error
 }
 
-func (r *solanaDepositAccountRepository) ListExpiredDue(now time.Time, limit int) ([]models.SolanaDepositAccount, error) {
+func (r *solanaDepositAccountRepository) ListExpiredDue(now, scanFrom time.Time, limit int) ([]models.SolanaDepositAccount, error) {
 	var out []models.SolanaDepositAccount
-	q := r.db.Where("status = ? AND (token_poll_after IS NULL OR token_poll_after <= ?)", models.SolanaDepositAccountExpired, now).Order("token_poll_after ASC NULLS FIRST").Order("id ASC")
+	q := r.db.Where("status = ? AND (token_poll_after IS NULL OR token_poll_after <= ?) AND watch_until > ?", models.SolanaDepositAccountExpired, now, scanFrom).
+		Order("token_poll_after ASC NULLS FIRST").Order("id ASC")
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
