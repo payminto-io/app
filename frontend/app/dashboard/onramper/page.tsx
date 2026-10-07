@@ -1,91 +1,90 @@
 "use client";
 
 import { useState } from "react";
-import { useOnramperList } from "@/lib/query/hooks/use-merchant-misc";
-import { LoadingRows, EmptyState, ErrorState } from "@/components/ui/states";
-import { PageHeader } from "@/components/ui/page-header";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { useOnramperList, type OnramperSession } from "@/lib/query/hooks/use-merchant-misc";
+import { PageHeader } from "@/components/page-header";
+import { CurrencyDisplay } from "@/components/currency-display";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { DateTime } from "@/components/date-time";
+import { ErrorState } from "@/components/ui/states";
 import { StatusBadge } from "@/components/ui/status-badge";
-import type { OnramperSession } from "@/lib/query/hooks/use-merchant-misc";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const TABS = ["all", "pending", "processing", "completed", "failed"] as const;
+const TABS = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "processing", label: "Processing" },
+  { value: "completed", label: "Completed" },
+  { value: "failed", label: "Failed" },
+] as const;
 
-const columns: Column<OnramperSession>[] = [
-  {
-    key: "session",
-    header: "Session ID",
-    cell: (r) => (
-      <span className="font-mono text-xs">{r.sessionID.slice(0, 12)}...</span>
-    ),
-  },
+const columns: DataTableColumn<OnramperSession>[] = [
   {
     key: "fiat",
-    header: "Fiat Amount",
-    cell: (r) => `${r.fiatAmount} ${r.fiatCurrency}`,
+    header: "Paid",
+    align: "right",
+    className: "w-0",
+    cell: (r) => <CurrencyDisplay amount={r.fiatAmount} currency={r.fiatCurrency} size="sm" />,
   },
   {
     key: "crypto",
-    header: "Crypto Amount",
-    cell: (r) =>
-      r.cryptoAmount
-        ? `${r.cryptoAmount} ${r.cryptoCurrency}`
-        : "-",
+    header: "Received",
+    align: "right",
+    className: "w-0",
+    cell: (r) => (r.cryptoAmount ? <CurrencyDisplay amount={r.cryptoAmount} currency={r.cryptoCurrency} size="sm" /> : null),
   },
+  { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.state} /> },
+  { key: "customer", header: "Customer", className: "text-ink-soft", cell: (r) => r.customerEmail ?? null },
   {
-    key: "status",
-    header: "Status",
-    cell: (r) => <StatusBadge status={r.state} />,
+    key: "session",
+    header: "Session",
+    cell: (r) => (
+      <span className="font-mono text-label text-ink-soft" title={r.sessionID}>
+        {r.sessionID.length > 14 ? `${r.sessionID.slice(0, 14)}...` : r.sessionID}
+      </span>
+    ),
   },
   {
     key: "created",
     header: "Created",
-    cell: (r) => new Date(r.createdAt).toLocaleDateString(),
+    align: "right",
+    className: "text-ink-soft",
+    cell: (r) => <DateTime value={r.createdAt} />,
   },
 ];
 
 export default function OnramperPage() {
   const [tab, setTab] = useState<string>("all");
-  const filters = { state: tab === "all" ? undefined : tab };
-  const { data, isLoading, error, refetch } = useOnramperList(filters);
+  const { data, error, refetch } = useOnramperList({ state: tab === "all" ? undefined : tab });
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Card Payments (Onramper)"
-        description="Fiat-to-crypto sessions via Onramper integration."
-      />
+    <div className="space-y-5">
+      <PageHeader title="Card payments" />
 
-      <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
-              tab === t
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
+      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <Tabs value={tab} onValueChange={(v) => setTab(v)}>
+          <TabsList variant="line">
+            {TABS.map((t) => (
+              <TabsTrigger key={t.value} value={t.value}>
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
-      {isLoading ? <LoadingRows /> : null}
-      {error ? <ErrorState message={error.message} retry={refetch} /> : null}
-      {data ? (
+      {error ? (
+        <ErrorState message={error.message} retry={refetch} />
+      ) : (
         <DataTable
           columns={columns}
-          rows={data}
-          keyOf={(r) => r.id}
-          empty={
-            <EmptyState
-              title="No onramper sessions"
-              description="Card payment sessions will appear here."
-            />
-          }
+          rows={data ?? []}
+          loading={!data}
+          getRowId={(r) => r.id}
+          emptyTitle={tab === "all" ? "No card payments yet." : "No card payments in this state."}
+          emptyDescription={tab === "all" ? "Card-to-crypto sessions from Onramper appear here." : undefined}
         />
-      ) : null}
+      )}
     </div>
   );
 }

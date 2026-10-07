@@ -102,6 +102,46 @@ const deliveries = Array.from({ length: 8 }, (_, i) => ({
 type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: URLSearchParams) => unknown; empty?: unknown };
 
 const ROUTES: Route[] = [
+  { method: "GET", pattern: /^\/referrals\/code$/, body: () => ({ referralCode: "SAMPLE-7KQ2" }) },
+  {
+    method: "GET",
+    pattern: /^\/referrals\/stats$/,
+    body: () => ({ stats: { MemberID: 1, TotalReferrals: 14, TotalEarned: 312.4, ConversionRate: 0.21 } }),
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/referrals\/campaigns$/,
+    body: () => ({
+      campaigns: [
+        { id: 1, name: "Sample launch offer", description: "First 90 days", rewardType: "percentage", rewardValue: "10", active: true, startsAt: iso(-30 * DAY), endsAt: iso(60 * DAY) },
+        { id: 2, name: "Sample partner bonus", rewardType: "fixed", rewardValue: "25", active: false, startsAt: iso(-120 * DAY), endsAt: iso(-40 * DAY) },
+      ],
+    }),
+    empty: { campaigns: [] },
+  },
+  {
+    method: "GET",
+    pattern: /^\/onramper\/payments$/,
+    body: (_m, q) => {
+      const rows = (["completed", "processing", "pending", "failed", "completed", "refunded"] as const).map((state, i) => ({
+        id: 300 + i,
+        externalPlatformID: 1,
+        sessionID: `sample_onr_${hex(i * 4099)}9f2c7a1e`,
+        fiatAmount: ["150", "75.5", "1200", "20", "300", "45"][i],
+        fiatCurrency: i % 2 ? "EUR" : "USD",
+        ...(state === "completed" || state === "refunded" ? { cryptoAmount: ["148.21", "", "", "", "296.4", "44.1"][i] } : {}),
+        cryptoCurrency: "USDC",
+        blockchainCode: "BASE",
+        state,
+        ...(i % 3 ? { customerEmail: `buyer${i}@example.com` } : {}),
+        createdAt: iso(-i * DAY * 0.8),
+        updatedAt: iso(-i * DAY * 0.5),
+      }));
+      const st = q.get("state");
+      return { payments: st ? rows.filter((r) => r.state === st) : rows };
+    },
+    empty: { payments: [] },
+  },
   { method: "GET", pattern: /^\/webhooks$/, body: () => ({ webhooks }), empty: { webhooks: [] } },
   { method: "GET", pattern: /^\/webhooks\/(\d+)$/, body: (m) => ({ webhook: webhooks.find((w) => String(w.id) === m[1]) ?? webhooks[0] }) },
   { method: "GET", pattern: /^\/webhooks\/(\d+)\/deliveries$/, body: () => ({ deliveries }), empty: { deliveries: [] } },
