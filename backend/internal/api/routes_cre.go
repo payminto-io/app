@@ -23,6 +23,8 @@ type CREAuth struct {
 	Session gin.HandlerFunc
 	// Owner is the permission check for the force-run route.
 	Owner gin.HandlerFunc
+	// RateLimit throttles every cre and public route; nil applies none.
+	RateLimit gin.HandlerFunc
 }
 
 // RegisterCRERoutes mounts nothing when the module is off, so a disabled gateway's route table is unchanged.
@@ -32,25 +34,31 @@ func RegisterCRERoutes(rg *gin.RouterGroup, m *modules.CREModule, auth CREAuth) 
 	}
 	h := &creHandler{svc: m.Service}
 	cfg := m.Service.Config()
-
-	// Workflow-facing pulls and the report push (SPEC section 7).
-	if cfg.PublicVerifyEnabled {
-		rg.GET("/cre/liabilities", h.liabilities)
-	} else {
-		rg.GET("/cre/liabilities", h.workflowAuth(cre.KindSolvency), h.liabilities)
+	limited := rg.Group("")
+	if auth.RateLimit != nil {
+		limited.Use(auth.RateLimit)
 	}
-	rg.GET("/cre/pending-deposits", h.workflowAuth(cre.KindDepositFinality), h.pendingDeposits)
-	rg.GET("/cre/conversions", h.workflowAuth(cre.KindConversionReference), h.conversions)
-	rg.POST("/cre/reports", h.submitReport)
+
+	// Workflow-facing pulls and the report push (SPEC section 7). The liabilities read is open when public
+	// verification is on, but only the solvency credential may cause a checkpoint to be published.
+	if cfg.PublicVerifyEnabled {
+		limited.GET("/cre/liabilities", h.liabilities)
+	} else {
+		limited.GET("/cre/liabilities", h.workflowAuth(cre.KindSolvency), h.liabilities)
+	}
+	limited.GET("/cre/pending-deposits", h.workflowAuth(cre.KindDepositFinality), h.pendingDeposits)
+	limited.GET("/cre/conversions", h.workflowAuth(cre.KindConversionReference), h.conversions)
+	// The kind is in the path so the credential is checked before a byte of body is read.
+	limited.POST("/cre/reports/:kind", h.kindAuth, h.submitReport)
 
 	if cfg.PublicVerifyEnabled {
-		rg.GET("/public/attestations/:id", h.publicAttestation)
+		limited.GET("/public/attestations/:id", h.publicAttestation)
 	}
 
 	if auth.Session == nil {
 		return
 	}
-	dash := rg.Group("/cre", auth.Session)
+	dash := limited.Group("/cre", auth.Session)
 	dash.GET("/status", h.status)
 	dash.GET("/attestations", h.list)
 	dash.GET("/attestations/:id", h.get)
@@ -87,12 +95,17 @@ func (h *creHandler) workflowAuth(kind cre.Kind) gin.HandlerFunc {
 }
 
 func (h *creHandler) liabilities(c *gin.Context) {
-	cp, err := h.svc.Liabilities(c.Request.Context())
+	authenticated := h.svc.Authorize(cre.KindSolvency, bearer(c))
+	cp, err := h.svc.Liabilities(c.Request.Context(), authenticated)
 	if err != nil {
+		if errors.Is(err, cre.ErrNotFound) {
+			creAbort(c, http.StatusServiceUnavailable, "no_checkpoint", "no liabilities checkpoint has been published yet")
+			return
+		}
 		creError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, cre.CheckpointJSON(cp))
+	c.JSON(http.StatusOK, cre.CheckpointJSON(cp, authenticated))
 }
 
 func (h *creHandler) pendingDeposits(c *gin.Context) {
@@ -107,7 +120,7 @@ func (h *creHandler) pendingDeposits(c *gin.Context) {
 
 func (h *creHandler) conversions(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
-	since := time.Now().UTC().Add(-15 * time.Minute)
+	since := h.svc.Now().Add(-15 * time.Minute)
 	if raw := c.Query("since"); raw != "" {
 		parsed, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
@@ -121,13 +134,12 @@ func (h *creHandler) conversions(c *gin.Context) {
 		creError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"conversions": cre.ConversionsJSON(rows), "next_since": time.Now().UTC().Format(time.RFC3339)})
+	c.JSON(http.StatusOK, gin.H{"conversions": cre.ConversionsJSON(rows), "next_since": h.svc.Now().Format(time.RFC3339)})
 }
 
 // reportBody is what a workflow (or the simulator) pushes. For chainlink the bytes are a hint only: the
 // gateway reads the log over its own RPC and verifies that, never the body (SPEC section 6).
 type reportBody struct {
-	Kind        string `json:"kind"`
 	Metadata    string `json:"metadata"`
 	Report      string `json:"report"`
 	Signature   string `json:"signature"`
@@ -136,7 +148,8 @@ type reportBody struct {
 	Simulated   bool   `json:"simulated"`
 }
 
-const creMaxBody = 256 << 10
+// creMaxBody bounds a pushed report: a 20-asset solvency batch is about 4 KiB hex-encoded.
+const creMaxBody = 64 << 10
 
 func hexBytes(s string) ([]byte, bool) {
 	s = strings.TrimPrefix(strings.TrimSpace(s), "0x")
@@ -150,27 +163,26 @@ func hexBytes(s string) ([]byte, bool) {
 	return b, true
 }
 
-func (h *creHandler) submitReport(c *gin.Context) {
-	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, creMaxBody+1))
-	if err != nil || len(raw) > creMaxBody {
-		creAbort(c, http.StatusBadRequest, "invalid_json", "body unreadable or larger than 256 KiB")
-		return
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	var body reportBody
-	if err := dec.Decode(&body); err != nil || dec.More() {
-		creAbort(c, http.StatusBadRequest, "invalid_json", "body must be one JSON object with known fields")
-		return
-	}
-	kind, ok := cre.ParseKind(body.Kind)
+// kindAuth resolves the path kind and checks its credential before any body is read.
+func (h *creHandler) kindAuth(c *gin.Context) {
+	kind, ok := cre.ParseKind(c.Param("kind"))
 	if !ok {
 		creAbort(c, http.StatusBadRequest, "invalid_request", "kind must be solvency, deposit_finality or conversion_reference")
 		return
 	}
-	// The credential is checked after the kind is known and before anything else is read.
 	if !h.svc.Authorize(kind, bearer(c)) {
 		creAbort(c, http.StatusUnauthorized, "unauthorized", "a valid credential for the "+string(kind)+" workflow is required")
+		return
+	}
+	c.Set("creKind", kind)
+	c.Next()
+}
+
+func (h *creHandler) submitReport(c *gin.Context) {
+	kind, _ := c.MustGet("creKind").(cre.Kind)
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, creMaxBody+1))
+	if err != nil || len(raw) > creMaxBody {
+		creAbort(c, http.StatusBadRequest, "invalid_json", "body unreadable or larger than 64 KiB")
 		return
 	}
 	if h.svc.Provider() == cre.ProviderChainlink {
@@ -181,6 +193,13 @@ func (h *creHandler) submitReport(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusAccepted, gin.H{"recorded": n, "source": "own_rpc"})
+		return
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var body reportBody
+	if err := dec.Decode(&body); err != nil || dec.More() {
+		creAbort(c, http.StatusBadRequest, "invalid_json", "body must be one JSON object with known fields")
 		return
 	}
 	metadata, ok1 := hexBytes(body.Metadata)
@@ -294,6 +313,8 @@ func creError(c *gin.Context, err error) {
 		creAbort(c, http.StatusConflict, "replayed", err.Error())
 	case errors.Is(err, cre.ErrUnauthorized):
 		creAbort(c, http.StatusUnauthorized, "unauthorized", err.Error())
+	case errors.Is(err, cre.ErrNotFinal), errors.Is(err, cre.ErrUnconfirmed):
+		creAbort(c, http.StatusServiceUnavailable, "retry_later", cre.Sanitize(err.Error()))
 	case cre.IsRejection(err):
 		creAbort(c, http.StatusUnprocessableEntity, "report_rejected", err.Error())
 	default:
@@ -316,7 +337,7 @@ func timeOrNil(t time.Time) any {
 }
 
 func runJSON(r cre.Run) gin.H {
-	return gin.H{"kind": string(r.Kind), "provider": r.Provider, "execution_id": r.ExecutionID, "status": r.Status, "detail": r.Detail, "started_at": timeOrNil(r.StartedAt)}
+	return gin.H{"kind": string(r.Kind), "provider": r.Provider, "execution_id": r.ExecutionID, "status": r.Status, "detail": cre.Sanitize(r.Detail), "started_at": timeOrNil(r.StartedAt)}
 }
 
 func attestationJSON(a cre.Attestation) gin.H {
@@ -337,14 +358,17 @@ func statusJSON(rep cre.StatusReport) gin.H {
 	workflows := make([]gin.H, 0, len(rep.Workflows))
 	for _, w := range rep.Workflows {
 		row := gin.H{
-			"kind": string(w.Kind), "workflow_id": w.WorkflowID, "interval_seconds": int64(w.Interval.Seconds()),
-			"credential_configured": w.CredentialConfigured, "state": w.State, "last_run": nil, "last_attestation": nil,
+			"kind": string(w.Kind), "workflow_id": w.WorkflowID, "workflow_name": w.WorkflowName, "interval_seconds": int64(w.Interval.Seconds()),
+			"credential_configured": w.CredentialConfigured, "state": w.State, "last_run": nil, "last_attestation": nil, "last_verified": nil,
 		}
 		if w.LastRun != nil {
 			row["last_run"] = runJSON(*w.LastRun)
 		}
 		if w.LastAttestation != nil {
 			row["last_attestation"] = attestationJSON(*w.LastAttestation)
+		}
+		if w.LastVerified != nil {
+			row["last_verified"] = attestationJSON(*w.LastVerified)
 		}
 		workflows = append(workflows, row)
 	}

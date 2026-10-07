@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/api"
+	"github.com/payminto/payminto/backend/internal/api/middleware"
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/database"
 	"github.com/payminto/payminto/backend/internal/modules"
@@ -249,6 +250,7 @@ func main() {
 		Environment:          reg.EnvironmentModule(),
 		Fees:                 reg.FeesModule(),
 		CRE:                  reg.CREModule(),
+		RateLimit:            middleware.RateLimit(reg.Redis(), 120, time.Minute),
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)

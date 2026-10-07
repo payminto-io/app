@@ -135,7 +135,7 @@ func EncodeReport(r Report) ([]byte, error) {
 
 // DecodeReport decodes a payload; version and kind are read from the first two words.
 func DecodeReport(payload []byte) (Report, error) {
-	if len(payload) < 32*5 {
+	if len(payload) < 32*6 {
 		return Report{}, fmt.Errorf("%w: payload shorter than its header", ErrInvalidReport)
 	}
 	if v := new(big.Int).SetBytes(payload[:32]); !v.IsUint64() || v.Uint64() != uint64(ReportVersion) {
@@ -150,6 +150,18 @@ func DecodeReport(payload []byte) (Report, error) {
 		return Report{}, fmt.Errorf("%w: unknown kind code %d", ErrInvalidReport, code.Uint64())
 	}
 	args, _ := argsFor(kind)
+	// Mirror the contract's _decodeHeader: canonical offset, item count and the exact byte length.
+	if new(big.Int).SetBytes(payload[128:160]).Cmp(big.NewInt(5*32)) != 0 {
+		return Report{}, fmt.Errorf("%w: items offset is not canonical", ErrInvalidReport)
+	}
+	count := new(big.Int).SetBytes(payload[160:192])
+	if !count.IsUint64() || count.Uint64() == 0 {
+		return Report{}, fmt.Errorf("%w: empty report", ErrInvalidReport)
+	}
+	words := map[Kind]uint64{KindSolvency: 5, KindDepositFinality: 8, KindConversionReference: 7}[kind]
+	if count.Uint64() > uint64(len(payload)-192)/32 || uint64(len(payload)) != 192+count.Uint64()*words*32 {
+		return Report{}, fmt.Errorf("%w: length %d does not match %d items", ErrInvalidReport, len(payload), count)
+	}
 	values, err := args.Unpack(payload)
 	if err != nil {
 		return Report{}, fmt.Errorf("%w: %v", ErrInvalidReport, err)

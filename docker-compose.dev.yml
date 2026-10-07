@@ -41,6 +41,7 @@ services:
       # Test money only: a test process refuses a remote database not named *_test (ticket 13).
       GATEWAY_ENVIRONMENT: test
       # Attestations (docs/cre/SPEC.md): off by default; set CRE_ENABLED=true CRE_PROVIDER=mock with --profile cre.
+      # Tokens must be at least 32 characters (openssl rand -hex 32).
       CRE_ENABLED: ${CRE_ENABLED:-false}
       CRE_PROVIDER: ${CRE_PROVIDER:-none}
       CRE_PUBLIC_BASE_URL: ${CRE_PUBLIC_BASE_URL:-http://backend:8080}

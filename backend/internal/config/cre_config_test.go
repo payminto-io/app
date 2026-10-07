@@ -27,6 +27,7 @@ func setChainlinkKeys(t *testing.T) {
 	t.Setenv("CRE_WORKFLOW_ID_CONVERSION_REFERENCE", strings.Repeat("c", 64))
 	t.Setenv("CRE_TRIGGER_SIGNER", "keyring://cre-trigger")
 	t.Setenv("CRE_PUBLIC_BASE_URL", "https://pay.example.test")
+	t.Setenv("CRE_READ_TOKEN_SOLVENCY", strings.Repeat("s", 64))
 }
 
 func liveEnv(t *testing.T) {
@@ -169,7 +170,6 @@ func TestCRE_ValidationOfShapes(t *testing.T) {
 		"CRE_SOLVENCY_INTERVAL":       "10s",
 		"CRE_FINALITY_BATCH_INTERVAL": "5s",
 		"CRE_POLL_INTERVAL":           "1s",
-		"CRE_MAX_REPORT_AGE":          "banana",
 		"CRE_VERIFY_CONFIRMATIONS":    "-1",
 	}
 	for key, bad := range cases {
@@ -217,5 +217,45 @@ func TestCRE_SlotFollowsTheResolvedProvider(t *testing.T) {
 	facts := cfg.BootFacts()
 	if facts.SlotProviders["cre"] != CREProviderMock {
 		t.Fatalf("boot facts slot = %v", facts.SlotProviders)
+	}
+}
+
+func TestCRE_ShortTokenRefusedAndNamesDefault(t *testing.T) {
+	clearCRE(t)
+	t.Setenv("CRE_ENABLED", "true")
+	t.Setenv("CRE_PROVIDER", "mock")
+	t.Setenv("CRE_READ_TOKEN_SOLVENCY", "short")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "CRE_READ_TOKEN_SOLVENCY") {
+		t.Fatalf("short token accepted: %v", err)
+	}
+	t.Setenv("CRE_READ_TOKEN_SOLVENCY", strings.Repeat("a", 64))
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CRE.WorkflowNameSolvency != "solvency" || cfg.CRE.WorkflowNameDepositFinality != "deposit-finality" || cfg.CRE.WorkflowNameConversionReference != "conversion-reference" {
+		t.Fatalf("names = %+v", cfg.CRE)
+	}
+	if cfg.CRE.VerifyConfirmations != 0 {
+		t.Fatalf("development confirmations default = %d", cfg.CRE.VerifyConfirmations)
+	}
+}
+
+func TestCRE_LiveConfirmationsDefaultAndZeroRefused(t *testing.T) {
+	clearCRE(t)
+	liveEnv(t)
+	t.Setenv("CRE_ENABLED", "true")
+	t.Setenv("CRE_PROVIDER", "chainlink")
+	setChainlinkKeys(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CRE.VerifyConfirmations != defaultLiveConfirmations {
+		t.Fatalf("live default confirmations = %d", cfg.CRE.VerifyConfirmations)
+	}
+	t.Setenv("CRE_VERIFY_CONFIRMATIONS", "0")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "CRE_VERIFY_CONFIRMATIONS") {
+		t.Fatalf("zero confirmations accepted in live: %v", err)
 	}
 }

@@ -153,23 +153,27 @@ function WorkflowsTable({ chain, workflows }: { chain: string; workflows: Workfl
         ),
     },
     {
-      key: "attestation",
+      key: "verified",
       stack: "detail",
-      header: w.columns.lastAttestation,
+      header: w.columns.lastVerified,
       cell: (r) => {
-        const a = r.last_attestation;
-        if (!a) return <span className="text-ink-soft">{w.noRecord}</span>;
-        const href = explorerTxUrl(chain, a.tx_hash);
+        const a = r.last_verified;
+        const latest = r.last_attestation;
+        // Only a verified record earns a date and a link; a newer unverified row is named by its status.
+        const unverified = latest && latest.status !== "attested" && (!a || latest.id !== a.id) ? latest : null;
+        if (!a && !unverified) return <span className="text-ink-soft">{w.noRecord}</span>;
+        const href = a ? explorerTxUrl(chain, a.tx_hash) : null;
         return (
           <div className="flex flex-col items-start gap-1">
-            <DateTime value={a.recorded_at} />
+            {a ? <DateTime value={a.recorded_at} /> : <span className="text-ink-soft">{w.noRecord}</span>}
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge status={a.status} />
+              {a ? <StatusBadge status={a.status} /> : null}
               {href ? (
                 <a href={href} target="_blank" rel="noreferrer" className="tap text-body-sm text-tide hover:text-tide-strong">
                   {C.fields.explorer}
                 </a>
               ) : null}
+              {unverified ? <StatusBadge status={unverified.status} /> : null}
             </div>
           </div>
         );

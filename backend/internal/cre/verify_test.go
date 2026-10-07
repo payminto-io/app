@@ -38,6 +38,7 @@ type fixture struct {
 	consumer [20]byte
 	gateway  [32]byte
 	wfIDs    map[Kind][32]byte
+	bindings map[Kind]Binding
 	subjects *memSubjects
 	now      time.Time
 	seen     map[string]bool
@@ -56,26 +57,28 @@ func newFixture(t *testing.T) *fixture {
 	}
 	copy(f.owner[:], common.HexToAddress("0x3333333333333333333333333333333333333333").Bytes())
 	copy(f.consumer[:], common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes())
+	f.bindings = map[Kind]Binding{}
+	for kind, id := range f.wfIDs {
+		f.bindings[kind] = Binding{ID: id, Owner: f.owner, Name: KeystoneName(string(kind))}
+	}
 	return f
 }
 
 func (f *fixture) verifier(provider string) *Verifier {
 	v := &Verifier{
-		Provider: provider, GatewayID: f.gateway, Consumer: f.consumer, Owner: f.owner, WorkflowIDs: f.wfIDs,
-		Confirmations: 3, MaxReportAge: 24 * time.Hour, Subjects: f.subjects, Chain: "test-chain",
+		Provider: provider, GatewayID: f.gateway, Consumer: f.consumer, Bindings: f.bindings,
+		Subjects: f.subjects, Chain: "test-chain",
 		Now:  func() time.Time { return f.now },
 		Seen: func(_ context.Context, h []byte) (bool, error) { return f.seen[string(h)], nil },
 	}
 	if provider == ProviderMock {
 		v.MockSigner = f.key.Address()
-		v.Owner = f.owner
 	}
 	return v
 }
 
 func (f *fixture) metadata(kind Kind) []byte {
-	m := Metadata{WorkflowID: f.wfIDs[kind], Owner: f.owner, ReportID: [2]byte{0, 1}}
-	copy(m.WorkflowName[:], string(kind))
+	m := Metadata{WorkflowID: f.wfIDs[kind], Owner: f.owner, WorkflowName: KeystoneName(string(kind)), ReportID: [2]byte{0, 1}}
 	return m.Encode()
 }
 
@@ -108,7 +111,7 @@ func (f *fixture) confirmedItem(t *testing.T) DepositItem {
 }
 
 func (f *fixture) onChain(kind Kind, report []byte) RawAttestation {
-	return RawAttestation{Kind: kind, Metadata: f.metadata(kind), Report: report, Evidence: Evidence{Emitter: f.consumer, TxHash: []byte{0xab}, BlockNumber: 100, HeadBlock: 110, ReportHash: [32]byte(PayloadHash(report))}}
+	return RawAttestation{Kind: kind, Metadata: f.metadata(kind), Report: report, Evidence: Evidence{Emitter: f.consumer, TxHash: []byte{0xab}, BlockNumber: 100, HeadBlock: 110, Final: true, ReportHash: [32]byte(PayloadHash(report))}}
 }
 
 func (f *fixture) signed(t *testing.T, kind Kind, report []byte) RawAttestation {
@@ -201,6 +204,13 @@ func TestVerify_WrongWorkflowOwnerGateway(t *testing.T) {
 	if _, err := v.Verify(context.Background(), raw); !errors.Is(err, ErrWrongOwner) {
 		t.Fatalf("wrong owner: err = %v", err)
 	}
+	raw = f.onChain(KindDepositFinality, report)
+	m, _ = DecodeMetadata(raw.Metadata)
+	m.WorkflowName = KeystoneName("renamed-workflow")
+	raw.Metadata = m.Encode()
+	if _, err := v.Verify(context.Background(), raw); !errors.Is(err, ErrWrongName) {
+		t.Fatalf("wrong name: err = %v", err)
+	}
 	foreign, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: GatewayID("https://other.example"), ObservedAt: f.now, Items: []DepositItem{f.confirmedItem(t)}})
 	if _, err := v.Verify(context.Background(), f.onChain(KindDepositFinality, foreign)); !errors.Is(err, ErrWrongGateway) {
 		t.Fatalf("wrong gateway: err = %v", err)
@@ -217,9 +227,10 @@ func TestVerify_WrongEmitterAndUnconfirmed(t *testing.T) {
 		t.Fatalf("wrong emitter: err = %v", err)
 	}
 	raw = f.onChain(KindDepositFinality, report)
-	raw.Evidence.HeadBlock = raw.Evidence.BlockNumber + 2
-	if _, err := v.Verify(context.Background(), raw); !errors.Is(err, ErrUnconfirmed) {
-		t.Fatalf("unconfirmed: err = %v", err)
+	raw.Evidence.Final = false
+	err := func() error { _, err := v.Verify(context.Background(), raw); return err }()
+	if !errors.Is(err, ErrUnconfirmed) || IsRejection(err) || !IsRetryable(err) {
+		t.Fatalf("unconfirmed must be retryable, never a rejection: %v", err)
 	}
 	raw = f.onChain(KindDepositFinality, report)
 	raw.Evidence.TxHash = nil
@@ -234,27 +245,13 @@ func TestVerify_WrongEmitterAndUnconfirmed(t *testing.T) {
 	}
 }
 
-func TestVerify_ObservedAtMustBeStrictlyNewerPerKind(t *testing.T) {
+func TestVerify_OldReportsRecordAndFutureOnesDoNot(t *testing.T) {
 	f := newFixture(t)
 	item := f.confirmedItem(t)
-	v := f.verifier(ProviderChainlink)
-	v.LatestObservedAt = func(context.Context, Kind) (time.Time, bool, error) { return f.now.Add(-time.Minute), true, nil }
-	same, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(-time.Minute), Items: []DepositItem{item}})
-	if _, err := v.Verify(context.Background(), f.onChain(KindDepositFinality, same)); !errors.Is(err, ErrReplayed) {
-		t.Fatalf("same observed_at: err = %v", err)
-	}
-	newer, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(-30 * time.Second), Items: []DepositItem{item}})
-	if _, err := v.Verify(context.Background(), f.onChain(KindDepositFinality, newer)); err != nil {
-		t.Fatalf("newer observed_at refused: %v", err)
-	}
-}
-
-func TestVerify_StaleAndFuture(t *testing.T) {
-	f := newFixture(t)
-	item := f.confirmedItem(t)
-	old, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(-25 * time.Hour), Items: []DepositItem{item}})
-	if _, err := f.verifier(ProviderChainlink).Verify(context.Background(), f.onChain(KindDepositFinality, old)); !errors.Is(err, ErrStale) {
-		t.Fatalf("stale: err = %v", err)
+	// Age limits apply to freshness display, not to recording: a poller outage must not lose reports.
+	old, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(-30 * 24 * time.Hour), Items: []DepositItem{item}})
+	if rows, err := f.verifier(ProviderChainlink).Verify(context.Background(), f.onChain(KindDepositFinality, old)); err != nil || rows[0].Status != StatusAttested {
+		t.Fatalf("old report refused: %v", err)
 	}
 	future, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(time.Hour), Items: []DepositItem{item}})
 	if _, err := f.verifier(ProviderChainlink).Verify(context.Background(), f.onChain(KindDepositFinality, future)); !errors.Is(err, ErrInvalidReport) {
@@ -262,7 +259,28 @@ func TestVerify_StaleAndFuture(t *testing.T) {
 	}
 }
 
-func TestVerify_UnknownAndMismatchedSubjectsAreStoredFailed(t *testing.T) {
+// No ordering between distinct reports: two batches observed in the same second are both recorded (the contract rule).
+func TestVerify_NoOrderingBetweenDistinctReports(t *testing.T) {
+	f := newFixture(t)
+	item := f.confirmedItem(t)
+	v := f.verifier(ProviderChainlink)
+	a, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(-time.Minute), Items: []DepositItem{item}})
+	other := item
+	other.SlotOrBlock = 99
+	b, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(-time.Minute), Items: []DepositItem{other}})
+	if _, err := v.Verify(context.Background(), f.onChain(KindDepositFinality, a)); err != nil {
+		t.Fatal(err)
+	}
+	f.seen[string(PayloadHash(a))] = true
+	if _, err := v.Verify(context.Background(), f.onChain(KindDepositFinality, b)); err != nil {
+		t.Fatalf("second distinct report in the same second refused: %v", err)
+	}
+	if _, err := v.Verify(context.Background(), f.onChain(KindDepositFinality, a)); !errors.Is(err, ErrReplayed) {
+		t.Fatalf("same bytes must be a replay: %v", err)
+	}
+}
+
+func TestVerify_UnknownAndMismatchedSubjectsAreNeverAttested(t *testing.T) {
 	f := newFixture(t)
 	good := f.confirmedItem(t)
 	short := good
@@ -278,10 +296,13 @@ func TestVerify_UnknownAndMismatchedSubjectsAreStoredFailed(t *testing.T) {
 	if len(rows) != 4 || rows[0].Status != StatusAttested {
 		t.Fatalf("rows = %+v", rows)
 	}
-	for i, want := range []error{ErrSubjectMismatch, ErrSubjectMismatch, ErrUnknownSubject} {
+	for i, want := range []struct {
+		status Status
+		err    error
+	}{{StatusMismatch, ErrSubjectMismatch}, {StatusMismatch, ErrSubjectMismatch}, {StatusFailed, ErrUnknownSubject}} {
 		r := rows[i+1]
-		if r.Status != StatusFailed || !containsErr(r.Reason, want) {
-			t.Errorf("row %d = %s %q, want failed with %v", i+1, r.Status, r.Reason, want)
+		if r.Status != want.status || !containsErr(r.Reason, want.err) {
+			t.Errorf("row %d = %s %q, want %s with %v", i+1, r.Status, r.Reason, want.status, want.err)
 		}
 	}
 	if rows[3].SubjectID[:2] != "0x" {
@@ -289,27 +310,55 @@ func TestVerify_UnknownAndMismatchedSubjectsAreStoredFailed(t *testing.T) {
 	}
 }
 
-func TestVerify_SolvencyAndConversionSubjects(t *testing.T) {
+func TestVerify_SolvencyAndConversionFactsMustMatchWhatWasServed(t *testing.T) {
 	f := newFixture(t)
-	cp := Checkpoint{ID: "cp-1", TakenAt: f.now.Add(-time.Minute), MaxJournalID: 9, Assets: []AssetTotal{{Asset: "USDC.SOLANA", Liabilities: big.NewInt(100), Decimals: 6}}}
+	cp := Checkpoint{ID: "cp-1", TakenAt: f.now.Add(-time.Minute), MaxJournalID: 9, Assets: []AssetTotal{{Asset: "USDC.SOLANA", Liabilities: big.NewInt(100), Decimals: 6}, {Asset: "SOL", Liabilities: big.NewInt(7), Decimals: 9}}}
 	cp.Hash = CheckpointHash(cp)
 	conv := Conversion{ConversionID: "cv-1", ExecutedAt: f.now, Base: "USDC", Quote: "USD", ExecutedRate: "0.9999", AmountMinor: big.NewInt(5)}
 	_ = f.subjects.RememberSubjects(context.Background(), []Subject{CheckpointSubject(cp), ConversionSubject(conv, f.now)})
 
 	sol, _ := EncodeReport(Report{Kind: KindSolvency, GatewayID: f.gateway, ObservedAt: f.now, Items: []SolvencyItem{
 		{CheckpointHash: cp.Hash, Asset: LabelKey("USDC.SOLANA"), Liabilities: big.NewInt(100), Reserves: big.NewInt(150), Decimals: 6},
-		{CheckpointHash: SubjectKey("not-published"), Asset: LabelKey("SOL"), Liabilities: big.NewInt(1), Reserves: big.NewInt(1), Decimals: 9},
+		{CheckpointHash: cp.Hash, Asset: LabelKey("SOL"), Liabilities: big.NewInt(7), Reserves: big.NewInt(1), Decimals: 9},
+		{CheckpointHash: cp.Hash, Asset: LabelKey("USDC.SOLANA"), Liabilities: big.NewInt(101), Reserves: big.NewInt(150), Decimals: 6},
+		{CheckpointHash: cp.Hash, Asset: LabelKey("USDC.SOLANA"), Liabilities: big.NewInt(100), Reserves: big.NewInt(150), Decimals: 2},
+		{CheckpointHash: cp.Hash, Asset: LabelKey("BTC"), Liabilities: big.NewInt(1), Reserves: big.NewInt(1), Decimals: 8},
+		{CheckpointHash: SubjectKey("not-published"), Asset: LabelKey("SOL"), Liabilities: big.NewInt(7), Reserves: big.NewInt(1), Decimals: 9},
 	}})
-	rows, err := f.verifier(ProviderChainlink).Verify(context.Background(), f.onChain(KindSolvency, sol))
-	if err != nil || len(rows) != 2 || rows[0].Status != StatusAttested || rows[0].SubjectID != "cp-1" || rows[1].Status != StatusFailed {
-		t.Fatalf("solvency rows = %+v err %v", rows, err)
+	raw := f.onChain(KindSolvency, sol)
+	raw.Ignored = [][32]byte{LabelKey("SOL")}
+	rows, err := f.verifier(ProviderChainlink).Verify(context.Background(), raw)
+	if err != nil || len(rows) != 6 {
+		t.Fatalf("rows = %+v err %v", rows, err)
 	}
+	want := []Status{StatusAttested, StatusIgnored, StatusMismatch, StatusMismatch, StatusMismatch, StatusFailed}
+	for i, r := range rows {
+		if r.Status != want[i] {
+			t.Errorf("solvency row %d = %s (%s), want %s", i, r.Status, r.Reason, want[i])
+		}
+	}
+	if rows[0].SubjectID != "cp-1" || rows[2].Reason == "" || rows[4].Reason == "" {
+		t.Fatalf("rows = %+v", rows)
+	}
+
 	cv, _ := EncodeReport(Report{Kind: KindConversionReference, GatewayID: f.gateway, ObservedAt: f.now, Items: []ConversionItem{
 		{ConversionID: SubjectKey("cv-1"), Pair: LabelKey("USDC/USD"), ReferenceRate: big.NewInt(1), ReferenceDecimals: 8, DeviationBps: big.NewInt(2), RoundID: big.NewInt(1)},
+		{ConversionID: SubjectKey("cv-1"), Pair: LabelKey("EUR/USD"), ReferenceRate: big.NewInt(1), ReferenceDecimals: 8, DeviationBps: big.NewInt(2), RoundID: big.NewInt(1)},
 	}})
 	rows, err = f.verifier(ProviderChainlink).Verify(context.Background(), f.onChain(KindConversionReference, cv))
-	if err != nil || len(rows) != 1 || rows[0].Status != StatusAttested || rows[0].SubjectID != "cv-1" {
+	if err != nil || len(rows) != 2 || rows[0].Status != StatusAttested || rows[0].SubjectID != "cv-1" || rows[1].Status != StatusMismatch {
 		t.Fatalf("conversion rows = %+v err %v", rows, err)
+	}
+}
+
+// A report padded past the contract's exact length is malformed under every provider (the contract's _decodeHeader).
+func TestVerify_PaddedReportIsMalformed(t *testing.T) {
+	f := newFixture(t)
+	report := f.depositReport(t, []DepositItem{f.confirmedItem(t)})
+	padded := append(append([]byte{}, report...), make([]byte, 32)...)
+	raw := f.signed(t, KindDepositFinality, padded)
+	if _, err := f.verifier(ProviderMock).Verify(context.Background(), raw); !errors.Is(err, ErrInvalidReport) {
+		t.Fatalf("padded report accepted: %v", err)
 	}
 }
 

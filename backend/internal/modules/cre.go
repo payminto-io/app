@@ -76,47 +76,51 @@ func WireCRE(deps Deps, opts CREOptions) (*CREModule, error) {
 	sc := cre.Config{
 		Provider: provider, Chain: cfg.Chain, PublicBaseURL: publicBase, GatewayID: cre.GatewayID(publicBase),
 		TriggerSigner: cfg.TriggerSigner, SolvencyInterval: cfg.SolvencyInterval, FinalityBatchInterval: cfg.FinalityBatchInterval,
-		PollInterval: cfg.PollInterval, MaxReportAge: cfg.MaxReportAge, Confirmations: cfg.VerifyConfirmations,
+		PollInterval: cfg.PollInterval, Confirmations: cfg.VerifyConfirmations,
 		PublicVerifyEnabled: cfg.PublicVerifyEnabled, DegradedFrom: cfg.DegradedFrom, MissingKeys: cfg.MissingKeys,
 		ReadTokens: map[cre.Kind]string{
 			cre.KindSolvency: cfg.ReadTokenSolvency, cre.KindDepositFinality: cfg.ReadTokenDepositFinality, cre.KindConversionReference: cfg.ReadTokenConversionReference,
 		},
-		WorkflowIDs: map[cre.Kind][32]byte{},
+		Bindings: map[cre.Kind]cre.Binding{},
 	}
+	names := map[cre.Kind]string{cre.KindSolvency: cfg.WorkflowNameSolvency, cre.KindDepositFinality: cfg.WorkflowNameDepositFinality, cre.KindConversionReference: cfg.WorkflowNameConversionReference}
 	store := opts.Store
 	if store == nil {
 		store = cre.NewPostgresStore(deps.DB)
 	}
-	verifier := &cre.Verifier{Provider: provider, GatewayID: sc.GatewayID, Confirmations: sc.Confirmations, MaxReportAge: sc.MaxReportAge, Chain: sc.Chain, WorkflowIDs: sc.WorkflowIDs}
+	verifier := &cre.Verifier{Provider: provider, GatewayID: sc.GatewayID, Chain: sc.Chain, Bindings: sc.Bindings}
 
 	var attester cre.Attester
 	var mockProvider *mock.Provider
 	switch provider {
 	case config.CREProviderMock:
-		reserves := opts.Reserves
-		if reserves == nil {
-			reserves = cre.NoReserves{}
+		mockOpts := []mock.Option{mock.WithWorkflowNames(names)}
+		if opts.Reserves != nil {
+			// Without a reserve source the mock refuses solvency runs rather than attesting an invented zero.
+			mockOpts = append(mockOpts, mock.WithReserves(opts.Reserves))
 		}
-		m, err := mock.New(sc.GatewayID, mock.WithReserves(reserves))
+		m, err := mock.New(sc.GatewayID, mockOpts...)
 		if err != nil {
 			return nil, err
 		}
 		for _, k := range cre.Kinds {
-			sc.WorkflowIDs[k] = m.WorkflowID(k)
+			sc.Bindings[k] = m.Binding(k)
 		}
-		sc.WorkflowOwner = m.Owner()
-		verifier.Owner = m.Owner()
 		verifier.MockSigner = m.Owner()
 		attester, mockProvider = m, m
 	case config.CREProviderChainlink:
 		sc.ConsumerAddress = common.HexToAddress(cfg.ConsumerAddress)
 		sc.ForwarderAddress = common.HexToAddress(cfg.ForwarderAddress)
-		sc.WorkflowOwner = common.HexToAddress(cfg.WorkflowOwner)
-		for k, id := range map[cre.Kind]string{cre.KindSolvency: cfg.WorkflowIDSolvency, cre.KindDepositFinality: cfg.WorkflowIDDepositFinality, cre.KindConversionReference: cfg.WorkflowIDConversionReference} {
-			sc.WorkflowIDs[k] = common.HexToHash(strings.TrimPrefix(id, "0x"))
+		ids := map[cre.Kind]string{cre.KindSolvency: cfg.WorkflowIDSolvency, cre.KindDepositFinality: cfg.WorkflowIDDepositFinality, cre.KindConversionReference: cfg.WorkflowIDConversionReference}
+		owners := map[cre.Kind]string{cre.KindSolvency: cfg.WorkflowOwnerSolvency, cre.KindDepositFinality: cfg.WorkflowOwnerDepositFinality, cre.KindConversionReference: cfg.WorkflowOwnerConversionReference}
+		for _, k := range cre.Kinds {
+			owner := owners[k]
+			if owner == "" {
+				owner = cfg.WorkflowOwner
+			}
+			sc.Bindings[k] = cre.Binding{ID: common.HexToHash(strings.TrimPrefix(ids[k], "0x")), Owner: common.HexToAddress(owner), Name: cre.KeystoneName(names[k])}
 		}
 		verifier.Consumer = sc.ConsumerAddress
-		verifier.Owner = sc.WorkflowOwner
 		reader := opts.Reader
 		if reader == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -127,8 +131,12 @@ func WireCRE(deps Deps, opts CREOptions) (*CREModule, error) {
 			}
 			reader = r
 		}
+		workflowIDs := map[cre.Kind][32]byte{}
+		for k, b := range sc.Bindings {
+			workflowIDs[k] = b.ID
+		}
 		attester = chainlink.New(chainlink.Config{
-			GatewayURL: cfg.GatewayURL, WorkflowIDs: sc.WorkflowIDs, KeyRef: cfg.TriggerSigner, Consumer: sc.ConsumerAddress, GatewayID: sc.GatewayID,
+			GatewayURL: cfg.GatewayURL, WorkflowIDs: workflowIDs, KeyRef: cfg.TriggerSigner, Consumer: sc.ConsumerAddress, GatewayID: sc.GatewayID,
 		}, opts.Signer, reader)
 	default:
 		return nil, fmt.Errorf("modules: unknown CRE provider %q", provider)

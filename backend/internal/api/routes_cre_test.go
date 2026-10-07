@@ -34,8 +34,9 @@ func creTestConfig(enabled bool, provider string, publicVerify bool) *config.Con
 		Gateway: config.GatewayConfig{Environment: "test"},
 		CRE: config.CREConfig{
 			Enabled: enabled, Provider: provider, Chain: "ethereum-testnet-sepolia-base-1", SolvencyInterval: time.Hour, FinalityBatchInterval: time.Minute,
-			PollInterval: 30 * time.Second, MaxReportAge: 24 * time.Hour, PublicVerifyEnabled: publicVerify,
+			PollInterval: 30 * time.Second, PublicVerifyEnabled: publicVerify,
 			ReadTokenSolvency: "tok-solvency", ReadTokenDepositFinality: "tok-deposit", ReadTokenConversionReference: "tok-conversion",
+			WorkflowNameSolvency: "solvency", WorkflowNameDepositFinality: "deposit-finality", WorkflowNameConversionReference: "conversion-reference",
 		},
 	}
 }
@@ -49,6 +50,12 @@ func (d testDeposits) Deposit(context.Context, string) (cre.PendingDeposit, bool
 	return cre.PendingDeposit{}, false, nil
 }
 
+type testReserves struct{}
+
+func (testReserves) Reserves(context.Context) ([]cre.Reserve, error) {
+	return []cre.Reserve{{Asset: "USDC.SOLANA", Amount: big.NewInt(120), Decimals: 6}}, nil
+}
+
 type testLiabilities struct{}
 
 func (testLiabilities) LiabilityTotals(context.Context) ([]cre.LedgerTotal, uint64, error) {
@@ -58,7 +65,7 @@ func (testLiabilities) LiabilityTotals(context.Context) ([]cre.LedgerTotal, uint
 func creModule(t *testing.T, cfg *config.Config) *modules.CREModule {
 	t.Helper()
 	m, err := modules.WireCRE(modules.Deps{Config: cfg}, modules.CREOptions{
-		Store: cre.NewMemoryStore(), Liabilities: testLiabilities{},
+		Store: cre.NewMemoryStore(), Liabilities: testLiabilities{}, Reserves: testReserves{},
 		Deposits: testDeposits{rows: []cre.PendingDeposit{{DepositID: "dep-1", Chain: "solana", Tx: "sig1", LogIndexOrSig: "sig1", Token: "USDC", ExpectedAmountMinor: big.NewInt(42), Destination: "Dest1"}}},
 	})
 	if err != nil {
@@ -85,7 +92,7 @@ func TestRouterUnchangedWhenCREIsOff(t *testing.T) {
 	if len(withOn) <= len(without) {
 		t.Fatal("an enabled module mounted no routes")
 	}
-	for _, want := range []string{"GET /api/v1/cre/liabilities", "GET /api/v1/cre/pending-deposits", "GET /api/v1/cre/conversions", "POST /api/v1/cre/reports", "GET /api/v1/public/attestations/:id"} {
+	for _, want := range []string{"GET /api/v1/cre/liabilities", "GET /api/v1/cre/pending-deposits", "GET /api/v1/cre/conversions", "POST /api/v1/cre/reports/:kind", "GET /api/v1/public/attestations/:id"} {
 		found := false
 		for _, have := range withOn {
 			if strings.HasPrefix(have, want+" ") {
@@ -108,7 +115,7 @@ func creRouter(t *testing.T, m *modules.CREModule) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	session := func(c *gin.Context) { c.Set("memberID", uint(5)); c.Set("externalPlatformID", uint(1)) }
-	RegisterCRERoutes(r.Group("/api/v1"), m, CREAuth{Session: session, Owner: pass})
+	RegisterCRERoutes(r.Group("/api/v1"), m, CREAuth{Session: session, Owner: pass, RateLimit: func(c *gin.Context) { c.Header("X-Test-Limited", "1"); c.Next() }})
 	return r
 }
 
@@ -135,18 +142,31 @@ func TestCRERoutes_WorkflowCredentialsAreScopedPerWorkflow(t *testing.T) {
 	}
 	w, body := do(r, http.MethodGet, "/api/v1/cre/liabilities", "", "Authorization", "Bearer tok-solvency")
 	assets, _ := body["assets"].([]any)
-	if w.Code != 200 || len(assets) != 1 || body["checkpoint_hash"] == nil {
+	if w.Code != 200 || len(assets) != 1 || body["checkpoint_hash"] == nil || body["max_journal_id"] == nil {
 		t.Fatalf("liabilities = %v", body)
+	}
+	if w.Header().Get("X-Test-Limited") != "1" {
+		t.Fatal("rate limiter not applied to a cre route")
 	}
 	_, body = do(r, http.MethodGet, "/api/v1/cre/pending-deposits", "", "Authorization", "Bearer tok-deposit")
 	deposits, _ := body["deposits"].([]any)
 	if len(deposits) != 1 || deposits[0].(map[string]any)["expected_amount_minor"] != "42" {
 		t.Fatalf("pending deposits = %v", body)
 	}
-	// Public verify on: liabilities are open, since the public page shows the same numbers.
+	// Public verify on: the liabilities read is open but serves only what was published, and never publishes.
 	open := creRouter(t, creModule(t, creTestConfig(true, "mock", true)))
-	if w, _ := do(open, http.MethodGet, "/api/v1/cre/liabilities", ""); w.Code != 200 {
-		t.Fatalf("public liabilities = %d", w.Code)
+	if w, _ := do(open, http.MethodGet, "/api/v1/cre/liabilities", ""); w.Code != 503 {
+		t.Fatalf("public liabilities before any publish = %d, want 503", w.Code)
+	}
+	if w, _ := do(open, http.MethodGet, "/api/v1/cre/liabilities", "", "Authorization", "Bearer tok-solvency"); w.Code != 200 {
+		t.Fatalf("authenticated publish = %d", w.Code)
+	}
+	w, pub := do(open, http.MethodGet, "/api/v1/cre/liabilities", "")
+	if w.Code != 200 || pub["checkpoint_hash"] == nil || pub["max_journal_id"] != nil {
+		t.Fatalf("public liabilities after publish = %d %v", w.Code, pub)
+	}
+	if w, _ := do(open, http.MethodGet, "/api/v1/public/attestations/x", ""); w.Header().Get("X-Test-Limited") != "1" {
+		t.Fatal("rate limiter not applied to the public route")
 	}
 	if w, _ := do(open, http.MethodGet, "/api/v1/cre/pending-deposits", ""); w.Code != 401 {
 		t.Fatalf("pending deposits without credential = %d", w.Code)
@@ -162,8 +182,8 @@ func signedReport(t *testing.T, m *modules.CREModule, kind cre.Kind, items any) 
 		rows, _ := m.Service.PendingDeposits(ctx, 12)
 		input, _ = json.Marshal(map[string]any{"deposits": cre.DepositsJSON(rows)})
 	case cre.KindSolvency:
-		cp, _ := m.Service.Liabilities(ctx)
-		input, _ = json.Marshal(cre.CheckpointJSON(cp))
+		cp, _ := m.Service.Liabilities(ctx, true)
+		input, _ = json.Marshal(cre.CheckpointJSON(cp, true))
 	}
 	if _, err := m.Mock.Trigger(ctx, kind, input); err != nil {
 		t.Fatal(err)
@@ -171,7 +191,7 @@ func signedReport(t *testing.T, m *modules.CREModule, kind cre.Kind, items any) 
 	raws, _, _ := m.Mock.Poll(ctx, kind, cre.Cursor{})
 	raw := raws[len(raws)-1]
 	body, _ := json.Marshal(map[string]any{
-		"kind": string(kind), "metadata": "0x" + common.Bytes2Hex(raw.Metadata), "report": "0x" + common.Bytes2Hex(raw.Report),
+		"metadata": "0x" + common.Bytes2Hex(raw.Metadata), "report": "0x" + common.Bytes2Hex(raw.Report),
 		"signature": "0x" + common.Bytes2Hex(raw.Evidence.Signature), "execution_id": raw.ExecutionID, "simulated": true,
 	})
 	return string(body)
@@ -182,23 +202,33 @@ func TestCRERoutes_SubmitVerifiesReplaysAndForgeries(t *testing.T) {
 	r := creRouter(t, m)
 	body := signedReport(t, m, cre.KindDepositFinality, nil)
 
-	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports", body, "Authorization", "Bearer tok-solvency"); w.Code != 401 {
+	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports/deposit_finality", body, "Authorization", "Bearer tok-solvency"); w.Code != 401 {
 		t.Fatalf("other workflow's credential accepted: %d", w.Code)
 	}
-	w, resp := do(r, http.MethodPost, "/api/v1/cre/reports", body, "Authorization", "Bearer tok-deposit")
+	// The credential is checked from the path before the body is read: a bad kind or no token never parses.
+	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports/bogus", "{"); w.Code != 400 {
+		t.Fatalf("bogus kind = %d", w.Code)
+	}
+	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports/deposit_finality", strings.Repeat("x", 100<<10)); w.Code != 401 {
+		t.Fatalf("unauthenticated oversized body = %d, want 401 before parsing", w.Code)
+	}
+	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports/deposit_finality", strings.Repeat("x", 100<<10), "Authorization", "Bearer tok-deposit"); w.Code != 400 {
+		t.Fatalf("oversized body = %d", w.Code)
+	}
+	w, resp := do(r, http.MethodPost, "/api/v1/cre/reports/deposit_finality", body, "Authorization", "Bearer tok-deposit")
 	if w.Code != 202 || resp["recorded"] != float64(1) || resp["attested"] != float64(1) {
 		t.Fatalf("submit = %d %v", w.Code, resp)
 	}
 	ids := resp["attestation_ids"].([]any)
-	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports", body, "Authorization", "Bearer tok-deposit"); w.Code != 409 {
+	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports/deposit_finality", body, "Authorization", "Bearer tok-deposit"); w.Code != 409 {
 		t.Fatalf("replay = %d", w.Code)
 	}
 	forged := strings.Replace(body, `"signature":"0x`, `"signature":"0x00`, 1)
 	forged = forged[:len(forged)-4] + forged[len(forged)-2:]
-	if w, resp := do(r, http.MethodPost, "/api/v1/cre/reports", forged, "Authorization", "Bearer tok-deposit"); w.Code != 422 && w.Code != 400 {
+	if w, resp := do(r, http.MethodPost, "/api/v1/cre/reports/deposit_finality", forged, "Authorization", "Bearer tok-deposit"); w.Code != 422 && w.Code != 400 {
 		t.Fatalf("forged = %d %v", w.Code, resp)
 	}
-	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports", `{"kind":"deposit_finality","extra":1}`, "Authorization", "Bearer tok-deposit"); w.Code != 400 {
+	if w, _ := do(r, http.MethodPost, "/api/v1/cre/reports/deposit_finality", `{"extra":1}`, "Authorization", "Bearer tok-deposit"); w.Code != 400 {
 		t.Fatalf("unknown field = %d", w.Code)
 	}
 
@@ -246,7 +276,7 @@ func TestCRERoutes_StatusAndRun(t *testing.T) {
 	}
 	_, st = do(r, http.MethodGet, "/api/v1/cre/status", "")
 	sol := st["workflows"].([]any)[0].(map[string]any)
-	if sol["state"] != "fresh" || sol["last_attestation"] == nil || sol["last_run"].(map[string]any)["status"] != "failed" {
+	if sol["state"] != "fresh" || sol["last_attestation"] == nil || sol["last_verified"] == nil || sol["last_run"].(map[string]any)["status"] != "failed" || sol["workflow_name"] != "58c66935b7" {
 		t.Fatalf("solvency status = %v", sol)
 	}
 	h := st["health"].(map[string]any)

@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS cre_attestations (
     report_id bytea NOT NULL,
     observed_at timestamptz NOT NULL,
     recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    status varchar(16) NOT NULL CHECK (status IN ('pending', 'attested', 'failed', 'stale')),
+    status varchar(16) NOT NULL CHECK (status IN ('pending', 'attested', 'failed', 'stale', 'mismatch', 'ignored')),
     provider varchar(16) NOT NULL CHECK (provider IN ('mock', 'chainlink')),
     simulated boolean NOT NULL DEFAULT false,
     reason text NOT NULL DEFAULT '',

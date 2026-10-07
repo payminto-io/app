@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -26,31 +27,34 @@ type SubjectIndex interface {
 	LookupSubject(ctx context.Context, kind Kind, key [32]byte) (Subject, bool, error)
 }
 
-// Verifier applies the six checks of SPEC section 6 to a raw attestation before anything is stored.
+// Binding is the (id, owner, name) the consumer contract holds for one kind; every report must carry it.
+type Binding struct {
+	ID    [32]byte
+	Owner [20]byte
+	Name  [10]byte
+}
+
+// Verifier applies SPEC section 6 to a raw attestation before anything is stored. It mirrors the contract:
+// replay is the report hash, there is no ordering between distinct reports, and finality is the reader's bound.
 type Verifier struct {
-	Provider      string
-	GatewayID     [32]byte
-	Consumer      [20]byte
-	Owner         [20]byte
-	WorkflowIDs   map[Kind][32]byte
-	Confirmations uint64
-	MaxReportAge  time.Duration
-	// MaxClockSkew bounds how far ahead of the gateway clock a DON timestamp may be.
+	Provider  string
+	GatewayID [32]byte
+	Consumer  [20]byte
+	Bindings  map[Kind]Binding
+	// MaxClockSkew bounds how far ahead of the gateway clock a DON timestamp may be (the contract allows 5 min).
 	MaxClockSkew time.Duration
 	// MockSigner is the only accepted signer of signature evidence; set for the mock provider.
 	MockSigner common.Address
 	Subjects   SubjectIndex
-	// Seen reports whether a payload hash is already recorded.
+	// Seen reports whether a payload hash is already recorded for this provider.
 	Seen func(ctx context.Context, payloadHash []byte) (bool, error)
-	// LatestObservedAt is the newest accepted observation per kind; the contract requires strictly newer.
-	LatestObservedAt func(ctx context.Context, kind Kind) (time.Time, bool, error)
-	Now              func() time.Time
+	Now  func() time.Time
 	// Chain is stamped on the rows.
 	Chain string
 }
 
-// Verify returns one row per item. A whole-report failure is an error; a per-subject failure is a
-// row with StatusFailed and a Reason, so the mismatch is kept and raised rather than dropped.
+// Verify returns one row per item. A whole-report failure is an error; a per-item finding is a row with
+// StatusMismatch, StatusIgnored or StatusFailed and a Reason, so nothing unverified is ever shown as attested.
 func (v *Verifier) Verify(ctx context.Context, raw RawAttestation) ([]Attestation, error) {
 	if v.Provider == ProviderNone || v.Provider == "" {
 		return nil, ErrDisabled
@@ -66,12 +70,15 @@ func (v *Verifier) Verify(ctx context.Context, raw RawAttestation) ([]Attestatio
 	if raw.Kind != "" && raw.Kind != report.Kind {
 		return nil, fmt.Errorf("%w: payload kind %s under %s", ErrWrongWorkflow, report.Kind, raw.Kind)
 	}
-	want, ok := v.WorkflowIDs[report.Kind]
-	if !ok || want == ([32]byte{}) || meta.WorkflowID != want {
+	want, ok := v.Bindings[report.Kind]
+	if !ok || want.ID == ([32]byte{}) || meta.WorkflowID != want.ID {
 		return nil, fmt.Errorf("%w: %x", ErrWrongWorkflow, meta.WorkflowID)
 	}
-	if meta.Owner != v.Owner {
+	if meta.Owner != want.Owner {
 		return nil, fmt.Errorf("%w: %s", ErrWrongOwner, common.BytesToAddress(meta.Owner[:]))
+	}
+	if meta.WorkflowName != want.Name {
+		return nil, fmt.Errorf("%w: %x", ErrWrongName, meta.WorkflowName)
 	}
 	if report.GatewayID != v.GatewayID {
 		return nil, fmt.Errorf("%w: %x", ErrWrongGateway, report.GatewayID)
@@ -80,9 +87,6 @@ func (v *Verifier) Verify(ctx context.Context, raw RawAttestation) ([]Attestatio
 		return nil, err
 	}
 	now := v.now()
-	if now.Sub(report.ObservedAt) > v.MaxReportAge {
-		return nil, fmt.Errorf("%w: observed %s", ErrStale, report.ObservedAt.Format(time.RFC3339))
-	}
 	if report.ObservedAt.Sub(now) > v.skew() {
 		return nil, fmt.Errorf("%w: observed_at %s is in the future", ErrInvalidReport, report.ObservedAt.Format(time.RFC3339))
 	}
@@ -94,15 +98,6 @@ func (v *Verifier) Verify(ctx context.Context, raw RawAttestation) ([]Attestatio
 		}
 		if seen {
 			return nil, ErrReplayed
-		}
-	}
-	if v.LatestObservedAt != nil {
-		latest, ok, err := v.LatestObservedAt(ctx, report.Kind)
-		if err != nil {
-			return nil, err
-		}
-		if ok && !report.ObservedAt.After(latest) {
-			return nil, fmt.Errorf("%w: observed %s is not newer than %s", ErrReplayed, report.ObservedAt.Format(time.RFC3339), latest.Format(time.RFC3339))
 		}
 	}
 	rows, err := v.rows(ctx, report, meta, raw, hash, now)
@@ -129,7 +124,8 @@ func (v *Verifier) skew() time.Duration {
 	return 5 * time.Minute
 }
 
-// checkEvidence is check 1, 2 and 6 for chainlink (own-RPC log, emitter, confirmations) and the dev-key signature for mock.
+// checkEvidence is checks 1, 2 and 6 for chainlink (own-RPC log, emitter, finality, calldata hash) and the
+// dev-key signature for mock. A log that is not yet final is ErrUnconfirmed: retried, never refused.
 func (v *Verifier) checkEvidence(raw RawAttestation) error {
 	switch v.Provider {
 	case ProviderChainlink:
@@ -141,10 +137,10 @@ func (v *Verifier) checkEvidence(raw RawAttestation) error {
 			return fmt.Errorf("%w: %s", ErrWrongEmitter, common.BytesToAddress(ev.Emitter[:]))
 		}
 		if ev.ReportHash == ([32]byte{}) || ev.ReportHash != [32]byte(PayloadHash(raw.Report)) {
-			return fmt.Errorf("%w: rebuilt report does not hash to the contract's reportHash", ErrForged)
+			return fmt.Errorf("%w: calldata report does not hash to the contract's reportHash", ErrForged)
 		}
-		if ev.HeadBlock < ev.BlockNumber || ev.HeadBlock-ev.BlockNumber < v.Confirmations {
-			return fmt.Errorf("%w: block %d, head %d, need %d confirmations", ErrUnconfirmed, ev.BlockNumber, ev.HeadBlock, v.Confirmations)
+		if !ev.Final {
+			return fmt.Errorf("%w: block %d is above the finality bound %d", ErrUnconfirmed, ev.BlockNumber, ev.HeadBlock)
 		}
 		return nil
 	case ProviderMock:
@@ -189,8 +185,13 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 		WorkflowID: meta.WorkflowID, WorkflowOwner: meta.Owner, ReportID: meta.ReportID,
 		ObservedAt: report.ObservedAt, RecordedAt: now, Provider: v.Provider, Simulated: raw.Simulated,
 	}
+	ignored := map[[32]byte]bool{}
+	for _, k := range raw.Ignored {
+		ignored[k] = true
+	}
 	var out []Attestation
-	add := func(key [32]byte, item any, check func(Subject) error) error {
+	// check returns (status, reason) for a found subject; attested means every served fact matches.
+	add := func(key, itemKey [32]byte, item any, check func(Subject) (Status, string)) error {
 		row := base
 		row.ID = uuid.NewString()
 		row.Item = item
@@ -206,11 +207,10 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 			row.Reason = ErrUnknownSubject.Error()
 		default:
 			row.SubjectID = subject.ID
-			if err := check(subject); err != nil {
-				row.Status = StatusFailed
-				row.Reason = err.Error()
-			} else {
-				row.Status = StatusAttested
+			row.Status, row.Reason = check(subject)
+			if row.Status == StatusAttested && ignored[itemKey] {
+				row.Status = StatusIgnored
+				row.Reason = "superseded on chain: a newer snapshot for this asset was already stored"
 			}
 		}
 		out = append(out, row)
@@ -219,20 +219,22 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 	switch items := report.Items.(type) {
 	case []SolvencyItem:
 		for _, it := range items {
-			if err := add(it.CheckpointHash, it, func(Subject) error { return nil }); err != nil {
+			it := it
+			if err := add(it.CheckpointHash, it.Asset, it, func(s Subject) (Status, string) { return checkSolvency(s, it) }); err != nil {
 				return nil, err
 			}
 		}
 	case []DepositItem:
 		for _, it := range items {
 			it := it
-			if err := add(it.DepositID, it, func(s Subject) error { return checkDeposit(s, it) }); err != nil {
+			if err := add(it.DepositID, it.DepositID, it, func(s Subject) (Status, string) { return checkDeposit(s, it) }); err != nil {
 				return nil, err
 			}
 		}
 	case []ConversionItem:
 		for _, it := range items {
-			if err := add(it.ConversionID, it, func(Subject) error { return nil }); err != nil {
+			it := it
+			if err := add(it.ConversionID, it.ConversionID, it, func(s Subject) (Status, string) { return checkConversion(s, it) }); err != nil {
 				return nil, err
 			}
 		}
@@ -240,19 +242,48 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 	return out, nil
 }
 
-// checkDeposit is check 5 for deposits: the attested (token, amount, destination) must equal what the gateway credited.
-func checkDeposit(s Subject, it DepositItem) error {
+// checkSolvency: the attested liabilities and decimals must equal what the checkpoint served for that asset;
+// reserves are the DON's own observation and are not compared.
+func checkSolvency(s Subject, it SolvencyItem) (Status, string) {
+	cp := checkpointFromSubject(s)
+	for _, a := range cp.Assets {
+		if LabelKey(a.Asset) != it.Asset {
+			continue
+		}
+		if it.Liabilities == nil || a.Liabilities.Cmp(it.Liabilities) != 0 || a.Decimals != it.Decimals {
+			return StatusMismatch, fmt.Sprintf("%s: attested liabilities %s with %d decimals, checkpoint has %s with %d", ErrSubjectMismatch, bigString(it.Liabilities), it.Decimals, a.Liabilities, a.Decimals)
+		}
+		return StatusAttested, ""
+	}
+	return StatusMismatch, fmt.Sprintf("%s: asset %s is not in checkpoint %s", ErrSubjectMismatch, LabelFromKey(it.Asset), s.ID)
+}
+
+// checkDeposit: the attested (token, amount, destination) must equal what the gateway credited.
+func checkDeposit(s Subject, it DepositItem) (Status, string) {
 	expected, err := DepositItemFromSubject(s)
 	if err != nil {
-		return err
+		return StatusFailed, err.Error()
 	}
 	if it.Verdict != VerdictConfirmed {
-		return fmt.Errorf("%w: verdict %d", ErrSubjectMismatch, it.Verdict)
+		return StatusMismatch, fmt.Sprintf("%s: verdict %d", ErrSubjectMismatch, it.Verdict)
 	}
 	if it.Token != expected.Token || it.Destination != expected.Destination || it.Amount == nil || expected.Amount == nil || it.Amount.Cmp(expected.Amount) != 0 {
-		return fmt.Errorf("%w: token, amount or destination differ", ErrSubjectMismatch)
+		return StatusMismatch, fmt.Sprintf("%s: token, amount or destination differ", ErrSubjectMismatch)
 	}
-	return nil
+	return StatusAttested, ""
+}
+
+// checkConversion: the attested pair must be the conversion's base/quote.
+func checkConversion(s Subject, it ConversionItem) (Status, string) {
+	base, _ := s.Facts["base"].(string)
+	quote, _ := s.Facts["quote"].(string)
+	if base == "" || quote == "" {
+		return StatusFailed, fmt.Sprintf("%s: conversion %s has no pair", ErrInvalidReport, s.ID)
+	}
+	if LabelKey(base+"/"+quote) != it.Pair {
+		return StatusMismatch, fmt.Sprintf("%s: attested pair %s, conversion is %s/%s", ErrSubjectMismatch, LabelFromKey(it.Pair), base, quote)
+	}
+	return StatusAttested, ""
 }
 
 // DepositSubject turns a pending deposit into the subject the verifier will match against.
@@ -306,12 +337,24 @@ func CheckpointSubject(cp Checkpoint) Subject {
 	}
 }
 
-// IsRejection says whether an error is a verification verdict rather than an infrastructure failure.
+// IsRejection says whether an error is a definitive verdict on the report (the cursor may pass it).
 func IsRejection(err error) bool {
-	for _, target := range []error{ErrInvalidReport, ErrForged, ErrReplayed, ErrWrongWorkflow, ErrWrongOwner, ErrWrongGateway, ErrWrongEmitter, ErrUnconfirmed, ErrStale, ErrDisabled, ErrUnsupported} {
+	for _, target := range []error{ErrInvalidReport, ErrForged, ErrReplayed, ErrWrongWorkflow, ErrWrongOwner, ErrWrongName, ErrWrongGateway, ErrWrongEmitter, ErrDisabled, ErrUnsupported} {
 		if errors.Is(err, target) {
 			return true
 		}
 	}
 	return false
+}
+
+// IsRetryable says whether time or infrastructure may cure the error; the cursor must not pass such a block.
+func IsRetryable(err error) bool {
+	return err != nil && !IsRejection(err)
+}
+
+func bigString(v *big.Int) string {
+	if v == nil {
+		return "nil"
+	}
+	return v.String()
 }

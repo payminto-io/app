@@ -87,6 +87,8 @@ type RouterConfig struct {
 
 	// CRE is the attestation module (internal/cre); nil or disabled mounts nothing (docs/cre/SPEC.md).
 	CRE *modules.CREModule
+	// RateLimit throttles the cre and public attestation routes; nil applies none (no Redis).
+	RateLimit gin.HandlerFunc
 }
 
 // processEnvironment is the environment every request is tagged with; there is no default.
@@ -449,7 +451,7 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 
 	// ---- Attestations: workflow pulls and pushes, dashboard status, public verification ----
 	if cfg.CRE != nil {
-		auth := CREAuth{}
+		auth := CREAuth{RateLimit: cfg.RateLimit}
 		if cfg.AuthSvc != nil {
 			auth.Session = middleware.JWTAuth(cfg.AuthSvc)
 			if cfg.MEPRoleSvc != nil {

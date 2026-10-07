@@ -21,9 +21,10 @@ func NewMemoryStore() *MemoryStore {
 
 var _ Store = (*MemoryStore)(nil)
 
-func (m *MemoryStore) SaveAttestations(_ context.Context, rows []Attestation) error {
+func (m *MemoryStore) SaveAttestations(_ context.Context, rows []Attestation) ([]Attestation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var inserted []Attestation
 	for _, r := range rows {
 		dup := false
 		for _, have := range m.rows {
@@ -35,26 +36,27 @@ func (m *MemoryStore) SaveAttestations(_ context.Context, rows []Attestation) er
 		if !dup {
 			r.Item = ItemJSON(r.Item)
 			m.rows = append(m.rows, r)
+			inserted = append(inserted, r)
 		}
 	}
-	return nil
+	return inserted, nil
 }
 
-func (m *MemoryStore) Seen(_ context.Context, payloadHash []byte) (bool, error) {
+func (m *MemoryStore) Seen(_ context.Context, provider string, payloadHash []byte) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range m.rows {
-		if string(r.PayloadHash) == string(payloadHash) {
+		if r.Provider == provider && string(r.PayloadHash) == string(payloadHash) {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (m *MemoryStore) sorted(kind Kind) []Attestation {
+func (m *MemoryStore) sorted(provider string, kind Kind, status Status) []Attestation {
 	out := make([]Attestation, 0, len(m.rows))
 	for _, r := range m.rows {
-		if kind == "" || r.Kind == kind {
+		if (kind == "" || r.Kind == kind) && (provider == "" || r.Provider == provider) && (status == "" || r.Status == status) {
 			out = append(out, r)
 		}
 	}
@@ -67,10 +69,10 @@ func (m *MemoryStore) sorted(kind Kind) []Attestation {
 	return out
 }
 
-func (m *MemoryStore) ListAttestations(_ context.Context, kind Kind, limit int) ([]Attestation, error) {
+func (m *MemoryStore) ListAttestations(_ context.Context, provider string, kind Kind, limit int) ([]Attestation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := m.sorted(kind)
+	out := m.sorted(provider, kind, "")
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
@@ -88,10 +90,10 @@ func (m *MemoryStore) GetAttestation(_ context.Context, id string) (Attestation,
 	return Attestation{}, false, nil
 }
 
-func (m *MemoryStore) LatestAttestation(_ context.Context, kind Kind) (Attestation, bool, error) {
+func (m *MemoryStore) LatestAttestation(_ context.Context, provider string, kind Kind, status Status) (Attestation, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := m.sorted(kind)
+	out := m.sorted(provider, kind, status)
 	if len(out) == 0 {
 		return Attestation{}, false, nil
 	}

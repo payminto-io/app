@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"net/http"
@@ -58,11 +59,27 @@ func (s *memorySigner) SignMessage(_ context.Context, ref string, msg []byte) ([
 	return sig, nil
 }
 
-// fakeChain is a LogReader fed by tests; it plays the consumer contract's event stream.
+// fakeChain is a LogReader fed by tests; it plays the consumer contract's event stream and the forwarder calldata.
 type fakeChain struct {
-	mu   sync.Mutex
-	head uint64
-	logs []Log
+	mu     sync.Mutex
+	head   uint64
+	logs   []Log
+	inputs map[common.Hash][]byte
+	// txErr makes TransactionInput fail (an RPC outage mid-poll).
+	txErr error
+}
+
+func (f *fakeChain) TransactionInput(_ context.Context, tx common.Hash) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.txErr != nil {
+		return nil, f.txErr
+	}
+	in, ok := f.inputs[tx]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return in, nil
 }
 
 func (f *fakeChain) FinalizedHead(context.Context) (uint64, error) {
@@ -105,17 +122,28 @@ func (f *fakeChain) FilterLogs(_ context.Context, address common.Address, from, 
 	return out, nil
 }
 
-func (f *fakeChain) emit(t *testing.T, consumer common.Address, meta cre.Metadata, report []byte) {
+// emit records one forwarder delivery: the logs the contract emits and the calldata the forwarder received.
+func (f *fakeChain) emit(t *testing.T, consumer common.Address, meta cre.Metadata, report []byte, ignored ...[32]byte) common.Hash {
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.head++
-	logs, err := LogsForReport(consumer, meta, report, crypto.Keccak256Hash(report, []byte{byte(f.head)}), f.head, 0)
+	tx := crypto.Keccak256Hash(report, []byte{byte(f.head)})
+	logs, err := LogsForReport(consumer, meta, report, tx, f.head, 0, ignored...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.logs = append(f.logs, logs...)
+	input, err := EncodeForwarderCall(consumer, meta.Encode(), report, make([]byte, 96), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.inputs == nil {
+		f.inputs = map[common.Hash][]byte{}
+	}
+	f.inputs[tx] = input
 	f.head += 5
+	return tx
 }
 
 type harness struct {
@@ -133,7 +161,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	h := &harness{chain: &fakeChain{head: 100}, consumer: common.HexToAddress("0x1111111111111111111111111111111111111111"), gateway: cre.GatewayID("https://pay.example.test")}
+	h := &harness{chain: &fakeChain{head: 100, inputs: map[common.Hash][]byte{}}, consumer: common.HexToAddress("0x1111111111111111111111111111111111111111"), gateway: cre.GatewayID("https://pay.example.test")}
 	copy(h.owner[:], common.HexToAddress("0x3333333333333333333333333333333333333333").Bytes())
 	h.wfIDs = map[cre.Kind][32]byte{cre.KindSolvency: cre.SubjectKey("wf-s"), cre.KindDepositFinality: cre.SubjectKey("wf-d"), cre.KindConversionReference: cre.SubjectKey("wf-c")}
 	h.signer = newMemorySigner(t, "keyring://cre-trigger")
@@ -168,7 +196,7 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) settle(t *testing.T, kind cre.Kind) {
 	t.Helper()
-	meta := cre.Metadata{WorkflowID: h.wfIDs[kind], Owner: h.owner, ReportID: [2]byte{0, 1}}
+	meta := cre.Metadata{WorkflowID: h.wfIDs[kind], Owner: h.owner, WorkflowName: cre.KeystoneName(string(kind)), ReportID: [2]byte{0, 1}}
 	var report cre.Report
 	switch kind {
 	case cre.KindSolvency:
@@ -265,9 +293,9 @@ func TestPollReadsOnlyTheConsumerAndThisGateway(t *testing.T) {
 	if len(raws) != 1 || raws[0].Kind != cre.KindSolvency || raws[0].Evidence.Emitter != [20]byte(h.consumer) || raws[0].Evidence.HeadBlock != h.chain.head {
 		t.Fatalf("raws = %+v", raws)
 	}
-	// The rebuilt report is byte-identical to what the workflow wrote: it hashes to the logged reportHash.
-	if raws[0].Evidence.ReportHash != [32]byte(cre.PayloadHash(raws[0].Report)) {
-		t.Fatal("rebuilt report does not hash to the contract's reportHash")
+	// The report bytes come from the forwarder calldata and hash to the logged reportHash.
+	if raws[0].Evidence.ReportHash != [32]byte(cre.PayloadHash(raws[0].Report)) || !raws[0].Evidence.Final {
+		t.Fatal("calldata report does not hash to the contract's reportHash, or is not marked final")
 	}
 	rebuilt, err := cre.DecodeReport(raws[0].Report)
 	if err != nil || rebuilt.Items.([]cre.SolvencyItem)[0].Reserves.Int64() != 2 {
@@ -285,26 +313,106 @@ func TestPollReadsOnlyTheConsumerAndThisGateway(t *testing.T) {
 	}
 }
 
-func TestRebuildRefusesAnIncompleteItemSet(t *testing.T) {
+func solvencyReport(h *harness, observed time.Time, assets ...string) ([]byte, cre.Metadata) {
+	items := make([]cre.SolvencyItem, 0, len(assets))
+	for i, a := range assets {
+		items = append(items, cre.SolvencyItem{CheckpointHash: cre.SubjectKey("cp"), Asset: cre.LabelKey(a), Liabilities: big.NewInt(int64(i + 1)), Reserves: big.NewInt(2), Decimals: 6})
+	}
+	report, _ := cre.EncodeReport(cre.Report{Kind: cre.KindSolvency, GatewayID: h.gateway, ObservedAt: observed, Items: items})
+	return report, cre.Metadata{WorkflowID: h.wfIDs[cre.KindSolvency], Owner: h.owner, WorkflowName: cre.KeystoneName("solvency"), ReportID: [2]byte{0, 1}}
+}
+
+// An item the contract superseded (SolvencyIgnored) comes back as an ignored key while the report still verifies whole.
+func TestPollCarriesIgnoredSolvencyItems(t *testing.T) {
 	h := newHarness(t)
-	meta := cre.Metadata{WorkflowID: h.wfIDs[cre.KindDepositFinality], Owner: h.owner}
-	payload, _ := cre.EncodeReport(cre.Report{Kind: cre.KindDepositFinality, GatewayID: h.gateway, ObservedAt: time.Now(), Items: []cre.DepositItem{
-		{DepositID: cre.SubjectKey("a"), Amount: big.NewInt(1), Verdict: 1}, {DepositID: cre.SubjectKey("b"), Amount: big.NewInt(2), Verdict: 2},
-	}})
-	logs, err := LogsForReport(h.consumer, meta, payload, common.HexToHash("0x1"), 10, 0)
+	ctx := context.Background()
+	_, cursor, _ := h.provider.Poll(ctx, cre.KindSolvency, cre.Cursor{})
+	report, meta := solvencyReport(h, time.Now(), "USDC", "SOL")
+	h.chain.emit(t, h.consumer, meta, report, cre.LabelKey("SOL"))
+	raws, _, err := h.provider.Poll(ctx, cre.KindSolvency, cursor)
+	if err != nil || len(raws) != 1 {
+		t.Fatalf("raws = %+v err %v", raws, err)
+	}
+	if len(raws[0].Ignored) != 1 || raws[0].Ignored[0] != cre.LabelKey("SOL") || string(raws[0].Report) != string(report) {
+		t.Fatalf("ignored = %x", raws[0].Ignored)
+	}
+	if raws[0].Evidence.ReportHash != [32]byte(cre.PayloadHash(report)) {
+		t.Fatal("report hash")
+	}
+}
+
+// A reorged log (Removed) is never used; two reports in one block come back in log order.
+func TestPollSkipsRemovedLogsAndOrdersWithinABlock(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	_, cursor, _ := h.provider.Poll(ctx, cre.KindSolvency, cre.Cursor{})
+	first, meta := solvencyReport(h, time.Now().Add(-2*time.Second), "USDC")
+	second, _ := solvencyReport(h, time.Now().Add(-time.Second), "SOL")
+	removed, _ := solvencyReport(h, time.Now(), "BTC")
+	h.chain.emit(t, h.consumer, meta, first)
+	// Put the second report in the same block as the first, at later log indexes.
+	h.chain.mu.Lock()
+	block := h.chain.logs[len(h.chain.logs)-1].BlockNumber
+	tx2 := crypto.Keccak256Hash(second)
+	logs2, _ := LogsForReport(h.consumer, meta, second, tx2, block, 10)
+	h.chain.logs = append(h.chain.logs, logs2...)
+	h.chain.inputs[tx2], _ = EncodeForwarderCall(h.consumer, meta.Encode(), second, make([]byte, 96), nil)
+	tx3 := crypto.Keccak256Hash(removed)
+	logs3, _ := LogsForReport(h.consumer, meta, removed, tx3, block, 20)
+	for i := range logs3 {
+		logs3[i].Removed = true
+	}
+	h.chain.logs = append(h.chain.logs, logs3...)
+	h.chain.inputs[tx3], _ = EncodeForwarderCall(h.consumer, meta.Encode(), removed, make([]byte, 96), nil)
+	h.chain.mu.Unlock()
+	raws, _, err := h.provider.Poll(ctx, cre.KindSolvency, cursor)
+	if err != nil || len(raws) != 2 {
+		t.Fatalf("raws = %d err %v", len(raws), err)
+	}
+	if string(raws[0].Report) != string(first) || string(raws[1].Report) != string(second) || raws[0].Evidence.LogIndex >= raws[1].Evidence.LogIndex {
+		t.Fatal("order within the block")
+	}
+}
+
+// Calldata that is not a forwarder delivery to our consumer yields no report hash, which the verifier refuses as forged;
+// an RPC failure reading the transaction is an error so the cursor stays put.
+func TestPollCalldataGuards(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	_, cursor, _ := h.provider.Poll(ctx, cre.KindSolvency, cre.Cursor{})
+	report, meta := solvencyReport(h, time.Now(), "USDC")
+	tx := h.chain.emit(t, h.consumer, meta, report)
+	h.chain.mu.Lock()
+	h.chain.inputs[tx], _ = EncodeForwarderCall(common.HexToAddress("0x9999999999999999999999999999999999999999"), meta.Encode(), report, make([]byte, 96), nil)
+	h.chain.mu.Unlock()
+	raws, _, err := h.provider.Poll(ctx, cre.KindSolvency, cursor)
+	if err != nil || len(raws) != 1 || raws[0].Evidence.ReportHash != ([32]byte{}) {
+		t.Fatalf("other receiver: raws = %+v err %v", raws, err)
+	}
+	h.chain.mu.Lock()
+	h.chain.txErr = errors.New("Post \"https://rpc.example/v2/8f3a1c9d2e7b4a6f5c8d9e0f1a2b3c4d\": timeout")
+	h.chain.mu.Unlock()
+	if _, next, err := h.provider.Poll(ctx, cre.KindSolvency, cursor); err == nil || next != cursor || strings.Contains(err.Error(), "8f3a1c9d") {
+		t.Fatalf("tx read failure: next=%+v err=%v", next, err)
+	}
+}
+
+// Forwarder calldata round trip: the receiver slice is rawReport[109:], exactly what the contract hashes.
+func TestForwarderCalldataRoundTrip(t *testing.T) {
+	h := newHarness(t)
+	report, meta := solvencyReport(h, time.Now(), "USDC")
+	input, err := EncodeForwarderCall(h.consumer, meta.Encode(), report, make([]byte, 96), [][]byte{make([]byte, 65)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, _ := cre.ContractABI()
-	full, _ := RebuildReports(contract, logs, cre.KindDepositFinality, 20)
-	if len(full) != 1 || full[0].Evidence.ReportHash != [32]byte(cre.PayloadHash(payload)) || string(full[0].Report) != string(payload) {
-		t.Fatalf("full rebuild = %+v", full)
+	receiver, metadata, got, err := DecodeForwarderCall(input)
+	if err != nil || receiver != h.consumer || string(metadata) != string(meta.Encode()) || string(got) != string(report) {
+		t.Fatalf("round trip: %v", err)
 	}
-	partial, _ := RebuildReports(contract, logs[:2], cre.KindDepositFinality, 20)
-	if len(partial) != 1 || partial[0].Evidence.ReportHash != ([32]byte{}) {
-		t.Fatalf("partial rebuild must carry no report hash: %+v", partial)
+	if _, _, _, err := DecodeForwarderCall(input[:40]); err == nil {
+		t.Fatal("short calldata decoded")
 	}
-	if _, err := cre.DecodeReport(partial[0].Report); err != nil {
-		t.Fatalf("partial report still decodes for diagnostics: %v", err)
+	if _, _, _, err := DecodeForwarderCall(append([]byte{1, 2, 3, 4}, input[4:]...)); err == nil {
+		t.Fatal("other selector decoded")
 	}
 }

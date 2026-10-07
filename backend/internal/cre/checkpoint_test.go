@@ -2,6 +2,7 @@ package cre
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,14 +27,12 @@ func TestBuildCheckpointOmitsUnknownAssetsAndIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(skipped) != 1 || skipped[0] != "MYSTERY" {
+	if len(skipped) != 2 || skipped[0].Asset != "MYSTERY" || skipped[1].Asset != "SOL" || !strings.Contains(skipped[1].Reason, "negative") {
 		t.Fatalf("skipped = %v", skipped)
 	}
-	if len(cp.Assets) != 3 || cp.Assets[0].Asset != "SOL" || cp.Assets[1].Asset != "USDC.SOLANA" || cp.Assets[1].Liabilities.String() != "1250500000" || cp.Assets[1].Decimals != 6 {
+	// A negative total is an anomaly, never rewritten as zero and attested.
+	if len(cp.Assets) != 2 || cp.Assets[0].Asset != "USDC.SOLANA" || cp.Assets[0].Liabilities.String() != "1250500000" || cp.Assets[0].Decimals != 6 || cp.Assets[1].Asset != "XRP" {
 		t.Fatalf("assets = %+v", cp.Assets)
-	}
-	if cp.Assets[0].Liabilities.Sign() != 0 {
-		t.Fatalf("negative liability must clamp to zero, got %s", cp.Assets[0].Liabilities)
 	}
 	again, _, _ := BuildCheckpoint(context.Background(), src, dec, now)
 	if again.Hash != cp.Hash || cp.MaxJournalID != 77 {

@@ -5,6 +5,8 @@ libs = ["lib"]
 solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
+# The fixture test writes real-forwarder logs for the Go reader test (backend/internal/cre/chainlink).
+fs_permissions = [{ access = "read-write", path = "./test/cre/fixtures" }]
 
 [profile.default.fuzz]
 runs = 256

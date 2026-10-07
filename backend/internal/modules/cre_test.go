@@ -3,6 +3,7 @@ package modules
 import (
 	"context"
 	"errors"
+	"math/big"
 	"reflect"
 	"strings"
 	"testing"
@@ -21,7 +22,8 @@ func creConfig(enabled bool, provider string) *config.Config {
 		Gateway: config.GatewayConfig{Environment: "test"},
 		CRE: config.CREConfig{
 			Enabled: enabled, Provider: provider, Chain: "ethereum-testnet-sepolia-base-1", SolvencyInterval: time.Hour, FinalityBatchInterval: time.Minute,
-			PollInterval: 30 * time.Second, MaxReportAge: 24 * time.Hour, PublicVerifyEnabled: true, ReadTokenSolvency: "tok-s",
+			PollInterval: 30 * time.Second, PublicVerifyEnabled: true, ReadTokenSolvency: "tok-s",
+			WorkflowNameSolvency: "solvency", WorkflowNameDepositFinality: "deposit-finality", WorkflowNameConversionReference: "conversion-reference",
 		},
 	}
 }
@@ -35,7 +37,7 @@ func TestWireCRE_NoneIsANoOp(t *testing.T) {
 		if m.Enabled() || m.Service.Worker() != nil || m.Provider != "none" || m.Mock != nil {
 			t.Fatalf("none module = %+v", m)
 		}
-		if _, err := m.Service.Liabilities(context.Background()); !errors.Is(err, cre.ErrDisabled) {
+		if _, err := m.Service.Liabilities(context.Background(), true); !errors.Is(err, cre.ErrDisabled) {
 			t.Fatalf("disabled read = %v", err)
 		}
 		if d, _ := m.Gate.Decide(context.Background(), cre.SettlementSubject{}); d != cre.GateProceed {
@@ -97,7 +99,7 @@ func TestWireCRE_MockRoundTrip(t *testing.T) {
 	if w.LastAttestation.Status != cre.StatusAttested || item["liabilities_minor"] != "12500000" || item["asset"] != "USDC.SOLANA" {
 		t.Fatalf("attestation = %+v item %+v", w.LastAttestation, item)
 	}
-	if rep.TriggerSignerAddress == "" || rep.WorkflowOwner != rep.TriggerSignerAddress {
+	if rep.TriggerSignerAddress == "" || rep.WorkflowOwner != rep.TriggerSignerAddress || w.LastVerified == nil {
 		t.Fatalf("mock signer not reported: %+v", rep)
 	}
 }
@@ -108,14 +110,16 @@ func TestWireCRE_ChainlinkNeedsAReaderWithoutRPC(t *testing.T) {
 	cfg.CRE.ConsumerAddress = "0x1111111111111111111111111111111111111111"
 	cfg.CRE.WorkflowOwner = "0x3333333333333333333333333333333333333333"
 	cfg.CRE.WorkflowIDSolvency = strings.Repeat("a", 64)
+	cfg.CRE.WorkflowNameSolvency = "solvency"
 	cfg.CRE.TriggerSigner = "keyring://cre-trigger"
 	m, err := WireCRE(Deps{Config: cfg}, CREOptions{Store: cre.NewMemoryStore(), Reader: fakeReader{}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	sc := m.Service.Config()
-	if sc.WorkflowIDs[cre.KindSolvency] != [32]byte([]byte(strings.Repeat("\xaa", 32))) || sc.TriggerSigner != "keyring://cre-trigger" {
-		t.Fatalf("chainlink config = %+v", sc)
+	b := sc.Bindings[cre.KindSolvency]
+	if b.ID != [32]byte([]byte(strings.Repeat("\xaa", 32))) || sc.TriggerSigner != "keyring://cre-trigger" || b.Name != cre.KeystoneName("solvency") || common.BytesToAddress(b.Owner[:]) != common.HexToAddress(cfg.CRE.WorkflowOwner) {
+		t.Fatalf("chainlink binding = %+v", b)
 	}
 	// Health degrades rather than failing: the signer service is not wired in this ticket.
 	if h := m.Service.Config(); h.Provider != "chainlink" {
@@ -143,11 +147,16 @@ func (fakeLiabilities) LiabilityTotals(context.Context) ([]cre.LedgerTotal, uint
 
 type fakeReserves struct{}
 
-func (fakeReserves) Reserves(context.Context) ([]cre.Reserve, error) { return nil, nil }
+func (fakeReserves) Reserves(context.Context) ([]cre.Reserve, error) {
+	return []cre.Reserve{{Asset: "USDC.SOLANA", Amount: big.NewInt(13_000_000), Decimals: 6}}, nil
+}
 
 type fakeReader struct{}
 
 func (fakeReader) FinalizedHead(context.Context) (uint64, error) { return 1, nil }
+func (fakeReader) TransactionInput(context.Context, common.Hash) ([]byte, error) {
+	return nil, nil
+}
 func (fakeReader) FilterLogs(context.Context, common.Address, uint64, uint64, [][]common.Hash) ([]chainlink.Log, error) {
 	return nil, nil
 }

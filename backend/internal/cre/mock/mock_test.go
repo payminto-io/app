@@ -35,9 +35,13 @@ func TestMockReportsVerifyAndAreScriptable(t *testing.T) {
 	ctx := context.Background()
 
 	v := &cre.Verifier{
-		Provider: cre.ProviderMock, GatewayID: gw, Owner: p.Owner(), MockSigner: p.Owner(), MaxReportAge: time.Hour,
-		WorkflowIDs: map[cre.Kind][32]byte{cre.KindSolvency: p.WorkflowID(cre.KindSolvency), cre.KindDepositFinality: p.WorkflowID(cre.KindDepositFinality), cre.KindConversionReference: p.WorkflowID(cre.KindConversionReference)},
-		Subjects:    cre.NewMemoryStore(), Now: func() time.Time { return now },
+		Provider: cre.ProviderMock, GatewayID: gw, MockSigner: p.Owner(),
+		Bindings: map[cre.Kind]cre.Binding{cre.KindSolvency: p.Binding(cre.KindSolvency), cre.KindDepositFinality: p.Binding(cre.KindDepositFinality), cre.KindConversionReference: p.Binding(cre.KindConversionReference)},
+		Subjects: cre.NewMemoryStore(), Now: func() time.Time { return now },
+	}
+	// The mock writes Keystone names: the verifier's binding uses the same derivation as the contract.
+	if p.Binding(cre.KindSolvency).Name != cre.KeystoneName("solvency") {
+		t.Fatal("mock workflow name is not the Keystone derivation")
 	}
 	_ = v.Subjects.RememberSubjects(ctx, []cre.Subject{
 		cre.DepositSubject(cre.PendingDeposit{DepositID: "dep-conformance", Chain: "solana", Tx: "sig1", Token: "USDC", ExpectedAmountMinor: big.NewInt(5_000_000), Destination: "Dest111"}, now),
@@ -62,7 +66,7 @@ func TestMockReportsVerifyAndAreScriptable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mock report did not verify: %v", err)
 	}
-	if rows[0].Status != cre.StatusFailed || rows[0].SubjectID != "dep-conformance" {
+	if rows[0].Status != cre.StatusMismatch || rows[0].SubjectID != "dep-conformance" {
 		t.Fatalf("scripted mismatch row = %+v", rows[0])
 	}
 
@@ -85,5 +89,21 @@ func TestMockReportsVerifyAndAreScriptable(t *testing.T) {
 	}
 	if _, err := p.Trigger(ctx, cre.KindSolvency, []byte("not json")); !errors.Is(err, cre.ErrInvalidReport) {
 		t.Fatalf("bad input: %v", err)
+	}
+}
+
+// Without a reserve source the mock refuses a solvency run instead of attesting reserves it never observed.
+func TestMockRefusesSolvencyWithoutReserves(t *testing.T) {
+	gw := cre.GatewayID("https://pay.example.test")
+	p, err := New(gw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Trigger(context.Background(), cre.KindSolvency, conformance.Inputs(gw)(cre.KindSolvency)); !errors.Is(err, ErrNoReserveSource) {
+		t.Fatalf("err = %v", err)
+	}
+	partial, _ := New(gw, WithReserves(reserves{{Asset: "SOL", Amount: big.NewInt(1)}}))
+	if _, err := partial.Trigger(context.Background(), cre.KindSolvency, conformance.Inputs(gw)(cre.KindSolvency)); !errors.Is(err, ErrNoReserveSource) {
+		t.Fatalf("an asset with no observed reserve must be left out, not zeroed: %v", err)
 	}
 }

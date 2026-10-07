@@ -5,6 +5,7 @@ package mock
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -13,6 +14,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/payminto/payminto/backend/internal/cre"
 )
+
+// ErrNoReserveSource: the mock has nothing to observe reserves with, so a solvency run cannot be honest.
+var ErrNoReserveSource = errors.New("mock: no reserve source; custody must supply one before solvency runs")
 
 type queued struct {
 	seq   uint64
@@ -25,10 +29,10 @@ type Provider struct {
 	key       *cre.DevKey
 	gatewayID [32]byte
 	reserves  cre.ReserveSource
+	names     map[cre.Kind]string
 	now       func() time.Time
 
 	mu       sync.Mutex
-	lastSeen map[cre.Kind]time.Time
 	seq      uint64
 	reportID uint16
 	queue    map[cre.Kind][]queued
@@ -43,13 +47,25 @@ var _ cre.Attester = (*Provider)(nil)
 type Option func(*Provider)
 
 func WithReserves(r cre.ReserveSource) Option { return func(p *Provider) { p.reserves = r } }
-func WithClock(now func() time.Time) Option   { return func(p *Provider) { p.now = now } }
-func WithDevKey(k *cre.DevKey) Option         { return func(p *Provider) { p.key = k } }
+
+// WithWorkflowNames sets the workflow.yaml names per kind (defaults: solvency, deposit-finality, conversion-reference).
+func WithWorkflowNames(names map[cre.Kind]string) Option {
+	return func(p *Provider) {
+		for k, v := range names {
+			if v != "" {
+				p.names[k] = v
+			}
+		}
+	}
+}
+func WithClock(now func() time.Time) Option { return func(p *Provider) { p.now = now } }
+func WithDevKey(k *cre.DevKey) Option       { return func(p *Provider) { p.key = k } }
 
 func New(gatewayID [32]byte, opts ...Option) (*Provider, error) {
 	p := &Provider{
-		gatewayID: gatewayID, reserves: cre.NoReserves{}, now: func() time.Time { return time.Now().UTC() },
-		queue: map[cre.Kind][]queued{}, failures: map[cre.Kind]error{}, verdicts: map[string]uint8{}, lastSeen: map[cre.Kind]time.Time{},
+		gatewayID: gatewayID, reserves: nil, now: func() time.Time { return time.Now().UTC() },
+		names: map[cre.Kind]string{cre.KindSolvency: "solvency", cre.KindDepositFinality: "deposit-finality", cre.KindConversionReference: "conversion-reference"},
+		queue: map[cre.Kind][]queued{}, failures: map[cre.Kind]error{}, verdicts: map[string]uint8{},
 	}
 	for _, o := range opts {
 		o(p)
@@ -69,6 +85,14 @@ func (p *Provider) Name() string { return cre.ProviderMock }
 
 // WorkflowID is deterministic per kind so a verifier can be configured before any run.
 func (p *Provider) WorkflowID(kind cre.Kind) [32]byte { return cre.SubjectKey("mock:" + string(kind)) }
+
+// WorkflowName is the Keystone name the mock writes into every report's metadata (cre.KeystoneName).
+func (p *Provider) WorkflowName(kind cre.Kind) [10]byte { return cre.KeystoneName(p.names[kind]) }
+
+// Binding is what a verifier must be configured with for this mock.
+func (p *Provider) Binding(kind cre.Kind) cre.Binding {
+	return cre.Binding{ID: p.WorkflowID(kind), Owner: p.key.Address(), Name: p.WorkflowName(kind)}
+}
 
 // Owner doubles as the signer: the dev key plays both the workflow owner and the DON.
 func (p *Provider) Owner() common.Address { return p.key.Address() }
@@ -134,8 +158,7 @@ func (p *Provider) Trigger(ctx context.Context, kind cre.Kind, input []byte) (st
 	defer p.mu.Unlock()
 	p.seq++
 	p.reportID++
-	meta := cre.Metadata{WorkflowID: p.WorkflowID(kind), Owner: p.key.Address(), ReportID: [2]byte{byte(p.reportID >> 8), byte(p.reportID)}}
-	copy(meta.WorkflowName[:], string(kind))
+	meta := cre.Metadata{WorkflowID: p.WorkflowID(kind), WorkflowName: p.WorkflowName(kind), Owner: p.key.Address(), ReportID: [2]byte{byte(p.reportID >> 8), byte(p.reportID)}}
 	metadata := meta.Encode()
 	sig, err := p.key.Sign(metadata, payload)
 	if err != nil {
@@ -168,20 +191,8 @@ func (p *Provider) Poll(_ context.Context, kind cre.Kind, cursor cre.Cursor) ([]
 	return out, next, nil
 }
 
-// observedAt mirrors the contract's rule: strictly increasing per kind, even within one second.
-func (p *Provider) observedAt(kind cre.Kind) time.Time {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	at := p.now().Truncate(time.Second)
-	if last, ok := p.lastSeen[kind]; ok && !at.After(last) {
-		at = last.Add(time.Second)
-	}
-	p.lastSeen[kind] = at
-	return at
-}
-
 func (p *Provider) produce(ctx context.Context, kind cre.Kind, input []byte) (cre.Report, error) {
-	r := cre.Report{Kind: kind, GatewayID: p.gatewayID, ObservedAt: p.observedAt(kind)}
+	r := cre.Report{Kind: kind, GatewayID: p.gatewayID, ObservedAt: p.now().Truncate(time.Second)}
 	switch kind {
 	case cre.KindSolvency:
 		var in struct {
@@ -196,6 +207,10 @@ func (p *Provider) produce(ctx context.Context, kind cre.Kind, input []byte) (cr
 			return r, fmt.Errorf("%w: solvency input: %v", cre.ErrInvalidReport, err)
 		}
 		hash := common.HexToHash(in.CheckpointHash)
+		// No reserve source means the reserves are unknown; the mock refuses to invent a figure for them.
+		if p.reserves == nil {
+			return r, ErrNoReserveSource
+		}
 		reserves, err := p.reserves.Reserves(ctx)
 		if err != nil {
 			return r, err
@@ -216,11 +231,15 @@ func (p *Provider) produce(ctx context.Context, kind cre.Kind, input []byte) (cr
 			if !ok {
 				return r, fmt.Errorf("%w: liabilities %q", cre.ErrInvalidReport, a.Liabilities)
 			}
-			reserve := byAsset[a.Asset]
-			if reserve == nil {
-				reserve = new(big.Int)
+			reserve, known := byAsset[a.Asset]
+			if !known {
+				// An asset with no observed reserve is left out rather than attested with an invented zero.
+				continue
 			}
 			items = append(items, cre.SolvencyItem{CheckpointHash: hash, Asset: cre.LabelKey(a.Asset), Liabilities: liab, Reserves: reserve, Decimals: a.Decimals})
+		}
+		if len(items) == 0 {
+			return r, fmt.Errorf("%w: no asset in the checkpoint has an observed reserve", ErrNoReserveSource)
 		}
 		r.Items = items
 	case cre.KindDepositFinality:

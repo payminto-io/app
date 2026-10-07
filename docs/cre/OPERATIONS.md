@@ -18,9 +18,12 @@ Design: `docs/cre/SPEC.md`. Code: `backend/internal/cre/README.md`.
 
 ```bash
 CRE_ENABLED=true CRE_PROVIDER=mock \
-CRE_READ_TOKEN_SOLVENCY=dev-solvency CRE_READ_TOKEN_DEPOSIT_FINALITY=dev-deposit CRE_READ_TOKEN_CONVERSION_REFERENCE=dev-conversion \
+CRE_READ_TOKEN_SOLVENCY=$(openssl rand -hex 32) CRE_READ_TOKEN_DEPOSIT_FINALITY=$(openssl rand -hex 32) CRE_READ_TOKEN_CONVERSION_REFERENCE=$(openssl rand -hex 32) \
 docker compose --profile cre up
 ```
+
+Tokens are at least 32 characters; the gateway keeps only their SHA-256 and compares in constant time.
+Until custody (ticket 08) supplies a reserve source, the mock refuses solvency runs rather than attesting reserves it never observed; deposit-finality and conversion-reference runs work.
 
 The `cre` profile adds `cre-simulator`; the backend reads the same variables and starts the mock provider.
 Without the variables, `docker compose up` is unchanged (`CRE_ENABLED` defaults to `false`).
@@ -38,8 +41,8 @@ Every step is yours. No agent or script in this repository logs in, deploys, cre
 3. **Workflows.** Deploy the three workflows (tickets 23 to 25) and activate them; note each 64-hex workflow id.
 4. **Trigger key.** Create an EVM key with no funds and no custody role in the signer service and reference it as `CRE_TRIGGER_SIGNER=keyring://cre-trigger`.
    The API process never holds the key; config refuses a raw private key in that variable.
-5. **Credentials.** Generate one token per workflow (`openssl rand -hex 32`), set them as `CRE_READ_TOKEN_*`, and upload them to the Vault DON with `cre secrets create` under the names in `cre/secrets.yaml`.
-   The workflow sends its token as `Authorization: Bearer` and can read only its own route.
+5. **Credentials.** Generate one token per workflow (`openssl rand -hex 32`, at least 32 characters), set them as `CRE_READ_TOKEN_*`, and upload them to the Vault DON with `cre secrets create` under the names in `cre/secrets.yaml`.
+   The workflow sends its token as `Authorization: Bearer` and can read only its own route; the gateway stores only a hash.
 6. **Configure the gateway.**
 
    ```
@@ -53,6 +56,10 @@ Every step is yours. No agent or script in this repository logs in, deploys, cre
    CRE_WORKFLOW_ID_SOLVENCY=...
    CRE_WORKFLOW_ID_DEPOSIT_FINALITY=...
    CRE_WORKFLOW_ID_CONVERSION_REFERENCE=...
+   CRE_WORKFLOW_NAME_SOLVENCY=solvency                 # the workflow.yaml names; Keystone's name is derived
+   CRE_WORKFLOW_NAME_DEPOSIT_FINALITY=deposit-finality
+   CRE_WORKFLOW_NAME_CONVERSION_REFERENCE=conversion-reference
+   CRE_VERIFY_CONFIRMATIONS=12                         # fallback when the RPC lacks the finalized tag; 0 is refused in live
    CRE_TRIGGER_SIGNER=keyring://cre-trigger
    CRE_PUBLIC_BASE_URL=https://pay.example.com
    CRE_READ_TOKEN_SOLVENCY=...
@@ -67,14 +74,32 @@ Every step is yours. No agent or script in this repository logs in, deploys, cre
 
 ## What the gateway checks before it stores a record
 
-Every record, mock or chainlink, passes `verify.go` (SPEC section 6): the report decodes to version 1; the workflow id and owner match the configuration for that kind; the gateway id is this deployment's; for `chainlink`, the log came from the consumer contract over your own RPC, the rebuilt report hashes to the `reportHash` the contract logged, and the block is `CRE_VERIFY_CONFIRMATIONS` behind the head; for `mock`, the dev-key signature verifies; the observation is younger than `CRE_MAX_REPORT_AGE` and strictly newer than the last accepted one for that kind; the payload hash was never recorded; and every subject is one the gateway asked about, with a deposit's token, amount and destination equal to what was credited.
-A subject that fails its check is stored `failed` with the reason and raises `cre.attestation.failed.v1`; everything else is refused and stored nowhere.
+Every record, mock or chainlink, passes `verify.go` and mirrors the audited contract (SPEC section 5 and 6):
+
+- the report decodes to version 1 with the exact byte length the contract requires (padding is malformed);
+- the Keystone metadata `(workflowId, workflowOwner, workflowName)` equals the configured binding for that kind, the name being Keystone's truncation (`sha256`, first ten hex characters) of `CRE_WORKFLOW_NAME_*`;
+- the gateway id is this deployment's;
+- for `chainlink`: the `ReportAccepted` log came from the consumer contract over your own RPC, the report bytes are taken from the forwarder transaction's calldata (the receiver slice, `rawReport[109:]`) and hash to the `reportHash` the contract logged, and the log sits at or below the finality bound (the RPC's finalized tag, or latest minus `CRE_VERIFY_CONFIRMATIONS`); a log above the bound is read again on the next poll, never refused;
+- for `mock`: the dev-key signature verifies;
+- the observation is not in the future; its age never blocks recording (a poller outage must not lose reports; staleness is a display rule);
+- replay is the contract's rule: `keccak256(report)` recorded once per provider; a second delivery of the same bytes is `409 replayed`, and distinct reports are not ordered;
+- every item is matched to a subject the gateway served: a deposit's token, amount and destination must equal what was credited; a solvency item's liabilities and decimals must equal the checkpoint's figures for that asset; a conversion's pair must be the trade's base/quote. A difference is stored as `mismatch` and raised as an anomaly, never shown as attested. A solvency item the contract recorded as superseded (`SolvencyIgnored`) is stored as `ignored`.
+
+A report refused for a definitive reason (forged, wrong workflow, malformed) is kept as a `failed` row so an operator can see it; the poll cursor then passes it.
+RPC and provider errors are sanitized (URLs and token-shaped strings stripped) before they reach health, the status page or a log line.
 
 ## Turning it off
 
 Set `CRE_ENABLED=false` and restart.
 Routes, worker and badges disappear; the `cre_*` tables keep their rows and are not read.
 The settlement policy line `require_attestation_above` (ticket 21b) refuses validation while the provider is `none`, so nothing can wait on a module that is off.
+Rows carry their provider: after switching from `mock` to `chainlink`, status and freshness read only `chainlink` rows and mock rows never block a chainlink report.
+
+## Public reads
+
+`GET /api/v1/cre/liabilities` without a credential serves the latest published checkpoint (`checkpoint_id`, `checkpoint_hash`, `taken_at`, `assets`) and answers `503 no_checkpoint` until the worker or an authenticated solvency read has published one; it never publishes.
+The journal counter (`max_journal_id`) is served only under the solvency credential.
+Every `/cre` and `/public` route sits behind the rate limiter (a no-op until Redis is configured).
 
 ## Events and metrics
 

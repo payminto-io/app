@@ -139,35 +139,47 @@ func fromRow(r attestationRow) Attestation {
 	return a
 }
 
-func (s *PostgresStore) SaveAttestations(ctx context.Context, rows []Attestation) error {
+func (s *PostgresStore) SaveAttestations(ctx context.Context, rows []Attestation) ([]Attestation, error) {
 	if len(rows) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := make([]attestationRow, 0, len(rows))
 	for _, a := range rows {
 		r, err := toRow(a)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		out = append(out, r)
 	}
-	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&out).Error
+	// ON CONFLICT DO NOTHING ... RETURNING id: the ids that come back are the rows this call inserted.
+	var ids []struct{ ID string }
+	err := s.db.WithContext(ctx).Model(&attestationRow{}).Clauses(clause.OnConflict{DoNothing: true}, clause.Returning{Columns: []clause.Column{{Name: "id"}}}).Create(&out).Scan(&ids).Error
 	if err != nil {
-		return fmt.Errorf("cre: save attestations: %w", err)
+		return nil, fmt.Errorf("cre: save attestations: %w", err)
 	}
-	return nil
+	kept := map[string]bool{}
+	for _, id := range ids {
+		kept[id.ID] = true
+	}
+	inserted := make([]Attestation, 0, len(rows))
+	for _, a := range rows {
+		if kept[a.ID] {
+			inserted = append(inserted, a)
+		}
+	}
+	return inserted, nil
 }
 
-func (s *PostgresStore) Seen(ctx context.Context, payloadHash []byte) (bool, error) {
+func (s *PostgresStore) Seen(ctx context.Context, provider string, payloadHash []byte) (bool, error) {
 	var n int64
-	if err := s.db.WithContext(ctx).Model(&attestationRow{}).Where("payload_hash = ?", payloadHash).Count(&n).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(&attestationRow{}).Where("provider = ? AND payload_hash = ?", provider, payloadHash).Count(&n).Error; err != nil {
 		return false, fmt.Errorf("cre: seen: %w", err)
 	}
 	return n > 0, nil
 }
 
-func (s *PostgresStore) ListAttestations(ctx context.Context, kind Kind, limit int) ([]Attestation, error) {
-	q := s.db.WithContext(ctx).Order("recorded_at DESC, item_index, id").Limit(limit)
+func (s *PostgresStore) ListAttestations(ctx context.Context, provider string, kind Kind, limit int) ([]Attestation, error) {
+	q := s.db.WithContext(ctx).Where("provider = ?", provider).Order("recorded_at DESC, item_index, id").Limit(limit)
 	if kind != "" {
 		q = q.Where("kind = ?", string(kind))
 	}
@@ -194,9 +206,13 @@ func (s *PostgresStore) GetAttestation(ctx context.Context, id string) (Attestat
 	return fromRow(r), true, nil
 }
 
-func (s *PostgresStore) LatestAttestation(ctx context.Context, kind Kind) (Attestation, bool, error) {
+func (s *PostgresStore) LatestAttestation(ctx context.Context, provider string, kind Kind, status Status) (Attestation, bool, error) {
 	var r attestationRow
-	err := s.db.WithContext(ctx).Where("kind = ?", string(kind)).Order("observed_at DESC, recorded_at DESC, item_index").First(&r).Error
+	q := s.db.WithContext(ctx).Where("provider = ? AND kind = ?", provider, string(kind))
+	if status != "" {
+		q = q.Where("status = ?", string(status))
+	}
+	err := q.Order("recorded_at DESC, item_index").First(&r).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return Attestation{}, false, nil
 	}

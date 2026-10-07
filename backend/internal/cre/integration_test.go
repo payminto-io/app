@@ -18,6 +18,12 @@ import (
 
 func d(s string) decimal.Decimal { return decimal.RequireFromString(s) }
 
+type fixedReserves struct{}
+
+func (fixedReserves) Reserves(context.Context) ([]cre.Reserve, error) {
+	return []cre.Reserve{{Asset: "USDC.SOLANA", Amount: big.NewInt(20_000_000), Decimals: 6}, {Asset: "SOL", Amount: big.NewInt(3_000_000_000), Decimals: 9}}, nil
+}
+
 type ledgerSource struct{ l *ledger.Service }
 
 func (s ledgerSource) LiabilityTotals(ctx context.Context) ([]cre.LedgerTotal, uint64, error) {
@@ -71,15 +77,21 @@ func TestIntegration_SchemaConvergesAndStoreRoundTrips(t *testing.T) {
 		WorkflowID: cre.SubjectKey("wf"), ReportID: [2]byte{0, 1}, ObservedAt: now.Add(-time.Minute), RecordedAt: now, Status: cre.StatusAttested, Provider: cre.ProviderMock,
 		Item: cre.DepositItem{DepositID: cre.SubjectKey("dep-1"), Amount: big.NewInt(42), Verdict: cre.VerdictConfirmed},
 	}
-	if err := store.SaveAttestations(ctx, []cre.Attestation{row}); err != nil {
-		t.Fatal(err)
+	inserted, err := store.SaveAttestations(ctx, []cre.Attestation{row})
+	if err != nil || len(inserted) != 1 {
+		t.Fatalf("first save inserted %d: %v", len(inserted), err)
 	}
-	if err := store.SaveAttestations(ctx, []cre.Attestation{row}); err != nil {
-		t.Fatalf("second save of the same subject must be a no-op: %v", err)
+	again := row
+	again.ID = "9d2e4f6a-1b3c-4d5e-8f7a-2b4c6d8e0f1a"
+	if dup, err := store.SaveAttestations(ctx, []cre.Attestation{again}); err != nil || len(dup) != 0 {
+		t.Fatalf("second save of the same item must insert nothing: %d %v", len(dup), err)
 	}
-	seen, err := store.Seen(ctx, row.PayloadHash)
+	seen, err := store.Seen(ctx, cre.ProviderMock, row.PayloadHash)
 	if err != nil || !seen {
 		t.Fatalf("seen = %v err %v", seen, err)
+	}
+	if other, _ := store.Seen(ctx, cre.ProviderChainlink, row.PayloadHash); other {
+		t.Fatal("a mock row must not count as seen for chainlink")
 	}
 	back, ok, err := store.GetAttestation(ctx, row.ID)
 	if err != nil || !ok {
@@ -89,11 +101,14 @@ func TestIntegration_SchemaConvergesAndStoreRoundTrips(t *testing.T) {
 	if back.Status != cre.StatusAttested || back.BlockNumber != 7 || back.WorkflowID != row.WorkflowID || item["amount_minor"] != "42" || !back.ObservedAt.Equal(row.ObservedAt) {
 		t.Fatalf("round trip = %+v", back)
 	}
-	latest, ok, _ := store.LatestAttestation(ctx, cre.KindDepositFinality)
+	latest, ok, _ := store.LatestAttestation(ctx, cre.ProviderMock, cre.KindDepositFinality, "")
 	if !ok || latest.ID != row.ID {
 		t.Fatalf("latest = %+v", latest)
 	}
-	list, _ := store.ListAttestations(ctx, "", 10)
+	if _, ok, _ := store.LatestAttestation(ctx, cre.ProviderMock, cre.KindDepositFinality, cre.StatusFailed); ok {
+		t.Fatal("status filter ignored")
+	}
+	list, _ := store.ListAttestations(ctx, cre.ProviderMock, "", 10)
 	if len(list) != 1 {
 		t.Fatalf("list = %d rows", len(list))
 	}
@@ -152,22 +167,22 @@ func TestIntegration_LedgerLiabilitiesFlowIntoACheckpointAndAMockAttestation(t *
 
 	gw := cre.GatewayID("https://pay.example.test")
 	store := cre.NewPostgresStore(db)
-	m, err := mock.New(gw)
+	m, err := mock.New(gw, mock.WithReserves(fixedReserves{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier := &cre.Verifier{Provider: cre.ProviderMock, GatewayID: gw, Owner: m.Owner(), MockSigner: m.Owner(), MaxReportAge: time.Hour, Chain: "test-chain",
-		WorkflowIDs: map[cre.Kind][32]byte{cre.KindSolvency: m.WorkflowID(cre.KindSolvency), cre.KindDepositFinality: m.WorkflowID(cre.KindDepositFinality), cre.KindConversionReference: m.WorkflowID(cre.KindConversionReference)}}
-	svc := cre.NewService(cre.Config{Provider: cre.ProviderMock, Chain: "test-chain", GatewayID: gw, SolvencyInterval: time.Hour, FinalityBatchInterval: time.Minute, PollInterval: time.Minute, MaxReportAge: time.Hour, WorkflowIDs: verifier.WorkflowIDs}, m, store, verifier, cre.WithLiabilities(ledgerSource{l}))
+	bindings := map[cre.Kind]cre.Binding{cre.KindSolvency: m.Binding(cre.KindSolvency), cre.KindDepositFinality: m.Binding(cre.KindDepositFinality), cre.KindConversionReference: m.Binding(cre.KindConversionReference)}
+	verifier := &cre.Verifier{Provider: cre.ProviderMock, GatewayID: gw, MockSigner: m.Owner(), Chain: "test-chain", Bindings: bindings}
+	svc := cre.NewService(cre.Config{Provider: cre.ProviderMock, Chain: "test-chain", GatewayID: gw, SolvencyInterval: time.Hour, FinalityBatchInterval: time.Minute, PollInterval: time.Minute, Bindings: bindings}, m, store, verifier, cre.WithLiabilities(ledgerSource{l}))
 
-	cp, err := svc.Liabilities(ctx)
+	cp, err := svc.Liabilities(ctx, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cp.Assets) != 2 || cp.Assets[1].Asset != "USDC.SOLANA" || cp.Assets[1].Liabilities.String() != "10750000" || cp.MaxJournalID != 4 {
 		t.Fatalf("checkpoint omitted or mis-scaled an asset: %+v", cp)
 	}
-	again, _ := svc.Liabilities(ctx)
+	again, _ := svc.Liabilities(ctx, true)
 	if again.Hash != cp.Hash {
 		t.Fatal("a checkpoint younger than the interval must be reused")
 	}
@@ -178,7 +193,7 @@ func TestIntegration_LedgerLiabilitiesFlowIntoACheckpointAndAMockAttestation(t *
 	if err != nil || n != 1 {
 		t.Fatalf("poll = %d err %v", n, err)
 	}
-	rows, _ := store.ListAttestations(ctx, cre.KindSolvency, 10)
+	rows, _ := store.ListAttestations(ctx, cre.ProviderMock, cre.KindSolvency, 10)
 	if len(rows) != 2 {
 		t.Fatalf("want one row per asset, got %d", len(rows))
 	}
@@ -193,7 +208,13 @@ func TestIntegration_LedgerLiabilitiesFlowIntoACheckpointAndAMockAttestation(t *
 		t.Fatalf("replay = %v", err)
 	}
 	rep, _ := svc.Status(ctx)
-	if rep.Workflows[0].State != "fresh" || rep.Workflows[0].LastRun == nil {
+	if rep.Workflows[0].State != "fresh" || rep.Workflows[0].LastRun == nil || rep.Workflows[0].LastVerified == nil {
 		t.Fatalf("status = %+v", rep.Workflows[0])
+	}
+	// The hashed figures are reproducible: lines above the head are not part of the sum (one consistent snapshot).
+	post("p5", "m1", "USDC.SOLANA", "1")
+	totals2, head2, _ := l.LiabilityTotals(ctx)
+	if head2 != 5 || !totals2[2].Total.Equal(d("11.75")) {
+		t.Fatalf("totals after a post = %+v head %d", totals2, head2)
 	}
 }

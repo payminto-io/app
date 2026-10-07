@@ -44,11 +44,14 @@ const (
 // Store is what the service persists through; PostgresStore is the implementation, MemoryStore the test double.
 type Store interface {
 	SubjectIndex
-	SaveAttestations(ctx context.Context, rows []Attestation) error
-	Seen(ctx context.Context, payloadHash []byte) (bool, error)
-	ListAttestations(ctx context.Context, kind Kind, limit int) ([]Attestation, error)
+	// SaveAttestations inserts rows and returns only those actually inserted (a concurrent duplicate inserts none).
+	SaveAttestations(ctx context.Context, rows []Attestation) ([]Attestation, error)
+	// Seen is scoped by provider so rows from a previous provider never block the active one.
+	Seen(ctx context.Context, provider string, payloadHash []byte) (bool, error)
+	ListAttestations(ctx context.Context, provider string, kind Kind, limit int) ([]Attestation, error)
 	GetAttestation(ctx context.Context, id string) (Attestation, bool, error)
-	LatestAttestation(ctx context.Context, kind Kind) (Attestation, bool, error)
+	// LatestAttestation is the newest row for the provider and kind; status "" means any status.
+	LatestAttestation(ctx context.Context, provider string, kind Kind, status Status) (Attestation, bool, error)
 	LatestSubject(ctx context.Context, kind Kind) (Subject, bool, error)
 	RecordRun(ctx context.Context, run Run) error
 	LatestRun(ctx context.Context, kind Kind) (Run, bool, error)

@@ -22,7 +22,7 @@ export interface AttestationRecord {
   kind: string;
   subject_type: string;
   subject_id: string;
-  status: "attested" | "failed" | "pending" | "stale" | string;
+  status: "attested" | "mismatch" | "ignored" | "failed" | "pending" | "stale" | string;
   provider: string;
   simulated: boolean;
   chain: string;
@@ -39,11 +39,16 @@ export interface AttestationRecord {
 export interface WorkflowStatus {
   kind: string;
   workflow_id: string;
+  workflow_name: string;
   interval_seconds: number;
   credential_configured: boolean;
+  /** Derived from the latest verified record only; a failed or mismatched row never reads as fresh. */
   state: "never" | "fresh" | "stale" | string;
   last_run: AttestationRun | null;
+  /** Newest row of any status. */
   last_attestation: AttestationRecord | null;
+  /** Newest attested row. */
+  last_verified: AttestationRecord | null;
 }
 
 export interface AttestationStatus {

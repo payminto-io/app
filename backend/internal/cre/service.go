@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/uuid"
 	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/observability"
 )
@@ -23,8 +25,8 @@ type Config struct {
 	GatewayID        [32]byte
 	ConsumerAddress  common.Address
 	ForwarderAddress common.Address
-	WorkflowOwner    common.Address
-	WorkflowIDs      map[Kind][32]byte
+	// Bindings are the per-kind (id, owner, name) the consumer contract enforces; the verifier checks them too.
+	Bindings map[Kind]Binding
 	// TriggerSigner is a key reference; the service never sees a key.
 	TriggerSigner string
 
@@ -32,7 +34,6 @@ type Config struct {
 	FinalityBatchInterval time.Duration
 	ConversionInterval    time.Duration
 	PollInterval          time.Duration
-	MaxReportAge          time.Duration
 	Confirmations         uint64
 
 	PublicVerifyEnabled bool
@@ -96,7 +97,7 @@ func NewService(cfg Config, attester Attester, store Store, verifier *Verifier, 
 	}
 	if verifier != nil {
 		if verifier.Seen == nil {
-			verifier.Seen = store.Seen
+			verifier.Seen = func(ctx context.Context, hash []byte) (bool, error) { return store.Seen(ctx, cfg.Provider, hash) }
 		}
 		if verifier.Subjects == nil {
 			verifier.Subjects = store
@@ -104,17 +105,12 @@ func NewService(cfg Config, attester Attester, store Store, verifier *Verifier, 
 		if verifier.Now == nil {
 			verifier.Now = s.now
 		}
-		if verifier.LatestObservedAt == nil {
-			verifier.LatestObservedAt = func(ctx context.Context, kind Kind) (time.Time, bool, error) {
-				a, ok, err := store.LatestAttestation(ctx, kind)
-				return a.ObservedAt, ok, err
-			}
-		}
 	}
 	return s
 }
 
 func (s *Service) Enabled() bool    { return s.cfg.Provider != ProviderNone && s.attester != nil }
+func (s *Service) Now() time.Time   { return s.now() }
 func (s *Service) Provider() string { return s.cfg.Provider }
 func (s *Service) Config() Config   { return s.cfg }
 
@@ -135,8 +131,9 @@ func (s *Service) CredentialConfigured(kind Kind) bool {
 
 // --- Inputs served to workflows. Each call remembers the subjects it served (SPEC section 6, check 5). ---
 
-// Liabilities returns the latest published checkpoint, publishing a fresh one when none is younger than the interval.
-func (s *Service) Liabilities(ctx context.Context) (Checkpoint, error) {
+// Liabilities serves the latest published checkpoint. Only an authenticated workflow read may publish a
+// fresh one (SPEC section 7: the public route never writes); a public read with nothing published is ErrNotFound.
+func (s *Service) Liabilities(ctx context.Context, authenticated bool) (Checkpoint, error) {
 	if !s.Enabled() {
 		return Checkpoint{}, ErrDisabled
 	}
@@ -144,20 +141,23 @@ func (s *Service) Liabilities(ctx context.Context) (Checkpoint, error) {
 	if err != nil {
 		return Checkpoint{}, err
 	}
-	if ok && s.now().Sub(latest.AskedAt) < s.cfg.SolvencyInterval {
+	if ok && (!authenticated || s.now().Sub(latest.AskedAt) < s.cfg.SolvencyInterval) {
 		return checkpointFromSubject(latest), nil
+	}
+	if !authenticated {
+		return Checkpoint{}, fmt.Errorf("%w: no checkpoint published yet", ErrNotFound)
 	}
 	return s.PublishCheckpoint(ctx)
 }
 
 // PublishCheckpoint snapshots the ledger's liabilities now and records the checkpoint as a solvency subject.
 func (s *Service) PublishCheckpoint(ctx context.Context) (Checkpoint, error) {
-	cp, skipped, err := BuildCheckpoint(ctx, s.liabilities, s.decimals, s.now())
+	cp, anomalies, err := BuildCheckpoint(ctx, s.liabilities, s.decimals, s.now())
 	if err != nil {
 		return Checkpoint{}, err
 	}
-	if len(skipped) > 0 {
-		observability.Logger().Warn("cre: assets omitted from the liabilities checkpoint (unknown decimals; set CRE_ASSET_DECIMALS)", "assets", skipped)
+	for _, a := range anomalies {
+		observability.Logger().Error("cre: asset omitted from the liabilities checkpoint", "asset", a.Asset, "reason", a.Reason)
 	}
 	if err := s.store.RememberSubjects(ctx, []Subject{CheckpointSubject(cp)}); err != nil {
 		return Checkpoint{}, err
@@ -243,6 +243,7 @@ func (s *Service) Conversions(ctx context.Context, since time.Time, limit int) (
 // --- Reports coming back. ---
 
 // Submit verifies a raw attestation and stores its rows; a rejection is returned and nothing is stored.
+// Only rows the store actually inserted are returned and announced, so a concurrent duplicate is a replay.
 func (s *Service) Submit(ctx context.Context, raw RawAttestation) ([]Attestation, error) {
 	if !s.Enabled() {
 		return nil, ErrDisabled
@@ -250,17 +251,21 @@ func (s *Service) Submit(ctx context.Context, raw RawAttestation) ([]Attestation
 	rows, err := s.verifier.Verify(ctx, raw)
 	if err != nil {
 		recordVerifyFailure(err)
-		observability.Logger().Warn("cre: report refused", "kind", raw.Kind, "execution_id", raw.ExecutionID, "reason", err.Error())
+		observability.Logger().Warn("cre: report refused", "kind", raw.Kind, "execution_id", raw.ExecutionID, "reason", Sanitize(err.Error()))
 		return nil, err
 	}
-	if err := s.store.SaveAttestations(ctx, rows); err != nil {
+	inserted, err := s.store.SaveAttestations(ctx, rows)
+	if err != nil {
 		return nil, err
 	}
-	for _, r := range rows {
+	if len(inserted) == 0 {
+		return nil, ErrReplayed
+	}
+	for _, r := range inserted {
 		s.announce(ctx, r)
 	}
-	observability.Logger().Info("cre: report recorded", "kind", raw.Kind, "execution_id", raw.ExecutionID, "rows", len(rows), "tx", common.Bytes2Hex(raw.Evidence.TxHash))
-	return rows, nil
+	observability.Logger().Info("cre: report recorded", "kind", raw.Kind, "execution_id", raw.ExecutionID, "rows", len(inserted), "tx", common.Bytes2Hex(raw.Evidence.TxHash))
+	return inserted, nil
 }
 
 func (s *Service) announce(ctx context.Context, r Attestation) {
@@ -272,14 +277,19 @@ func (s *Service) announce(ctx context.Context, r Attestation) {
 	if r.Status != StatusAttested {
 		typ = EventAttestationFailed
 		payload["reason"] = r.Reason
+		if r.Status == StatusMismatch {
+			observability.Logger().Error("cre: attested figures differ from what the gateway served", "kind", r.Kind, "subject_id", r.SubjectID, "reason", r.Reason)
+		}
 	}
 	if err := s.events.Emit(ctx, Event{Type: typ, Payload: payload}); err != nil {
-		observability.Logger().Error("cre: emit event", "type", typ, "err", err)
+		observability.Logger().Error("cre: emit event", "type", typ, "err", Sanitize(err.Error()))
 	}
 	recordAttestation(r)
 }
 
-// Poll pulls everything the provider has seen since the cursor and submits it.
+// Poll pulls what the provider has seen since the cursor and submits it, in block order. The cursor only
+// advances past blocks whose reports were recorded or definitively refused; a report that is not yet final,
+// or any store or RPC error, stops the cursor at that block so the next poll sees it again (nothing is lost).
 func (s *Service) Poll(ctx context.Context, kind Kind) (int, error) {
 	if !s.Enabled() {
 		return 0, ErrDisabled
@@ -290,20 +300,42 @@ func (s *Service) Poll(ctx context.Context, kind Kind) (int, error) {
 	}
 	raws, next, err := s.attester.Poll(ctx, kind, cursor)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %s", ErrNotFinal, Sanitize(err.Error()))
 	}
+	sort.SliceStable(raws, func(i, j int) bool {
+		if raws[i].Evidence.BlockNumber != raws[j].Evidence.BlockNumber {
+			return raws[i].Evidence.BlockNumber < raws[j].Evidence.BlockNumber
+		}
+		return raws[i].Evidence.LogIndex < raws[j].Evidence.LogIndex
+	})
 	recorded := 0
 	for _, raw := range raws {
 		if raw.Kind == "" {
 			raw.Kind = kind
 		}
-		if _, err := s.Submit(ctx, raw); err != nil {
-			if !IsRejection(err) {
+		_, err := s.Submit(ctx, raw)
+		switch {
+		case err == nil:
+			recorded++
+		case errors.Is(err, ErrReplayed):
+			// Already recorded (a re-read after a partial pass); nothing to do.
+		case IsRejection(err):
+			if s.cfg.Provider == ProviderChainlink {
+				s.recordRefusal(ctx, raw, err)
+			}
+		default:
+			// Not final yet, or infrastructure: stop here and come back.
+			if raw.Evidence.BlockNumber > 0 && raw.Evidence.BlockNumber < next.Block {
+				next.Block = raw.Evidence.BlockNumber
+			}
+			if raw.Evidence.BlockNumber == 0 {
+				next = cursor
+			}
+			if err := s.store.SetCursor(ctx, kind, next); err != nil {
 				return recorded, err
 			}
-			continue
+			return recorded, err
 		}
-		recorded++
 	}
 	if next != cursor {
 		if err := s.store.SetCursor(ctx, kind, next); err != nil {
@@ -311,6 +343,20 @@ func (s *Service) Poll(ctx context.Context, kind Kind) (int, error) {
 		}
 	}
 	return recorded, nil
+}
+
+// recordRefusal keeps a definitively refused on-chain report visible to operators as a failed row.
+func (s *Service) recordRefusal(ctx context.Context, raw RawAttestation, cause error) {
+	meta, _ := DecodeMetadata(raw.Metadata)
+	row := Attestation{
+		ID: uuid.NewString(), Kind: raw.Kind, SubjectType: "report", SubjectID: "0x" + common.Bytes2Hex(raw.Evidence.TxHash),
+		PayloadHash: PayloadHash(raw.Report), Payload: raw.Report, Chain: s.cfg.Chain, TxHash: raw.Evidence.TxHash, BlockNumber: raw.Evidence.BlockNumber,
+		WorkflowID: meta.WorkflowID, WorkflowOwner: meta.Owner, ReportID: meta.ReportID, RecordedAt: s.now(), Status: StatusFailed, Provider: s.cfg.Provider,
+		Reason: Sanitize(cause.Error()), Item: map[string]any{"refused": true},
+	}
+	if _, err := s.store.SaveAttestations(ctx, []Attestation{row}); err != nil {
+		observability.Logger().Error("cre: record refusal", "err", Sanitize(err.Error()))
+	}
 }
 
 // Run triggers one workflow with the batch input the gateway would serve it over HTTP.
@@ -344,7 +390,7 @@ func (s *Service) input(ctx context.Context, kind Kind) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(CheckpointJSON(cp))
+		return json.Marshal(CheckpointJSON(cp, true))
 	case KindDepositFinality:
 		rows, err := s.PendingDeposits(ctx, 12)
 		if err != nil {
@@ -363,15 +409,19 @@ func (s *Service) input(ctx context.Context, kind Kind) ([]byte, error) {
 
 // --- JSON shapes shared by the routes and the trigger input (snake_case). ---
 
-func CheckpointJSON(cp Checkpoint) map[string]any {
+// CheckpointJSON is the liabilities body; the journal counter is served only to the authenticated workflow.
+func CheckpointJSON(cp Checkpoint, authenticated bool) map[string]any {
 	assets := make([]map[string]any, 0, len(cp.Assets))
 	for _, a := range cp.Assets {
 		assets = append(assets, map[string]any{"asset": a.Asset, "liabilities_minor": a.Liabilities.String(), "decimals": a.Decimals})
 	}
-	return map[string]any{
-		"checkpoint_id": cp.ID, "checkpoint_hash": "0x" + common.Bytes2Hex(cp.Hash[:]), "taken_at": cp.TakenAt.UTC().Format(time.RFC3339),
-		"max_journal_id": cp.MaxJournalID, "assets": assets,
+	out := map[string]any{
+		"checkpoint_id": cp.ID, "checkpoint_hash": "0x" + common.Bytes2Hex(cp.Hash[:]), "taken_at": cp.TakenAt.UTC().Format(time.RFC3339), "assets": assets,
 	}
+	if authenticated {
+		out["max_journal_id"] = cp.MaxJournalID
+	}
+	return out
 }
 
 func DepositsJSON(rows []PendingDeposit) []map[string]any {
@@ -413,7 +463,7 @@ func (s *Service) Attestations(ctx context.Context, kind Kind, limit int) ([]Att
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	return s.store.ListAttestations(ctx, kind, limit)
+	return s.store.ListAttestations(ctx, s.cfg.Provider, kind, limit)
 }
 
 func (s *Service) Attestation(ctx context.Context, id string) (Attestation, error) {
@@ -434,10 +484,13 @@ func (s *Service) Attestation(ctx context.Context, id string) (Attestation, erro
 type WorkflowStatus struct {
 	Kind                 Kind
 	WorkflowID           string
+	WorkflowName         string
 	Interval             time.Duration
 	CredentialConfigured bool
 	LastRun              *Run
-	LastAttestation      *Attestation
+	// LastAttestation is the newest row of any status; LastVerified the newest attested one.
+	LastAttestation *Attestation
+	LastVerified    *Attestation
 	// State is never, fresh or stale: stale after two intervals without an attested record (SPEC section 5.1).
 	State string
 }
@@ -480,26 +533,34 @@ func (s *Service) Status(ctx context.Context) (StatusReport, error) {
 	if s.cfg.ForwarderAddress != (common.Address{}) {
 		rep.ForwarderAddress = s.cfg.ForwarderAddress.Hex()
 	}
-	if s.cfg.WorkflowOwner != (common.Address{}) {
-		rep.WorkflowOwner = s.cfg.WorkflowOwner.Hex()
+	if b, ok := s.cfg.Bindings[KindSolvency]; ok && b.Owner != ([20]byte{}) {
+		rep.WorkflowOwner = common.BytesToAddress(b.Owner[:]).Hex()
 	}
 	rep.Health = s.attester.Health(ctx)
+	rep.Health.Message = Sanitize(rep.Health.Message)
 	rep.TriggerSignerAddress = rep.Health.SignerAddress
 	now := s.now()
 	for _, kind := range Kinds {
 		ws := WorkflowStatus{Kind: kind, Interval: s.interval(kind), CredentialConfigured: s.CredentialConfigured(kind), State: "never"}
-		if id, ok := s.cfg.WorkflowIDs[kind]; ok && id != ([32]byte{}) {
-			ws.WorkflowID = "0x" + common.Bytes2Hex(id[:])
+		if b, ok := s.cfg.Bindings[kind]; ok && b.ID != ([32]byte{}) {
+			ws.WorkflowID = "0x" + common.Bytes2Hex(b.ID[:])
+			ws.WorkflowName = string(b.Name[:])
 		}
 		if run, ok, err := s.store.LatestRun(ctx, kind); err != nil {
 			return rep, err
 		} else if ok {
 			ws.LastRun = &run
 		}
-		if att, ok, err := s.store.LatestAttestation(ctx, kind); err != nil {
+		if att, ok, err := s.store.LatestAttestation(ctx, s.cfg.Provider, kind, ""); err != nil {
 			return rep, err
 		} else if ok {
 			ws.LastAttestation = &att
+		}
+		// Freshness derives from the latest verified record only; a failed or mismatched row never reads as fresh.
+		if att, ok, err := s.store.LatestAttestation(ctx, s.cfg.Provider, kind, StatusAttested); err != nil {
+			return rep, err
+		} else if ok {
+			ws.LastVerified = &att
 			ws.State = "fresh"
 			if now.Sub(att.RecordedAt) > 2*ws.Interval {
 				ws.State = "stale"
@@ -534,7 +595,7 @@ func (s *Service) SweepStale(ctx context.Context) error {
 		if w.State != "stale" {
 			continue
 		}
-		payload := map[string]any{"kind": string(w.Kind), "provider": s.cfg.Provider, "last_recorded_at": w.LastAttestation.RecordedAt.Format(time.RFC3339), "interval_seconds": int64(w.Interval.Seconds())}
+		payload := map[string]any{"kind": string(w.Kind), "provider": s.cfg.Provider, "last_verified_at": w.LastVerified.RecordedAt.Format(time.RFC3339), "interval_seconds": int64(w.Interval.Seconds())}
 		if err := s.events.Emit(ctx, Event{Type: EventWorkflowStale, Payload: payload}); err != nil {
 			return err
 		}

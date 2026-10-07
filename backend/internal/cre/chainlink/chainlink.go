@@ -55,23 +55,93 @@ type Log struct {
 	Index       uint
 	Topics      []common.Hash
 	Data        []byte
+	// Removed marks a log the node reported as reorged out; it is never used.
+	Removed bool
 }
 
 // LogReader is the gateway's own RPC view of the attestation chain.
 type LogReader interface {
-	// FinalizedHead is the newest block the reader treats as final.
+	// FinalizedHead is the newest block the reader treats as final: the finalized tag, or latest minus
+	// confirmations when the tag is unavailable and confirmations are configured.
 	FinalizedHead(ctx context.Context) (uint64, error)
 	FilterLogs(ctx context.Context, address common.Address, from, to uint64, topics [][]common.Hash) ([]Log, error)
+	// TransactionInput is the calldata of the transaction that emitted a log; the report bytes come from it.
+	TransactionInput(ctx context.Context, txHash common.Hash) ([]byte, error)
 }
 
 // The consumer emits ReportAccepted per report and one event per item (contracts/src/cre/GatewayAttestations.sol);
 // the reader rebuilds the report from those and the verifier checks it hashes to the logged reportHash.
 const (
-	EventReportAccepted = "ReportAccepted"
-	EventSolvency       = "SolvencyAttested"
-	EventDeposit        = "DepositAttested"
-	EventConversion     = "ConversionReferenceAttested"
+	EventReportAccepted  = "ReportAccepted"
+	EventSolvency        = "SolvencyAttested"
+	EventSolvencyIgnored = "SolvencyIgnored"
+	EventDeposit         = "DepositAttested"
+	EventConversion      = "ConversionReferenceAttested"
 )
+
+// Keystone raw report layout (KeystoneForwarder._getMetadata): 45 forwarder bytes, 64 metadata bytes, then the
+// receiver's report. The forwarder slices [45:109] and [109:]; the verifier takes the same bytes from calldata.
+const (
+	forwarderMetadataLength = 45
+	rawMetadataEnd          = 109
+)
+
+// forwarderReportABI is KeystoneForwarder.report(address receiver, bytes rawReport, bytes reportContext, bytes[] signatures).
+var forwarderReportABI = func() abi.Arguments {
+	addr, _ := abi.NewType("address", "", nil)
+	b, _ := abi.NewType("bytes", "", nil)
+	bs, _ := abi.NewType("bytes[]", "", nil)
+	return abi.Arguments{{Name: "receiver", Type: addr}, {Name: "rawReport", Type: b}, {Name: "reportContext", Type: b}, {Name: "signatures", Type: bs}}
+}()
+
+// ForwarderReportSelector is the 4-byte selector of KeystoneForwarder.report.
+var ForwarderReportSelector = crypto.Keccak256([]byte("report(address,bytes,bytes,bytes[])"))[:4]
+
+// SplitRawReport returns (metadata, report) from a forwarder rawReport.
+func SplitRawReport(raw []byte) (metadata, report []byte, err error) {
+	if len(raw) < rawMetadataEnd {
+		return nil, nil, fmt.Errorf("%w: raw report is %d bytes, want at least %d", cre.ErrInvalidReport, len(raw), rawMetadataEnd)
+	}
+	return raw[forwarderMetadataLength:rawMetadataEnd], raw[rawMetadataEnd:], nil
+}
+
+// DecodeForwarderCall decodes a KeystoneForwarder.report transaction input into (receiver, metadata, report).
+func DecodeForwarderCall(input []byte) (common.Address, []byte, []byte, error) {
+	if len(input) < 4 || string(input[:4]) != string(ForwarderReportSelector) {
+		return common.Address{}, nil, nil, fmt.Errorf("%w: transaction is not KeystoneForwarder.report", cre.ErrInvalidReport)
+	}
+	values, err := forwarderReportABI.Unpack(input[4:])
+	if err != nil || len(values) != 4 {
+		return common.Address{}, nil, nil, fmt.Errorf("%w: forwarder calldata: %v", cre.ErrInvalidReport, err)
+	}
+	receiver, _ := values[0].(common.Address)
+	raw, _ := values[1].([]byte)
+	metadata, report, err := SplitRawReport(raw)
+	if err != nil {
+		return common.Address{}, nil, nil, err
+	}
+	return receiver, metadata, report, nil
+}
+
+// EncodeForwarderCall builds the calldata the forwarder would receive; tests and the demo chain use it.
+func EncodeForwarderCall(receiver common.Address, metadata, report []byte, reportContext []byte, signatures [][]byte) ([]byte, error) {
+	if len(metadata) != cre.MetadataLength {
+		return nil, fmt.Errorf("%w: metadata is %d bytes", cre.ErrInvalidReport, len(metadata))
+	}
+	raw := make([]byte, 0, rawMetadataEnd+len(report))
+	raw = append(raw, make([]byte, forwarderMetadataLength)...)
+	raw[0] = 1
+	raw = append(raw, metadata...)
+	raw = append(raw, report...)
+	if signatures == nil {
+		signatures = [][]byte{}
+	}
+	packed, err := forwarderReportABI.Pack(receiver, raw, reportContext, signatures)
+	if err != nil {
+		return nil, err
+	}
+	return append(append([]byte{}, ForwarderReportSelector...), packed...), nil
+}
 
 // Config is what the provider needs; every value is a reference or an address, never a secret.
 type Config struct {
@@ -316,7 +386,7 @@ func (p *Provider) Trigger(ctx context.Context, kind cre.Kind, input []byte) (st
 	httpReq.Header.Set("Authorization", "Bearer "+req.JWT)
 	resp, err := p.http.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("cre: trigger %s: %w", kind, err)
+		return "", fmt.Errorf("cre: trigger %s: %s", kind, cre.SanitizeError(err))
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
@@ -334,8 +404,9 @@ func (p *Provider) Trigger(ctx context.Context, kind cre.Kind, input []byte) (st
 
 // --- Consumer-contract reader ---
 
-// Poll scans the consumer contract from the cursor to the finalized head and returns one raw attestation per
-// accepted report of the kind, rebuilt from ReportAccepted and its item events, with on-chain evidence.
+// Poll scans the consumer contract from the cursor to the finality bound and returns one raw attestation per
+// accepted report of the kind. The report bytes come from the forwarder calldata (the receiver slice), the
+// contract's events say it was accepted and which solvency items were superseded, and every log is marked final.
 func (p *Provider) Poll(ctx context.Context, kind cre.Kind, cursor cre.Cursor) ([]cre.RawAttestation, cre.Cursor, error) {
 	if p.reader == nil {
 		return nil, cursor, fmt.Errorf("%w: no RPC reader", cre.ErrUnsupported)
@@ -344,31 +415,31 @@ func (p *Provider) Poll(ctx context.Context, kind cre.Kind, cursor cre.Cursor) (
 	if err != nil {
 		return nil, cursor, err
 	}
-	head, err := p.reader.FinalizedHead(ctx)
+	bound, err := p.reader.FinalizedHead(ctx)
 	if err != nil {
-		return nil, cursor, fmt.Errorf("cre: read head: %w", err)
+		return nil, cursor, fmt.Errorf("cre: read finality bound: %s", cre.SanitizeError(err))
 	}
 	from := cursor.Block
 	if from == 0 {
-		// A fresh cursor starts at the head: history before the module was turned on is not replayed.
-		return nil, cre.Cursor{Block: head + 1}, nil
+		// A fresh cursor starts at the bound: history before the module was turned on is not replayed.
+		return nil, cre.Cursor{Block: bound + 1}, nil
 	}
-	if from > head {
+	if from > bound {
 		return nil, cursor, nil
 	}
 	topics := [][]common.Hash{
-		{contract.Events[EventReportAccepted].ID, contract.Events[EventSolvency].ID, contract.Events[EventDeposit].ID, contract.Events[EventConversion].ID},
+		{contract.Events[EventReportAccepted].ID, contract.Events[EventSolvencyIgnored].ID},
 		{common.BytesToHash(p.cfg.GatewayID[:])},
 	}
 	var logs []Log
-	for start := from; start <= head; start += p.cfg.ChunkBlocks {
+	for start := from; start <= bound; start += p.cfg.ChunkBlocks {
 		end := start + p.cfg.ChunkBlocks - 1
-		if end > head {
-			end = head
+		if end > bound {
+			end = bound
 		}
 		chunk, err := p.reader.FilterLogs(ctx, p.cfg.Consumer, start, end, topics)
 		if err != nil {
-			return nil, cre.Cursor{Block: start}, fmt.Errorf("cre: get logs %d-%d: %w", start, end, err)
+			return nil, cre.Cursor{Block: start}, fmt.Errorf("cre: get logs %d-%d: %s", start, end, cre.SanitizeError(err))
 		}
 		logs = append(logs, chunk...)
 	}
@@ -378,11 +449,11 @@ func (p *Provider) Poll(ctx context.Context, kind cre.Kind, cursor cre.Cursor) (
 		}
 		return logs[i].Index < logs[j].Index
 	})
-	out, err := RebuildReports(contract, logs, kind, head)
+	out, err := p.assemble(ctx, contract, logs, kind, bound)
 	if err != nil {
 		return nil, cursor, err
 	}
-	return out, cre.Cursor{Block: head + 1}, nil
+	return out, cre.Cursor{Block: bound + 1}, nil
 }
 
 // acceptedEvent is the decoded ReportAccepted log.
@@ -395,15 +466,13 @@ type acceptedEvent struct {
 	ReportHash    [32]byte       `abi:"reportHash"`
 }
 
-// RebuildReports groups the consumer's logs per transaction and rebuilds each accepted report of kind.
-// A report whose items cannot be rebuilt is returned with a zero ReportHash so the verifier refuses it.
-func RebuildReports(contract abi.ABI, logs []Log, kind cre.Kind, head uint64) ([]cre.RawAttestation, error) {
+// assemble groups the logs per transaction, reads each transaction's calldata and pairs the receiver slice
+// with the ReportAccepted event of the kind. A calldata read failure is returned so the cursor does not pass it.
+func (p *Provider) assemble(ctx context.Context, contract abi.ABI, logs []Log, kind cre.Kind, bound uint64) ([]cre.RawAttestation, error) {
 	type txGroup struct {
 		accepted *Log
 		meta     acceptedEvent
-		workflow [32]byte
-		items    []Log
-		log      Log
+		ignored  [][32]byte
 	}
 	groups := map[common.Hash]*txGroup{}
 	var order []common.Hash
@@ -411,7 +480,7 @@ func RebuildReports(contract abi.ABI, logs []Log, kind cre.Kind, head uint64) ([
 	kindTopic[31] = kind.Code()
 	for i := range logs {
 		l := logs[i]
-		if len(l.Topics) < 2 {
+		if len(l.Topics) < 2 || l.Removed {
 			continue
 		}
 		g := groups[l.TxHash]
@@ -429,9 +498,11 @@ func RebuildReports(contract abi.ABI, logs []Log, kind cre.Kind, head uint64) ([
 			if err := contract.UnpackIntoInterface(&ev, EventReportAccepted, l.Data); err != nil {
 				continue
 			}
-			g.accepted, g.meta, g.workflow, g.log = &logs[i], ev, l.Topics[3], l
-		case itemEventID(contract, kind):
-			g.items = append(g.items, l)
+			g.accepted, g.meta = &logs[i], ev
+		case contract.Events[EventSolvencyIgnored].ID:
+			if len(l.Topics) == 3 && kind == cre.KindSolvency {
+				g.ignored = append(g.ignored, l.Topics[2])
+			}
 		}
 	}
 	var out []cre.RawAttestation
@@ -440,110 +511,35 @@ func RebuildReports(contract abi.ABI, logs []Log, kind cre.Kind, head uint64) ([
 		if g.accepted == nil {
 			continue
 		}
-		meta := cre.Metadata{WorkflowID: g.workflow, WorkflowName: g.meta.WorkflowName, ReportID: g.meta.ReportID}
-		copy(meta.Owner[:], g.meta.WorkflowOwner.Bytes())
+		l := *g.accepted
+		input, err := p.reader.TransactionInput(ctx, l.TxHash)
+		if err != nil {
+			return out, fmt.Errorf("cre: read transaction %s: %s", l.TxHash.Hex(), cre.SanitizeError(err))
+		}
 		var emitter [20]byte
-		copy(emitter[:], g.log.Address.Bytes())
+		copy(emitter[:], l.Address.Bytes())
 		raw := cre.RawAttestation{
-			Kind: kind, Metadata: meta.Encode(),
-			Evidence: cre.Evidence{Emitter: emitter, TxHash: g.log.TxHash.Bytes(), BlockNumber: g.log.BlockNumber, LogIndex: g.log.Index, HeadBlock: head},
+			Kind: kind, Ignored: g.ignored,
+			Evidence: cre.Evidence{Emitter: emitter, TxHash: l.TxHash.Bytes(), BlockNumber: l.BlockNumber, LogIndex: l.Index, HeadBlock: bound, Final: l.BlockNumber <= bound, ReportHash: g.meta.ReportHash},
 		}
-		var gateway [32]byte
-		copy(gateway[:], g.log.Topics[1].Bytes())
-		report, err := rebuildReport(contract, kind, gateway, g.meta.ObservedAt, g.items)
-		if err == nil && g.meta.ItemCount != nil && g.meta.ItemCount.IsInt64() && int(g.meta.ItemCount.Int64()) == len(g.items) {
-			raw.Report = report
-			raw.Evidence.ReportHash = g.meta.ReportHash
-		} else {
-			raw.Report = report
+		receiver, metadata, report, err := DecodeForwarderCall(input)
+		if err != nil || receiver != p.cfg.Consumer {
+			// Not a forwarder delivery to our consumer: the verifier refuses it as forged, and the row records why.
+			raw.Metadata = (&cre.Metadata{WorkflowID: l.Topics[3], Owner: [20]byte(g.meta.WorkflowOwner), WorkflowName: g.meta.WorkflowName, ReportID: g.meta.ReportID}).Encode()
+			raw.Evidence.ReportHash = [32]byte{}
+			out = append(out, raw)
+			continue
 		}
+		raw.Metadata, raw.Report = metadata, report
 		out = append(out, raw)
 	}
 	return out, nil
 }
 
-func itemEventID(contract abi.ABI, kind cre.Kind) common.Hash {
-	switch kind {
-	case cre.KindSolvency:
-		return contract.Events[EventSolvency].ID
-	case cre.KindDepositFinality:
-		return contract.Events[EventDeposit].ID
-	default:
-		return contract.Events[EventConversion].ID
-	}
-}
-
-func rebuildReport(contract abi.ABI, kind cre.Kind, gateway [32]byte, observedAt uint64, items []Log) ([]byte, error) {
-	r := cre.Report{Kind: kind, GatewayID: gateway, ObservedAt: time.Unix(int64(observedAt), 0).UTC()}
-	switch kind {
-	case cre.KindSolvency:
-		rows := make([]cre.SolvencyItem, 0, len(items))
-		for _, l := range items {
-			var ev struct {
-				CheckpointHash [32]byte `abi:"checkpointHash"`
-				Liabilities    *big.Int `abi:"liabilities"`
-				Reserves       *big.Int `abi:"reserves"`
-				Decimals       uint8    `abi:"decimals"`
-				ObservedAt     uint64   `abi:"observedAt"`
-			}
-			if len(l.Topics) != 3 {
-				return nil, fmt.Errorf("%w: solvency event topics", cre.ErrInvalidReport)
-			}
-			if err := contract.UnpackIntoInterface(&ev, EventSolvency, l.Data); err != nil {
-				return nil, err
-			}
-			rows = append(rows, cre.SolvencyItem{CheckpointHash: ev.CheckpointHash, Asset: l.Topics[2], Liabilities: ev.Liabilities, Reserves: ev.Reserves, Decimals: ev.Decimals})
-		}
-		r.Items = rows
-	case cre.KindDepositFinality:
-		rows := make([]cre.DepositItem, 0, len(items))
-		for _, l := range items {
-			var ev struct {
-				ChainId     [32]byte `abi:"chainId"`
-				TxRef       [32]byte `abi:"txRef"`
-				Token       [32]byte `abi:"token"`
-				Amount      *big.Int `abi:"amount"`
-				Destination [32]byte `abi:"destination"`
-				SlotOrBlock uint64   `abi:"slotOrBlock"`
-				ObservedAt  uint64   `abi:"observedAt"`
-			}
-			if len(l.Topics) != 4 {
-				return nil, fmt.Errorf("%w: deposit event topics", cre.ErrInvalidReport)
-			}
-			if err := contract.UnpackIntoInterface(&ev, EventDeposit, l.Data); err != nil {
-				return nil, err
-			}
-			rows = append(rows, cre.DepositItem{DepositID: l.Topics[2], ChainID: ev.ChainId, TxRef: ev.TxRef, Token: ev.Token, Amount: ev.Amount, Destination: ev.Destination, SlotOrBlock: ev.SlotOrBlock, Verdict: l.Topics[3][31]})
-		}
-		r.Items = rows
-	default:
-		rows := make([]cre.ConversionItem, 0, len(items))
-		for _, l := range items {
-			var ev struct {
-				ReferenceRate     *big.Int       `abi:"referenceRate"`
-				ReferenceDecimals uint8          `abi:"referenceDecimals"`
-				DeviationBps      *big.Int       `abi:"deviationBps"`
-				Feed              common.Address `abi:"feed"`
-				RoundId           *big.Int       `abi:"roundId"`
-				ObservedAt        uint64         `abi:"observedAt"`
-			}
-			if len(l.Topics) != 4 {
-				return nil, fmt.Errorf("%w: conversion event topics", cre.ErrInvalidReport)
-			}
-			if err := contract.UnpackIntoInterface(&ev, EventConversion, l.Data); err != nil {
-				return nil, err
-			}
-			rows = append(rows, cre.ConversionItem{ConversionID: l.Topics[2], Pair: l.Topics[3], ReferenceRate: ev.ReferenceRate, ReferenceDecimals: ev.ReferenceDecimals, DeviationBps: ev.DeviationBps, Feed: ev.Feed, RoundID: ev.RoundId})
-		}
-		r.Items = rows
-	}
-	return cre.EncodeReport(r)
-}
-
 func (p *Provider) Health(ctx context.Context) cre.Health {
 	h := cre.Health{Status: cre.HealthOK, Message: "chainlink provider"}
 	if addr, err := p.signer.Address(ctx, p.cfg.KeyRef); err != nil {
-		h.Status, h.Message = cre.HealthDegraded, "trigger signer unavailable: "+err.Error()
+		h.Status, h.Message = cre.HealthDegraded, "trigger signer unavailable: "+cre.SanitizeError(err)
 	} else {
 		h.SignerAddress = addr.Hex()
 	}
@@ -554,7 +550,7 @@ func (p *Provider) Health(ctx context.Context) cre.Health {
 	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if _, err := p.reader.FinalizedHead(rctx); err != nil {
-		h.Status, h.Message = cre.HealthDown, "attestation chain RPC unreachable: "+err.Error()
+		h.Status, h.Message = cre.HealthDown, "attestation chain RPC unreachable: "+cre.SanitizeError(err)
 	}
 	return h
 }

@@ -11,23 +11,32 @@ import (
 	"github.com/google/uuid"
 )
 
+// Anomaly is an asset the checkpoint could not state honestly, with the reason; it is logged and omitted.
+type Anomaly struct {
+	Asset  string
+	Reason string
+}
+
+func (a Anomaly) String() string { return a.Asset + ": " + a.Reason }
+
 // BuildCheckpoint reads liabilities through the ledger port and hashes them so a solvency report can name them.
-// Assets with unknown decimals are left out and returned in skipped; nothing is guessed.
-func BuildCheckpoint(ctx context.Context, src LiabilitySource, decimals Decimals, now time.Time) (Checkpoint, []string, error) {
+// Assets with unknown decimals or a negative total are left out and returned as anomalies; nothing is guessed.
+func BuildCheckpoint(ctx context.Context, src LiabilitySource, decimals Decimals, now time.Time) (Checkpoint, []Anomaly, error) {
 	totals, maxJournal, err := src.LiabilityTotals(ctx)
 	if err != nil {
 		return Checkpoint{}, nil, err
 	}
-	var skipped []string
+	var skipped []Anomaly
 	assets := make([]AssetTotal, 0, len(totals))
 	for _, t := range totals {
 		minor, dec, ok := decimals.Minor(t.Asset, t.Total)
 		if !ok {
-			skipped = append(skipped, t.Asset)
+			skipped = append(skipped, Anomaly{Asset: t.Asset, Reason: "unknown decimals or amount off the grid (set CRE_ASSET_DECIMALS)"})
 			continue
 		}
 		if minor.Sign() < 0 {
-			minor.SetInt64(0)
+			skipped = append(skipped, Anomaly{Asset: t.Asset, Reason: "negative liability total " + minor.String() + "; a ledger defect, not attested"})
+			continue
 		}
 		assets = append(assets, AssetTotal{Asset: t.Asset, Liabilities: minor, Decimals: dec})
 	}

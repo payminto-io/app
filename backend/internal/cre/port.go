@@ -83,6 +83,10 @@ const (
 	StatusAttested Status = "attested"
 	StatusFailed   Status = "failed"
 	StatusStale    Status = "stale"
+	// StatusMismatch: the contract accepted the item but its figures differ from what the gateway served.
+	StatusMismatch Status = "mismatch"
+	// StatusIgnored: the contract recorded the item as superseded (SolvencyIgnored); never shown as attested.
+	StatusIgnored Status = "ignored"
 )
 
 // Provider names; they match config.CREProvider*.
@@ -133,9 +137,11 @@ type Evidence struct {
 	TxHash      []byte
 	BlockNumber uint64
 	LogIndex    uint
-	// HeadBlock is the chain head the reader saw when it read the log; confirmations are judged against it.
+	// HeadBlock is the finality bound the reader used (finalized tag, or latest minus confirmations).
 	HeadBlock uint64
-	// ReportHash is keccak256(report) as the consumer contract logged it; the rebuilt report must hash to it.
+	// Final is true when the log sits at or below that bound; anything else is retried later, never refused.
+	Final bool
+	// ReportHash is keccak256(report) as the consumer contract logged it; the calldata report must hash to it.
 	ReportHash [32]byte
 	// Signature evidence (mock): 65-byte secp256k1 signature over keccak256(metadata || report).
 	Signature []byte
@@ -150,6 +156,8 @@ type RawAttestation struct {
 	// ExecutionID is the provider's run id when known.
 	ExecutionID string
 	Simulated   bool
+	// Ignored lists item keys (asset for solvency) the contract recorded as superseded.
+	Ignored [][32]byte
 }
 
 // Cursor is a provider-specific position; a provider returns the next one from Poll.
@@ -199,6 +207,8 @@ var (
 	ErrWrongEmitter    = errors.New("cre: log emitted by an unexpected contract")
 	ErrUnconfirmed     = errors.New("cre: log is not yet confirmed")
 	ErrStale           = errors.New("cre: report is too old")
+	ErrWrongName       = errors.New("cre: report from an unexpected workflow name")
+	ErrNotFinal        = errors.New("cre: provider error; retry later")
 	ErrUnknownSubject  = errors.New("cre: report names a subject the gateway never asked about")
 	ErrSubjectMismatch = errors.New("cre: attested facts differ from what the gateway credited")
 )

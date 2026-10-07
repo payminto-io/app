@@ -44,7 +44,7 @@ export const ATTESTATIONS_COPY = {
       workflow: "Workflow",
       credential: "Credential",
       lastRun: "Last run",
-      lastAttestation: "Last attestation",
+      lastVerified: "Last verified",
       state: "State",
     },
     names: {
@@ -56,7 +56,8 @@ export const ATTESTATIONS_COPY = {
     credentialSet: "Set",
     credentialMissing: "Not set",
     never: "No run yet",
-    noRecord: "No record yet",
+    noRecord: "No verified record yet",
+    latestNotVerified: (status: string) => `Latest record: ${status}`,
     state: {
       never: "Never attested",
       fresh: "Fresh",

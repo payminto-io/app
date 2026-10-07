@@ -31,13 +31,20 @@ type CREConfig struct {
 	WorkflowIDSolvency            string
 	WorkflowIDDepositFinality     string
 	WorkflowIDConversionReference string
+	// Per-kind owner overrides; empty falls back to WorkflowOwner.
+	WorkflowOwnerSolvency            string
+	WorkflowOwnerDepositFinality     string
+	WorkflowOwnerConversionReference string
+	// Workflow names as in workflow.yaml; the Keystone name in every report is derived from them.
+	WorkflowNameSolvency            string
+	WorkflowNameDepositFinality     string
+	WorkflowNameConversionReference string
 
 	TriggerSigner string
 
 	SolvencyInterval      time.Duration
 	FinalityBatchInterval time.Duration
 	PollInterval          time.Duration
-	MaxReportAge          time.Duration
 	VerifyConfirmations   uint64
 
 	PublicVerifyEnabled bool
@@ -84,38 +91,42 @@ func loadCRE() (CREConfig, error) {
 	if err != nil {
 		return CREConfig{}, err
 	}
-	maxAge, err := envDuration("CRE_MAX_REPORT_AGE", 24*time.Hour)
+	confirmations, confirmationsSet, err := envUint64Opt("CRE_VERIFY_CONFIRMATIONS")
 	if err != nil {
 		return CREConfig{}, err
 	}
-	confirmations, err := envUint64("CRE_VERIFY_CONFIRMATIONS")
-	if err != nil {
-		return CREConfig{}, err
+	if !confirmationsSet && isDeploymentEnvironment(normalizedServerEnv()) {
+		confirmations = defaultLiveConfirmations
 	}
 	return CREConfig{
-		Enabled:                       enabled,
-		Provider:                      strings.ToLower(strings.TrimSpace(envStr("CRE_PROVIDER", CREProviderNone))),
-		Chain:                         strings.TrimSpace(envStr("CRE_CHAIN", "ethereum-testnet-sepolia-base-1")),
-		ChainRPCURL:                   strings.TrimSpace(envStr("CRE_CHAIN_RPC_URL", "")),
-		ConsumerAddress:               strings.TrimSpace(envStr("CRE_CONSUMER_ADDRESS", "")),
-		ForwarderAddress:              strings.TrimSpace(envStr("CRE_FORWARDER_ADDRESS", "")),
-		WorkflowOwner:                 strings.TrimSpace(envStr("CRE_WORKFLOW_OWNER", "")),
-		GatewayURL:                    strings.TrimRight(strings.TrimSpace(envStr("CRE_GATEWAY_URL", "https://01.gateway.zone-a.cre.chain.link")), "/"),
-		WorkflowIDSolvency:            strings.TrimSpace(envStr("CRE_WORKFLOW_ID_SOLVENCY", "")),
-		WorkflowIDDepositFinality:     strings.TrimSpace(envStr("CRE_WORKFLOW_ID_DEPOSIT_FINALITY", "")),
-		WorkflowIDConversionReference: strings.TrimSpace(envStr("CRE_WORKFLOW_ID_CONVERSION_REFERENCE", "")),
-		TriggerSigner:                 strings.TrimSpace(envStr("CRE_TRIGGER_SIGNER", "")),
-		SolvencyInterval:              solvency,
-		FinalityBatchInterval:         finality,
-		PollInterval:                  poll,
-		MaxReportAge:                  maxAge,
-		VerifyConfirmations:           confirmations,
-		PublicVerifyEnabled:           publicVerify,
-		PublicBaseURL:                 strings.TrimRight(strings.TrimSpace(envStr("CRE_PUBLIC_BASE_URL", "")), "/"),
-		ReadTokenSolvency:             strings.TrimSpace(envStr("CRE_READ_TOKEN_SOLVENCY", "")),
-		ReadTokenDepositFinality:      strings.TrimSpace(envStr("CRE_READ_TOKEN_DEPOSIT_FINALITY", "")),
-		ReadTokenConversionReference:  strings.TrimSpace(envStr("CRE_READ_TOKEN_CONVERSION_REFERENCE", "")),
-		AssetDecimals:                 strings.TrimSpace(envStr("CRE_ASSET_DECIMALS", "")),
+		Enabled:                          enabled,
+		Provider:                         strings.ToLower(strings.TrimSpace(envStr("CRE_PROVIDER", CREProviderNone))),
+		Chain:                            strings.TrimSpace(envStr("CRE_CHAIN", "ethereum-testnet-sepolia-base-1")),
+		ChainRPCURL:                      strings.TrimSpace(envStr("CRE_CHAIN_RPC_URL", "")),
+		ConsumerAddress:                  strings.TrimSpace(envStr("CRE_CONSUMER_ADDRESS", "")),
+		ForwarderAddress:                 strings.TrimSpace(envStr("CRE_FORWARDER_ADDRESS", "")),
+		WorkflowOwner:                    strings.TrimSpace(envStr("CRE_WORKFLOW_OWNER", "")),
+		GatewayURL:                       strings.TrimRight(strings.TrimSpace(envStr("CRE_GATEWAY_URL", "https://01.gateway.zone-a.cre.chain.link")), "/"),
+		WorkflowIDSolvency:               strings.TrimSpace(envStr("CRE_WORKFLOW_ID_SOLVENCY", "")),
+		WorkflowIDDepositFinality:        strings.TrimSpace(envStr("CRE_WORKFLOW_ID_DEPOSIT_FINALITY", "")),
+		WorkflowIDConversionReference:    strings.TrimSpace(envStr("CRE_WORKFLOW_ID_CONVERSION_REFERENCE", "")),
+		WorkflowOwnerSolvency:            strings.TrimSpace(envStr("CRE_WORKFLOW_OWNER_SOLVENCY", "")),
+		WorkflowOwnerDepositFinality:     strings.TrimSpace(envStr("CRE_WORKFLOW_OWNER_DEPOSIT_FINALITY", "")),
+		WorkflowOwnerConversionReference: strings.TrimSpace(envStr("CRE_WORKFLOW_OWNER_CONVERSION_REFERENCE", "")),
+		WorkflowNameSolvency:             strings.TrimSpace(envStr("CRE_WORKFLOW_NAME_SOLVENCY", "solvency")),
+		WorkflowNameDepositFinality:      strings.TrimSpace(envStr("CRE_WORKFLOW_NAME_DEPOSIT_FINALITY", "deposit-finality")),
+		WorkflowNameConversionReference:  strings.TrimSpace(envStr("CRE_WORKFLOW_NAME_CONVERSION_REFERENCE", "conversion-reference")),
+		TriggerSigner:                    strings.TrimSpace(envStr("CRE_TRIGGER_SIGNER", "")),
+		SolvencyInterval:                 solvency,
+		FinalityBatchInterval:            finality,
+		PollInterval:                     poll,
+		VerifyConfirmations:              confirmations,
+		PublicVerifyEnabled:              publicVerify,
+		PublicBaseURL:                    strings.TrimRight(strings.TrimSpace(envStr("CRE_PUBLIC_BASE_URL", "")), "/"),
+		ReadTokenSolvency:                strings.TrimSpace(envStr("CRE_READ_TOKEN_SOLVENCY", "")),
+		ReadTokenDepositFinality:         strings.TrimSpace(envStr("CRE_READ_TOKEN_DEPOSIT_FINALITY", "")),
+		ReadTokenConversionReference:     strings.TrimSpace(envStr("CRE_READ_TOKEN_CONVERSION_REFERENCE", "")),
+		AssetDecimals:                    strings.TrimSpace(envStr("CRE_ASSET_DECIMALS", "")),
 	}, nil
 }
 
@@ -166,10 +177,13 @@ func (c *CREConfig) validate(environment string) error {
 	if c.PollInterval < 5*time.Second {
 		return fmt.Errorf("CRE_POLL_INTERVAL must be at least 5s; got %s", c.PollInterval)
 	}
-	if c.MaxReportAge < time.Minute {
-		return fmt.Errorf("CRE_MAX_REPORT_AGE must be at least 1m; got %s", c.MaxReportAge)
+	for key, value := range map[string]string{"CRE_READ_TOKEN_SOLVENCY": c.ReadTokenSolvency, "CRE_READ_TOKEN_DEPOSIT_FINALITY": c.ReadTokenDepositFinality, "CRE_READ_TOKEN_CONVERSION_REFERENCE": c.ReadTokenConversionReference} {
+		if value != "" && len(value) < minReadTokenLength {
+			return fmt.Errorf("%s must be at least %d characters (openssl rand -hex 32)", key, minReadTokenLength)
+		}
 	}
-	for key, value := range map[string]string{"CRE_CONSUMER_ADDRESS": c.ConsumerAddress, "CRE_FORWARDER_ADDRESS": c.ForwarderAddress, "CRE_WORKFLOW_OWNER": c.WorkflowOwner} {
+	for key, value := range map[string]string{"CRE_CONSUMER_ADDRESS": c.ConsumerAddress, "CRE_FORWARDER_ADDRESS": c.ForwarderAddress, "CRE_WORKFLOW_OWNER": c.WorkflowOwner,
+		"CRE_WORKFLOW_OWNER_SOLVENCY": c.WorkflowOwnerSolvency, "CRE_WORKFLOW_OWNER_DEPOSIT_FINALITY": c.WorkflowOwnerDepositFinality, "CRE_WORKFLOW_OWNER_CONVERSION_REFERENCE": c.WorkflowOwnerConversionReference} {
 		if value != "" && !evmAddressPattern.MatchString(value) {
 			return fmt.Errorf("%s must be a 0x-prefixed 20-byte hex address; got %q", key, value)
 		}
@@ -178,6 +192,9 @@ func (c *CREConfig) validate(environment string) error {
 		if value != "" && !workflowIDPattern.MatchString(value) {
 			return fmt.Errorf("%s must be a 32-byte hex workflow id; got %q", key, value)
 		}
+	}
+	if c.Provider == CREProviderChainlink && live && c.VerifyConfirmations == 0 {
+		return fmt.Errorf("%s CRE_VERIFY_CONFIRMATIONS must be above zero so a failing finalized tag never means zero confirmations", strings.ToLower(environment))
 	}
 	if c.Provider == CREProviderMock {
 		if live {
@@ -211,14 +228,28 @@ func envDuration(key string, fallback time.Duration) (time.Duration, error) {
 	return d, nil
 }
 
-func envUint64(key string) (uint64, error) {
+// minReadTokenLength keeps a workflow credential at 32 bytes of hex or better; it is only ever compared by hash.
+const minReadTokenLength = 32
+
+// defaultLiveConfirmations applies when CRE_VERIFY_CONFIRMATIONS is unset in staging and production.
+const defaultLiveConfirmations = 12
+
+func normalizedServerEnv() string {
+	env, err := normalizeEnvironment(envStr("SERVER", EnvironmentDevelopment))
+	if err != nil {
+		return EnvironmentDevelopment
+	}
+	return env
+}
+
+func envUint64Opt(key string) (uint64, bool, error) {
 	raw := strings.TrimSpace(envStrRaw(key))
 	if raw == "" {
-		return 0, nil
+		return 0, false, nil
 	}
 	var n uint64
 	if _, err := fmt.Sscanf(raw, "%d", &n); err != nil || fmt.Sprint(n) != raw {
-		return 0, fmt.Errorf("%s must be a non-negative integer; got %q", key, raw)
+		return 0, false, fmt.Errorf("%s must be a non-negative integer; got %q", key, raw)
 	}
-	return n, nil
+	return n, true, nil
 }

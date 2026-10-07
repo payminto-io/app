@@ -67,6 +67,8 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   dismissed: { label: "Dismissed", tone: "mute", glyph: "minus" },
   // attestations
   attested: { label: "Attested", tone: "ok", glyph: "check" },
+  mismatch: { label: "Mismatch", tone: "bad", glyph: "x" },
+  ignored: { label: "Superseded", tone: "mute", glyph: "minus" },
   accepted: { label: "Accepted", tone: "ok", glyph: "check" },
   fresh: { label: "Fresh", tone: "ok", glyph: "check" },
   stale: { label: "Stale", tone: "wait", glyph: "clock" },
