@@ -103,6 +103,7 @@ func TestPayRefusesBadPayerInput(t *testing.T) {
 	}{
 		{"no idempotency key", CodeIdempotencyKeyRequired, "Idempotency-Key", nil, func(r *PayRequest) { r.IdempotencyKey = " " }},
 		{"method not on the link", CodeMethodNotEnabled, "method", nil, func(r *PayRequest) { r.Method = upi }},
+		{"absurd amount", CodeAmountInvalid, "amount", nil, func(r *PayRequest) { r.Amount = decp("1e999999999") }},
 		{"client amount on a fixed link", CodeAmountNotAllowed, "amount", nil, func(r *PayRequest) { r.Amount = decp("0.01") }},
 		{"hidden field sent", CodeCustomerFieldHidden, "customer.phone", nil, func(r *PayRequest) { r.Customer.Phone = strp("+14155550123") }},
 		{"required field missing", CodeCustomerFieldRequired, "customer.name", func(in *Input) { in.CustomerFields.Name.Mode = FieldRequired }, nil},

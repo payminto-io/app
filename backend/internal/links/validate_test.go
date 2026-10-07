@@ -24,6 +24,15 @@ func TestCreateRefusesEveryShapeRule(t *testing.T) {
 		{"negative amount", CodeAmountInvalid, "amount", func(in *Input) { in.Amount = decp("-1") }},
 		{"amount finer than cents", CodeAmountInvalid, "amount", func(in *Input) { in.Amount = decp("1.001") }},
 		{"absurd amount", CodeAmountInvalid, "amount", func(in *Input) { in.Amount = decp("1e30") }},
+		{"absurd amount without currency", CodeAmountInvalid, "amount", func(in *Input) { in.Currency, in.Amount = "", decp("1e999999999") }},
+		{"absurd line item price", CodeLineItemInvalid, "line_items[0].unit_price", func(in *Input) {
+			in.AmountMode, in.Amount = AmountLineItems, nil
+			in.LineItems = []LineItem{{Name: "a", Quantity: 1, UnitPrice: dec("1e999999999")}}
+		}},
+		{"absurd tax rate", CodeLineItemInvalid, "line_items[0].tax_rate", func(in *Input) {
+			in.AmountMode, in.Amount = AmountLineItems, nil
+			in.LineItems = []LineItem{{Name: "a", Quantity: 1, UnitPrice: dec("1"), TaxRate: dec("-1e-999999999")}}
+		}},
 		{"yen with decimals", CodeAmountInvalid, "amount", func(in *Input) { in.Currency, in.Amount = "JPY", decp("100.5") }},
 		{"fixed with bounds", CodeAmountBoundsNotAllowed, "amount_min", func(in *Input) { in.AmountMin = decp("1") }},
 		{"fixed with line items", CodeLineItemsNotAllowed, "line_items", func(in *Input) {

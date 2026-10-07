@@ -1,6 +1,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/payminto/payminto/backend/internal/api/handler"
 	"github.com/payminto/payminto/backend/internal/api/middleware"
@@ -11,6 +13,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/payminto/payminto/backend/internal/service"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -80,6 +83,12 @@ type RouterConfig struct {
 
 	// Fees is the fee rules module (internal/fees); nil leaves its routes unmounted.
 	Fees *modules.FeesModule
+
+	// Links is the payment links module (internal/links); nil leaves its /api/v2 routes unmounted.
+	Links *modules.LinksModule
+
+	// Redis backs the public rate limits; nil disables them (middleware.RateLimit).
+	Redis *redis.Client
 }
 
 // NewRouter constructs and returns a configured Gin engine.
@@ -426,5 +435,23 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 		RegisterFeesRoutes(v1, cfg.Fees, auth)
 	}
 
+	// ---- Payment links: merchant CRUD (session or API key) and the public checkout, rate limited per IP ----
+	if cfg.Links != nil {
+		auth := LinksAuth{
+			PublicRead: middleware.RateLimitScoped(cfg.Redis, "links:read", linksPublicReadPerMinute, time.Minute),
+			PublicPay:  middleware.RateLimitScoped(cfg.Redis, "links:pay", linksPublicPayPerMinute, time.Minute),
+		}
+		if cfg.AuthSvc != nil {
+			auth.Merchant = middleware.JWTOrAPIKey(cfg.AuthSvc)
+		}
+		RegisterLinksRoutes(r.Group("/api/v2"), cfg.Links, auth)
+	}
+
 	return r
 }
+
+// Public link limits per IP per minute; a checkout loads the link a few times and pays once or twice.
+const (
+	linksPublicReadPerMinute = 120
+	linksPublicPayPerMinute  = 20
+)

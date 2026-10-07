@@ -89,9 +89,14 @@ func payAmount(l Link, requested *decimal.Decimal, places int32) (decimal.Decima
 // maxMoney keeps values inside numeric(38,18) and refuses absurd exponents before any arithmetic.
 var maxMoney = decimal.New(1, 20)
 
+// sane bounds a decimal's exponent and digits before any arithmetic, so 1e999999999 costs nothing.
+func sane(v decimal.Decimal) bool {
+	return v.Exponent() >= -40 && v.Exponent() <= 40 && v.NumDigits() <= 40
+}
+
 // checkMoney requires a positive value no finer than the currency's minor unit.
 func checkMoney(field string, v decimal.Decimal, places int32) error {
-	if v.Exponent() < -40 || v.Exponent() > 40 || !v.Abs().LessThan(maxMoney) {
+	if !sane(v) || !v.Abs().LessThan(maxMoney) {
 		return newErr(CodeAmountInvalid, field, "out of range")
 	}
 	if !v.IsPositive() {

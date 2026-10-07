@@ -482,6 +482,9 @@ func (s *Service) Pay(ctx context.Context, code string, req PayRequest) (PayResu
 	if key == "" || len(key) > maxIdempotencyKey {
 		return PayResult{}, newErr(CodeIdempotencyKeyRequired, "Idempotency-Key", "send a unique Idempotency-Key header of 1-%d characters", maxIdempotencyKey)
 	}
+	if req.Amount != nil && !sane(*req.Amount) {
+		return PayResult{}, newErr(CodeAmountInvalid, "amount", "out of range")
+	}
 	l, err := s.publicLink(ctx, code)
 	if err != nil {
 		return PayResult{}, err

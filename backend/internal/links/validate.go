@@ -116,6 +116,10 @@ func validateShape(in Input, p fees.Precision) []*Error {
 		}
 	}
 	money := func(field string, v *decimal.Decimal) {
+		if v != nil && (!sane(*v) || !v.Abs().LessThan(maxMoney)) {
+			add(CodeAmountInvalid, field, "out of range")
+			return
+		}
 		if v == nil || !currencyOK {
 			return
 		}
@@ -265,11 +269,11 @@ func validateLineItems(items []LineItem, places int32, currencyOK bool) []*Error
 			errs = append(errs, newErr(CodeLineItemInvalid, field("name"), "is required, at most %d characters", maxTitle))
 		case li.Quantity < 1 || li.Quantity > maxQuantity:
 			errs = append(errs, newErr(CodeLineItemInvalid, field("quantity"), "must be 1-%d", maxQuantity))
-		case li.UnitPrice.IsNegative() || !li.UnitPrice.Abs().LessThan(maxMoney) || li.UnitPrice.Exponent() < -40:
+		case !sane(li.UnitPrice) || li.UnitPrice.IsNegative() || !li.UnitPrice.Abs().LessThan(maxMoney):
 			errs = append(errs, newErr(CodeLineItemInvalid, field("unit_price"), "must be zero or positive"))
 		case currencyOK && !li.UnitPrice.Equal(li.UnitPrice.Truncate(places)):
 			errs = append(errs, newErr(CodeLineItemInvalid, field("unit_price"), "has more than %d decimal places", places))
-		case li.TaxRate.IsNegative() || li.TaxRate.GreaterThan(hundred) || !li.TaxRate.Equal(li.TaxRate.Truncate(6)):
+		case !sane(li.TaxRate) || li.TaxRate.IsNegative() || li.TaxRate.GreaterThan(hundred) || !li.TaxRate.Equal(li.TaxRate.Truncate(6)):
 			errs = append(errs, newErr(CodeLineItemInvalid, field("tax_rate"), "must be 0-100 percent with at most 6 decimals"))
 		}
 	}
