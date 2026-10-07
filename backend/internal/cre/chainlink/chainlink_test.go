@@ -3,6 +3,7 @@ package chainlink
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -241,8 +242,14 @@ func TestTriggerJWT(t *testing.T) {
 	if _, err := VerifyTriggerJWT(req.JWT, req.Body, now.Add(6*time.Minute)); err == nil {
 		t.Fatal("expired token verified")
 	}
+	// Tamper inside r: overwriting the base64 tail only touches v and two bits of s, which are often already zero.
 	parts := strings.Split(req.JWT, ".")
-	if _, err := VerifyTriggerJWT(parts[0]+"."+parts[1]+"."+parts[2][:len(parts[2])-2]+"AA", req.Body, now); err == nil {
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil || len(sig) != 65 {
+		t.Fatalf("signature segment: %d bytes, %v", len(sig), err)
+	}
+	sig[0] ^= 0x01
+	if _, err := VerifyTriggerJWT(parts[0]+"."+parts[1]+"."+base64.RawURLEncoding.EncodeToString(sig), req.Body, now); err == nil {
 		t.Fatal("tampered signature verified")
 	}
 	// The API process never holds a key: an unavailable signer yields no request at all.
