@@ -87,9 +87,11 @@ type NextAction struct {
 }
 
 type AuthorizeRequest struct {
-	AttemptID      string
-	IntentID       string
-	MerchantID     string
+	AttemptID  string
+	IntentID   string
+	MerchantID string
+	// PlatformID is the tenant the merchant acts under (Payminto external platform); chain deposits need it.
+	PlatformID     string
 	Money          Money
 	CaptureMethod  CaptureMethod
 	PaymentMethod  PaymentMethod

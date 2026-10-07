@@ -95,6 +95,7 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 		AttemptID:      attempt.ID,
 		IntentID:       intent.ID,
 		MerchantID:     merchantID,
+		PlatformID:     intent.PlatformID,
 		Money:          Money{Amount: intent.Amount, Asset: intent.Asset},
 		CaptureMethod:  intent.CaptureMethod,
 		PaymentMethod:  pm,
