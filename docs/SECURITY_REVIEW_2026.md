@@ -64,3 +64,11 @@ Do not enable mainnet RPCs, custody workers, withdrawal processing, or real-valu
 - Ledger accounts are unique per environment; `ledger.Service` resolves the environment from the key, the request context, then the process default, and asks the guard before every write and owner-level read.
 - Boot tests: `backend/cmd/server/main_test.go` (refusals exit non-zero) and `boot_integration_test.go` (test and live processes start; a test key on a live process is 401).
 
+Fix round 1 (same day), after review:
+
+- Sessions are bound to the environment: HS256 keys are HKDF-derived from `JWT_SECRET` per environment, every token carries and must present `aud = payminto:<env>`, refresh-token hashes are HMACs keyed per environment, and OTP hashes fold the environment in. A token minted by a test process answers 401 `session_environment_mismatch` on live. Live refuses a `JWT_SECRET` that is a shipped development default or shorter than 32 bytes.
+- The database is the authority: `current_database()` and the one-row `gateway_environment` stamp are checked after connecting and before any schema work, by the server, `cmd/migrate` and `cmd/devseed`; the stamp is written on first boot. Connection parameters are quoted in the DSN and rejected when they contain whitespace, quotes, backslashes or `=`.
+- The ledger migration is additive again: the five-column account index is added beside the four-column one (ticket 17 drops it), CHECK constraints are added `NOT VALID` then validated, and idempotency keys are scoped to the environment.
+- `cmd/migrate adopt-live` is the only path that relabels rows, through a `SECURITY DEFINER` function owned by `ledger_owner` that only the migrator may execute.
+- Live judges the provider each slot resolves to, not the configured string; wiring fails closed without an environment; webhook payloads carry a signed `environment`.
+
