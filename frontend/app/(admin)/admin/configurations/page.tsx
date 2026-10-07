@@ -48,9 +48,9 @@ export default function ConfigurationsPage() {
   }, [data]);
 
   const columns: DataTableColumn<Configuration>[] = [
-    { key: "key", header: "Key", cell: (r) => <span className="font-mono text-label font-medium">{r.key}</span> },
+    { key: "key", stack: "lead", header: "Key", cell: (r) => <span className="font-mono text-label font-medium">{r.key}</span> },
     {
-      key: "value",
+      key: "value", stack: "meta",
       header: "Value",
       cell: (r) => (
         <span className="block max-w-xs truncate font-mono text-label text-ink-soft" title={r.value}>
@@ -59,13 +59,13 @@ export default function ConfigurationsPage() {
       ),
     },
     {
-      key: "updated",
+      key: "updated", stack: "meta",
       header: "Updated",
       className: "text-ink-soft",
       cell: (r) => <DateTime value={r.updatedAt} format="date" />,
     },
     {
-      key: "edit",
+      key: "edit", stack: "action",
       header: <span className="sr-only">Edit</span>,
       align: "right",
       className: "w-0",

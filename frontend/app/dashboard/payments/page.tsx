@@ -31,14 +31,14 @@ const PAGE_SIZE = 20;
 
 const COLUMNS: DataTableColumn<Payment>[] = [
   {
-    key: "amount",
+    key: "amount", stack: "lead",
     header: "Amount",
     align: "right",
     className: "w-0",
     cell: (p) => <CurrencyDisplay amount={p.amountInUSD} currency="USD" size="sm" />,
   },
   {
-    key: "status",
+    key: "status", stack: "trail",
     header: "Status",
     cell: (p) => {
       const rail = paymentRail(p.paymentState);
@@ -51,7 +51,7 @@ const COLUMNS: DataTableColumn<Payment>[] = [
     },
   },
   {
-    key: "reference",
+    key: "reference", stack: "meta",
     header: "Reference",
     cell: (p) => (
       <Link
@@ -65,13 +65,13 @@ const COLUMNS: DataTableColumn<Payment>[] = [
     ),
   },
   {
-    key: "customer",
+    key: "customer", stack: "meta",
     header: "Customer",
     className: "text-ink-soft",
     cell: (p) => p.customerEmail ?? null,
   },
   {
-    key: "created",
+    key: "created", stack: "meta",
     header: "Created",
     align: "right",
     className: "text-ink-soft",

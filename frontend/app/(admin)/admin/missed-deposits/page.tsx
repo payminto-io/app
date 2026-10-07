@@ -31,33 +31,33 @@ export default function MissedDepositsPage() {
 
   const columns: DataTableColumn<MissedDeposit>[] = [
     {
-      key: "amount",
+      key: "amount", stack: "lead",
       header: "Amount",
       align: "right",
       className: "w-0",
       cell: (d) => <CurrencyDisplay amount={d.amount} currency={d.currencyCode} size="sm" />,
     },
-    { key: "chain", header: "Chain", className: "text-ink-soft", cell: (d) => chainName(d.blockchainCode) },
-    { key: "status", header: "Status", cell: (d) => <StatusBadge status={d.status} /> },
+    { key: "chain", stack: "meta", header: "Chain", className: "text-ink-soft", cell: (d) => chainName(d.blockchainCode) },
+    { key: "status", stack: "trail", header: "Status", cell: (d) => <StatusBadge status={d.status} /> },
     {
-      key: "address",
+      key: "address", stack: "detail",
       header: "Address",
       cell: (d) => <CopyField value={d.address} display={truncateAddr(d.address)} boxed={false} />,
     },
     {
-      key: "tx",
+      key: "tx", stack: "detail",
       header: "Transaction",
       cell: (d) => <CopyField value={d.transactionHash} display={truncateAddr(d.transactionHash)} boxed={false} />,
     },
     {
-      key: "created",
+      key: "created", stack: "meta",
       header: "Seen",
       align: "right",
       className: "text-ink-soft",
       cell: (d) => <DateTime value={d.createdAt} />,
     },
     {
-      key: "actions",
+      key: "actions", stack: "action",
       header: <span className="sr-only">Actions</span>,
       align: "right",
       className: "w-0",

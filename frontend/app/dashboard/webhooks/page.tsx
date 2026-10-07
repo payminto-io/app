@@ -39,7 +39,7 @@ const AVAILABLE_EVENTS = [
 
 const COLUMNS: DataTableColumn<RedactedWebhook>[] = [
   {
-    key: "url",
+    key: "url", stack: "lead",
     header: "Endpoint",
     cell: (wh) => (
       <Link
@@ -52,10 +52,10 @@ const COLUMNS: DataTableColumn<RedactedWebhook>[] = [
       </Link>
     ),
   },
-  { key: "events", header: "Events", cell: (wh) => <EventList events={wh.events} max={2} /> },
-  { key: "status", header: "Status", cell: (wh) => <StatusBadge status={wh.active ? "active" : "inactive"} /> },
+  { key: "events", stack: "meta", header: "Events", cell: (wh) => <EventList events={wh.events} max={2} /> },
+  { key: "status", stack: "trail", header: "Status", cell: (wh) => <StatusBadge status={wh.active ? "active" : "inactive"} /> },
   {
-    key: "created",
+    key: "created", stack: "meta",
     header: "Created",
     align: "right",
     className: "text-ink-soft",

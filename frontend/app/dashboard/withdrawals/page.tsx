@@ -50,26 +50,26 @@ function truncateMiddle(value: string): string {
 
 const COLUMNS: DataTableColumn<Withdrawal>[] = [
   {
-    key: "amount",
+    key: "amount", stack: "lead",
     header: "Amount",
     align: "right",
     className: "w-0",
     cell: (w) => <CurrencyDisplay amount={w.amount} currency={w.currencyCode} size="sm" />,
   },
-  { key: "status", header: "Status", cell: (w) => <StatusBadge status={presentWithdrawalState(w.state)} /> },
+  { key: "status", stack: "trail", header: "Status", cell: (w) => <StatusBadge status={presentWithdrawalState(w.state)} /> },
   {
-    key: "recipient",
+    key: "recipient", stack: "meta",
     header: "Recipient",
     cell: (w) => <CopyField value={w.recipientAddress} display={truncateMiddle(w.recipientAddress)} boxed={false} />,
   },
   {
-    key: "chain",
+    key: "chain", stack: "detail",
     header: "Chain",
     className: "text-ink-soft",
     cell: (w) => chainName(w.blockchainCode),
   },
   {
-    key: "tx",
+    key: "tx", stack: "detail",
     header: "Transaction",
     cell: (w) => {
       const chain = EXPLORER_CHAIN[w.blockchainCode?.toUpperCase()];
@@ -88,7 +88,7 @@ const COLUMNS: DataTableColumn<Withdrawal>[] = [
     },
   },
   {
-    key: "created",
+    key: "created", stack: "meta",
     header: "Created",
     align: "right",
     className: "text-ink-soft",

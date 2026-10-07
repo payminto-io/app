@@ -26,23 +26,23 @@ export default function MembersPage() {
   }
 
   const columns: DataTableColumn<Member>[] = [
-    { key: "name", header: "Name", className: "font-medium", cell: (m) => m.name },
-    { key: "email", header: "Email", className: "text-ink-soft", cell: (m) => m.email },
+    { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (m) => m.name },
+    { key: "email", stack: "meta", header: "Email", className: "text-ink-soft", cell: (m) => m.email },
     {
-      key: "role",
+      key: "role", stack: "meta",
       header: "Role",
       cell: (m) => (m.memberType ? <span className="capitalize">{m.memberType}</span> : null),
     },
-    { key: "status", header: "Status", cell: (m) => <StatusBadge status={m.active ? "active" : "inactive"} /> },
+    { key: "status", stack: "trail", header: "Status", cell: (m) => <StatusBadge status={m.active ? "active" : "inactive"} /> },
     {
-      key: "joined",
+      key: "joined", stack: "detail",
       header: "Joined",
       align: "right",
       className: "text-ink-soft",
       cell: (m) => <DateTime value={m.createdAt} format="date" />,
     },
     {
-      key: "actions",
+      key: "actions", stack: "action",
       header: <span className="sr-only">Actions</span>,
       align: "right",
       className: "w-0",

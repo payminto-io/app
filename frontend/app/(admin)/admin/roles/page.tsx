@@ -15,7 +15,7 @@ export default function RolesPage() {
 
   const columns: DataTableColumn<Role>[] = [
     {
-      key: "name",
+      key: "name", stack: "lead",
       header: "Role",
       cell: (r) => (
         <span className="inline-flex items-center gap-2">
@@ -25,14 +25,14 @@ export default function RolesPage() {
       ),
     },
     {
-      key: "description",
+      key: "description", stack: "meta",
       header: "Description",
       className: "text-ink-soft max-w-[420px] truncate",
       cell: (r) => r.description ?? null,
     },
-    { key: "permissions", header: "Permissions", align: "right", cell: (r) => r.permissions.length },
+    { key: "permissions", stack: "detail", header: "Permissions", align: "right", cell: (r) => r.permissions.length },
     {
-      key: "edit",
+      key: "edit", stack: "action",
       header: <span className="sr-only">Edit</span>,
       align: "right",
       className: "w-0",
