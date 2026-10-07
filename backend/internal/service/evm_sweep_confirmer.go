@@ -127,7 +127,7 @@ func (c *EVMSweepConfirmer) trackOne(ctx context.Context, tx *models.SweepTransa
 			return false
 		}
 		// MarkCompleted is idempotent (atomic conditional update + ledger).
-		if err := c.sweepSvc.MarkCompleted(tx.SweepID, tx.Amount, tx.GasFee, tx.BlockchainCurrencyID); err != nil {
+		if err := c.sweepSvc.MarkCompleted(ctx, tx.SweepID, tx.Amount, tx.GasFee, tx.BlockchainCurrencyID); err != nil {
 			log.Printf("[EVMSweepConfirmer] sweep %d mark completed: %v", tx.SweepID, err)
 		}
 		log.Printf("[EVMSweepConfirmer] sweep tx %d confirmed (%d/%d) tx=%s", tx.ID, confs, required, tx.TxHash)

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -14,8 +15,8 @@ import (
 
 // InternalBlockchainTxPurpose constants for InternalBlockchainTransaction rows.
 const (
-	IBTPurposeGasFunding = "gas_funding"  // fund deposit address with ETH for ERC-20 sweep
-	IBTPurposeInternal   = "internal"     // generic internal move
+	IBTPurposeGasFunding = "gas_funding" // fund deposit address with ETH for ERC-20 sweep
+	IBTPurposeInternal   = "internal"    // generic internal move
 )
 
 // InternalBlockchainTransactionService records gas-fee transfers and other
@@ -76,8 +77,13 @@ func (s *InternalBlockchainTransactionService) RecordGasFunding(
 		Status:               "pending",
 	}
 
+	ctx := context.Background()
 	txErr := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := s.ibtRepo.Create(ibt); err != nil {
+		repo := s.ibtRepo
+		if binder, ok := repo.(repository.InternalBlockchainTransactionTxBinder); ok {
+			repo = binder.WithTx(tx)
+		}
+		if err := repo.Create(ibt); err != nil {
 			return fmt.Errorf("record gas funding: create ibt: %w", err)
 		}
 
@@ -87,7 +93,7 @@ func (s *InternalBlockchainTransactionService) RecordGasFunding(
 			ibt.ID, fromAddress, toAddress, amount.String())
 
 		// Record the gas cost in the ledger as an expense.
-		if err := s.ledgerService.RecordGasFee(ibt.ID, blockchainCurrencyID, estimatedGas); err != nil {
+		if err := s.ledgerService.RecordGasFeeIn(ctx, tx, ibt.ID, blockchainCurrencyID, estimatedGas); err != nil {
 			return fmt.Errorf("record gas funding: ledger gas fee for ibt %d: %w", ibt.ID, err)
 		}
 		return nil
