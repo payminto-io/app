@@ -2,7 +2,7 @@
 
 An open-source, self-hostable payment gateway that connects multiple payment providers and stablecoins as peer rails on one double-entry ledger, with an optional Chainlink CRE workflow that proves the gateway is solvent.
 
-**Website:** [payminto.io](https://payminto.io) | **App:** [app.payminto.io](https://app.payminto.io) | [more](website.md)
+**Website:** [payminto.io](https://payminto.io) | **App:** [app.payminto.io](https://app.payminto.io) | **Checkout:** [checkout.payminto.io](https://checkout.payminto.io) | [more](website.md)
 
 ![Dashboard](docs/design/screens/pages/home-1440-light.png)
 
