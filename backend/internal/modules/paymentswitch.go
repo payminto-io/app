@@ -3,7 +3,6 @@ package modules
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,10 +11,12 @@ import (
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
 	"github.com/payminto/payminto/backend/internal/connectors/mock"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/paymentswitch"
 )
 
-var ErrMockInDeployment = errors.New("modules: the mock connector cannot run in a deployment environment")
+// ConnectorsSlot is the slot name of environment.KnownSlots the connectors module answers to.
+const ConnectorsSlot = "connectors"
 
 type PaymentSwitchModule struct {
 	Service    *paymentswitch.Service
@@ -53,6 +54,15 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 		return nil, fmt.Errorf("modules: paymentswitch needs DB, Ledger and Config")
 	}
 	deployment := deps.Config.Server.Environment == config.EnvironmentProduction || deps.Config.Server.Environment == config.EnvironmentStaging
+	var guard environment.Guard
+	if deps.Environment != nil {
+		guard = deps.Environment.Guard
+	} else {
+		if deployment {
+			return nil, fmt.Errorf("modules: paymentswitch needs the environment module in %s", deps.Config.Server.Environment)
+		}
+		guard, _ = environment.NewGuard(environment.Test)
+	}
 	registry := connectors.NewRegistry()
 	var enabled []connectors.Code
 	for _, raw := range deps.Config.Switch.Connectors {
@@ -60,12 +70,13 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 		if code == "" || slices.Contains(enabled, code) {
 			continue
 		}
+		// Connectors are a slot: live refuses the mock through the environment guard.
+		if err := guard.(*environment.ProcessGuard).RequireProvider(ConnectorsSlot, string(code)); err != nil {
+			return nil, err
+		}
 		var c connectors.Connector
 		switch code {
 		case mock.Code:
-			if deployment {
-				return nil, fmt.Errorf("%w: %s", ErrMockInDeployment, deps.Config.Server.Environment)
-			}
 			c = mock.New(mock.WithSecret(deps.Config.Switch.MockWebhookSecret))
 		case chaindeposit.Code:
 			if deps.ChainDeposit == nil {
@@ -97,7 +108,7 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 	} else if deployment {
 		return nil, fmt.Errorf("modules: paymentswitch needs the fees module in %s", deps.Config.Server.Environment)
 	}
-	opts = append(opts, paymentswitch.WithLease(deps.Config.Switch.ClaimLease), paymentswitch.WithLateReceiptRetention(deps.Config.Switch.LateReceiptRetention))
+	opts = append(opts, paymentswitch.WithGuard(guard), paymentswitch.WithLease(deps.Config.Switch.ClaimLease), paymentswitch.WithLateReceiptRetention(deps.Config.Switch.LateReceiptRetention))
 	svc := paymentswitch.New(deps.DB, registry, selector, deps.Ledger, opts...)
 	return &PaymentSwitchModule{
 		Service:    svc,

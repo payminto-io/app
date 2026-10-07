@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/payminto/payminto/backend/internal/connectors"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -37,6 +38,7 @@ type Service struct {
 	fees       Fees
 	records    PaymentRecords
 	events     Events
+	guard      environment.Guard
 	lease      time.Duration
 	retention  time.Duration
 	now        func() time.Time
@@ -56,6 +58,17 @@ func WithIDs(gen func(prefix string) string) Option {
 	return func(s *Service) { s.newID = gen }
 }
 func WithEvents(e Events) Option { return func(s *Service) { s.events = e } }
+
+// WithGuard binds the service to the process environment (ticket 13): every write requires the context's
+// environment to match, rows and ledger lines carry it, and reads never cross it. Without it the service is a
+// test-environment service.
+func WithGuard(g environment.Guard) Option {
+	return func(s *Service) {
+		if g != nil {
+			s.guard = g
+		}
+	}
+}
 
 // WithFees wires the fee-rules port and the payment records it prices against; both or neither.
 func WithFees(f Fees, r PaymentRecords) Option {
@@ -99,7 +112,28 @@ func New(db *gorm.DB, lookup connectors.Lookup, selector ConnectorSelector, ledg
 	for _, o := range opts {
 		o(s)
 	}
+	if s.guard == nil {
+		s.guard, _ = environment.NewGuard(environment.Test)
+	}
 	return s
+}
+
+// env is the environment this service serves.
+func (s *Service) env() environment.Environment { return s.guard.Current() }
+
+// requireEnv refuses a request tagged for the other environment before any write.
+func (s *Service) requireEnv(ctx context.Context) error { return s.guard.Require(ctx, "") }
+
+// loadIntent reads an intent of this merchant in this environment; the other environment's rows do not exist here.
+func (s *Service) loadIntent(db *gorm.DB, merchantID, intentID string) (IntentRow, error) {
+	row, err := loadIntentRow(db, merchantID, intentID)
+	if err != nil {
+		return IntentRow{}, err
+	}
+	if row.Environment != s.env() {
+		return IntentRow{}, fmt.Errorf("%w: intent %s", ErrNotFound, intentID)
+	}
+	return row, nil
 }
 
 // Migrate creates the switch tables and constraints for development and test; production uses the
@@ -240,6 +274,9 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error)
 	if err := cmd.validate(); err != nil {
 		return Intent{}, err
 	}
+	if err := s.requireEnv(ctx); err != nil {
+		return Intent{}, err
+	}
 	if cmd.IdempotencyKey == "" {
 		cmd.IdempotencyKey = s.newID("idem")
 	}
@@ -249,6 +286,7 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error)
 		ID:               s.newID("pi"),
 		MerchantID:       cmd.MerchantID,
 		PlatformID:       cmd.PlatformID,
+		Environment:      s.env(),
 		IdempotencyKey:   cmd.IdempotencyKey,
 		RequestHash:      hash,
 		Status:           IntentRequiresPaymentMethod,
@@ -319,7 +357,7 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error)
 // Get returns the intent with its attempts and refunds, scoped to the merchant.
 func (s *Service) Get(ctx context.Context, merchantID, intentID string) (View, error) {
 	db := s.db.WithContext(ctx)
-	row, err := loadIntent(db, merchantID, intentID)
+	row, err := s.loadIntent(db, merchantID, intentID)
 	if err != nil {
 		return View{}, err
 	}
@@ -343,7 +381,7 @@ func (s *Service) Get(ctx context.Context, merchantID, intentID string) (View, e
 
 // Anomalies lists what the switch recorded rather than acted on for one intent.
 func (s *Service) Anomalies(ctx context.Context, merchantID, intentID string) ([]Anomaly, error) {
-	if _, err := loadIntent(s.db.WithContext(ctx), merchantID, intentID); err != nil {
+	if _, err := s.loadIntent(s.db.WithContext(ctx), merchantID, intentID); err != nil {
 		return nil, err
 	}
 	var rows []AnomalyRow
@@ -357,7 +395,7 @@ func (s *Service) Anomalies(ctx context.Context, merchantID, intentID string) ([
 	return out, nil
 }
 
-func loadIntent(db *gorm.DB, merchantID, intentID string) (IntentRow, error) {
+func loadIntentRow(db *gorm.DB, merchantID, intentID string) (IntentRow, error) {
 	var row IntentRow
 	err := db.Where("id = ? AND merchant_id = ?", intentID, merchantID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

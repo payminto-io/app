@@ -13,6 +13,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
 	"github.com/payminto/payminto/backend/internal/connectors/mock"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/paymentswitch"
 	"github.com/shopspring/decimal"
@@ -1690,5 +1691,51 @@ func TestReconciler_SkipsConnectorsWithoutSync(t *testing.T) {
 	n, err := rec.RunOnce(f.ctx)
 	if err != nil || n != 0 {
 		t.Fatalf("RunOnce = %d, %v; a connector without Sync must not be selected", n, err)
+	}
+}
+
+// Ticket 13: intents, attempts, refunds and ledger lines carry the process environment; a request tagged for the
+// other environment is refused before any write, and the other environment's rows do not exist here.
+func TestEnvironment_RowsCarryTheProcessEnvironmentAndMismatchIsRefused(t *testing.T) {
+	f := newFixture(t)
+	in := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	v := f.get(in.ID)
+	if v.Intent.Environment != environment.Test || v.Attempts[0].Environment != environment.Test {
+		t.Fatalf("environment = %s / %s", v.Intent.Environment, v.Attempts[0].Environment)
+	}
+	r, err := f.svc.Refund(f.ctx, merchant, in.ID, paymentswitch.RefundCommand{IdempotencyKey: "r1"})
+	if err != nil || r.Environment != environment.Test {
+		t.Fatalf("refund = %+v, %v", r, err)
+	}
+	var accounts []ledger.AccountRow
+	f.db.Find(&accounts)
+	for _, a := range accounts {
+		if a.Environment != environment.Test {
+			t.Fatalf("ledger account %+v is not in the test environment", a)
+		}
+	}
+	live := environment.WithContext(f.ctx, environment.Live)
+	if _, err := f.svc.Create(live, paymentswitch.CreateCommand{MerchantID: merchant, Money: usd(1), PaymentMethod: card(mock.ScenarioSuccess)}); !errors.Is(err, environment.ErrMismatch) {
+		t.Fatalf("live-tagged create err = %v", err)
+	}
+	for _, op := range []func() error{
+		func() error {
+			_, err := f.svc.Confirm(live, merchant, in.ID, paymentswitch.ConfirmCommand{})
+			return err
+		},
+		func() error {
+			_, err := f.svc.Capture(live, merchant, in.ID, paymentswitch.CaptureCommand{})
+			return err
+		},
+		func() error { _, err := f.svc.Cancel(live, merchant, in.ID, paymentswitch.CancelCommand{}); return err },
+		func() error { _, err := f.svc.Refund(live, merchant, in.ID, paymentswitch.RefundCommand{}); return err },
+	} {
+		if err := op(); !errors.Is(err, environment.ErrMismatch) {
+			t.Fatalf("live-tagged write err = %v", err)
+		}
+	}
+	f.db.Model(&paymentswitch.IntentRow{}).Where("id = ?", in.ID).Update("environment", environment.Live)
+	if _, err := f.svc.Get(f.ctx, merchant, in.ID); !errors.Is(err, paymentswitch.ErrNotFound) {
+		t.Fatalf("a live row must not exist for a test process, err = %v", err)
 	}
 }

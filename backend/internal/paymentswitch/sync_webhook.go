@@ -20,7 +20,7 @@ func (s *Service) syncBase() time.Duration { return defaultSyncBase }
 // A merchant's sync applies forward evidence only; rollbacks wait for the reconciler after the lease (R1).
 func (s *Service) Sync(ctx context.Context, merchantID, intentID string) (Intent, error) {
 	db := s.db.WithContext(ctx)
-	intent, err := loadIntent(db, merchantID, intentID)
+	intent, err := s.loadIntent(db, merchantID, intentID)
 	if err != nil {
 		return Intent{}, err
 	}
@@ -264,7 +264,7 @@ func (s *Service) applyPaymentWebhook(tx *gorm.DB, code connectors.Code, ev conn
 	if err != nil {
 		return applyResult{}, fmt.Errorf("paymentswitch: load attempt by connector transaction: %w", err)
 	}
-	intent, err := loadIntent(lockIfPostgres(tx), peek.MerchantID, peek.IntentID)
+	intent, err := s.loadIntent(lockIfPostgres(tx), peek.MerchantID, peek.IntentID)
 	if err != nil {
 		return applyResult{}, err
 	}
@@ -305,7 +305,7 @@ func (s *Service) applyRefundWebhook(tx *gorm.DB, code connectors.Code, ev conne
 	if err != nil {
 		return applyResult{}, fmt.Errorf("paymentswitch: load refund by connector id: %w", err)
 	}
-	intent, err := loadIntent(lockIfPostgres(tx), peek.MerchantID, peek.IntentID)
+	intent, err := s.loadIntent(lockIfPostgres(tx), peek.MerchantID, peek.IntentID)
 	if err != nil {
 		return applyResult{}, err
 	}

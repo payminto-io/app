@@ -37,9 +37,12 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 		hashInput.Amount = cmd.Amount.String()
 	}
 	hash := hashJSON(hashInput)
+	if err := s.requireEnv(ctx); err != nil {
+		return Refund{}, err
+	}
 
 	db := s.db.WithContext(ctx)
-	intent, err := loadIntent(db, merchantID, intentID)
+	intent, err := s.loadIntent(db, merchantID, intentID)
 	if err != nil {
 		return Refund{}, err
 	}
@@ -72,6 +75,7 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 		IntentID:        intent.ID,
 		AttemptID:       attempt.ID,
 		MerchantID:      merchantID,
+		Environment:     s.env(),
 		ConnectorCode:   attempt.ConnectorCode,
 		IdempotencyKey:  cmd.IdempotencyKey,
 		RequestHash:     hash,
@@ -84,7 +88,7 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 	var replayed bool
 	err = db.Transaction(func(tx *gorm.DB) error {
 		// Lock order: intent first, so concurrent refunds serialise and the sum below is read under the lock.
-		if _, err := loadIntent(lockIfPostgres(tx), merchantID, intentID); err != nil {
+		if _, err := s.loadIntent(lockIfPostgres(tx), merchantID, intentID); err != nil {
 			return err
 		}
 		var existing RefundRow
@@ -198,7 +202,7 @@ func (s *Service) applyToRefund(ctx context.Context, merchantID, refundID string
 		if peek.MerchantID != merchantID {
 			return fmt.Errorf("%w: refund %s", ErrNotFound, refundID)
 		}
-		intent, err := loadIntent(lockIfPostgres(tx), merchantID, peek.IntentID)
+		intent, err := s.loadIntent(lockIfPostgres(tx), merchantID, peek.IntentID)
 		if err != nil {
 			return err
 		}

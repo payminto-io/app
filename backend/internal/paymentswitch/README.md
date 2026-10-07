@@ -69,6 +69,15 @@ Exactly once is guaranteed by the shared transaction and the ledger's own idempo
 
 Domain events `switch.payment.succeeded.v1`, `switch.payment.failed.v1` and `switch.refund.succeeded.v1` are emitted after commit through the existing event emitter (`ee_events`).
 
+## Environment (ticket 13)
+
+The service is bound to the process environment through `WithGuard` (`environment.Guard`): every write calls `guard.Require(ctx, "")` first (a request tagged for the other environment is `environment.ErrMismatch`), intents, attempts and refunds carry `environment` (`test`/`live`, CHECKed), reads never return the other environment's rows, and every ledger line names the environment.
+Connectors are a slot (`environment.KnownSlots` has `connectors`): `WirePaymentSwitch` calls `guard.RequireProvider("connectors", code)` for every enabled code, so a live process refuses `mock` with `environment.ErrProvider` before any registration.
+
+## Development fee seed
+
+A fresh install has no fee rule and the switch refuses a confirm without one (`no_fee_rule`). `cmd/devseed` calls `modules.SeedDevelopmentFeeRules`, which creates one zero-percent merchant-borne rule per fees method the enabled connectors imply (`DevFeeMethods`: mock -> card, bank; chaindeposit -> crypto in USDC), only for an environment that is `test`, and only where no active rule exists. Migrations never seed fee rules; `ErrDevSeedLive` guards the live case and is tested.
+
 ## Config
 
 `SWITCH_CONNECTORS` (default `mock,chaindeposit`), `SWITCH_MOCK_WEBHOOK_SECRET`, `SWITCH_CLAIM_LEASE` (default `2m`), `SWITCH_LATE_RECEIPT_RETENTION` (default `720h`); see `internal/modules/paymentswitch.go`.

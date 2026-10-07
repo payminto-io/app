@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS switch_payment_intents (
     id varchar(64) PRIMARY KEY,
     merchant_id varchar(128) NOT NULL,
     platform_id varchar(128) NOT NULL DEFAULT '',
+    environment varchar(8) NOT NULL DEFAULT 'test',
     idempotency_key varchar(128) NOT NULL,
     request_hash char(64) NOT NULL,
     status varchar(32) NOT NULL,
@@ -34,11 +35,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS switch_intents_merchant_idempotency_key
     ON switch_payment_intents (merchant_id, idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_switch_payment_intents_merchant_id ON switch_payment_intents (merchant_id);
 CREATE INDEX IF NOT EXISTS idx_switch_payment_intents_status ON switch_payment_intents (status);
+CREATE INDEX IF NOT EXISTS idx_switch_payment_intents_environment ON switch_payment_intents (environment);
 
 CREATE TABLE IF NOT EXISTS switch_payment_attempts (
     id varchar(64) PRIMARY KEY,
     intent_id varchar(64) NOT NULL,
     merchant_id varchar(128) NOT NULL,
+    environment varchar(8) NOT NULL DEFAULT 'test',
     connector_code varchar(32) NOT NULL,
     status varchar(32) NOT NULL,
     raw_status varchar(64) NOT NULL DEFAULT '',
@@ -74,6 +77,7 @@ CREATE TABLE IF NOT EXISTS switch_refunds (
     intent_id varchar(64) NOT NULL,
     attempt_id varchar(64) NOT NULL,
     merchant_id varchar(128) NOT NULL,
+    environment varchar(8) NOT NULL DEFAULT 'test',
     connector_code varchar(32) NOT NULL,
     idempotency_key varchar(128) NOT NULL,
     request_hash char(64) NOT NULL,
@@ -196,6 +200,15 @@ BEGIN
             FOREIGN KEY (attempt_id) REFERENCES switch_payment_attempts (id) ON DELETE RESTRICT;
     END IF;
 
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_intents'::regclass AND conname = 'switch_payment_intents_environment_check') THEN
+        ALTER TABLE switch_payment_intents ADD CONSTRAINT switch_payment_intents_environment_check CHECK (environment IN ('test', 'live'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_attempts'::regclass AND conname = 'switch_payment_attempts_environment_check') THEN
+        ALTER TABLE switch_payment_attempts ADD CONSTRAINT switch_payment_attempts_environment_check CHECK (environment IN ('test', 'live'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_refunds'::regclass AND conname = 'switch_refunds_environment_check') THEN
+        ALTER TABLE switch_refunds ADD CONSTRAINT switch_refunds_environment_check CHECK (environment IN ('test', 'live'));
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_anomalies'::regclass AND conname = 'switch_anomalies_entity_check') THEN
         ALTER TABLE switch_anomalies ADD CONSTRAINT switch_anomalies_entity_check
             CHECK (entity IN ('intent', 'attempt', 'refund'));

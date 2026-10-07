@@ -8,6 +8,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/paymentswitch"
 	"github.com/shopspring/decimal"
@@ -25,6 +26,23 @@ func (stubFees) PostFee(context.Context, *gorm.DB, paymentswitch.FeeRef, decimal
 	return nil
 }
 
+// gatewayEnv is the process environment a server environment implies in these tests: staging/production are live.
+func gatewayEnv(serverEnv string) environment.Environment {
+	if serverEnv == config.EnvironmentProduction || serverEnv == config.EnvironmentStaging {
+		return environment.Live
+	}
+	return environment.Test
+}
+
+func envModule(t *testing.T, serverEnv string) *EnvironmentModule {
+	t.Helper()
+	guard, err := environment.NewGuard(gatewayEnv(serverEnv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &EnvironmentModule{Environment: gatewayEnv(serverEnv), Guard: guard}
+}
+
 func deps(t *testing.T, env string, conns ...string) Deps {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
@@ -33,7 +51,8 @@ func deps(t *testing.T, env string, conns ...string) Deps {
 	}
 	return Deps{
 		DB:           db,
-		Config:       &config.Config{Server: config.ServerConfig{Environment: env}, Switch: config.SwitchConfig{Connectors: conns, MockWebhookSecret: "s"}},
+		Config:       &config.Config{Server: config.ServerConfig{Environment: env}, Gateway: config.GatewayConfig{Environment: string(gatewayEnv(env))}, Switch: config.SwitchConfig{Connectors: conns, MockWebhookSecret: "s"}},
+		Environment:  envModule(t, env),
 		Ledger:       ledger.New(db),
 		ChainDeposit: chaindeposit.NewMemoryBackend(),
 		Fees:         stubFees{},
@@ -54,11 +73,16 @@ func TestWirePaymentSwitch_RegistersConfiguredConnectors(t *testing.T) {
 }
 
 func TestWirePaymentSwitch_RefusesMockInDeploymentAndUnknownCodes(t *testing.T) {
-	if _, err := WirePaymentSwitch(deps(t, config.EnvironmentProduction, "mock")); !errors.Is(err, ErrMockInDeployment) {
-		t.Fatalf("production mock err = %v", err)
+	if _, err := WirePaymentSwitch(deps(t, config.EnvironmentProduction, "mock")); !errors.Is(err, environment.ErrProvider) {
+		t.Fatalf("live mock err = %v, want the environment guard's ErrProvider", err)
 	}
-	if _, err := WirePaymentSwitch(deps(t, config.EnvironmentStaging, "chaindeposit", "mock")); !errors.Is(err, ErrMockInDeployment) {
+	if _, err := WirePaymentSwitch(deps(t, config.EnvironmentStaging, "chaindeposit", "mock")); !errors.Is(err, environment.ErrProvider) {
 		t.Fatalf("staging mock err = %v", err)
+	}
+	noEnv := deps(t, config.EnvironmentProduction, "chaindeposit")
+	noEnv.Environment = nil
+	if _, err := WirePaymentSwitch(noEnv); err == nil {
+		t.Fatal("a deployment without the environment module must not wire")
 	}
 	if _, err := WirePaymentSwitch(deps(t, config.EnvironmentDevelopment, "stripe")); !errors.Is(err, connectors.ErrUnknownConnector) {
 		t.Fatalf("unknown connector err = %v", err)

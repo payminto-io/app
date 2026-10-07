@@ -56,6 +56,15 @@ BEGIN
             FOREIGN KEY (attempt_id) REFERENCES switch_payment_attempts (id) ON DELETE RESTRICT;
     END IF;
 
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_intents'::regclass AND conname = 'switch_payment_intents_environment_check') THEN
+        ALTER TABLE switch_payment_intents ADD CONSTRAINT switch_payment_intents_environment_check CHECK (environment IN ('test', 'live'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_attempts'::regclass AND conname = 'switch_payment_attempts_environment_check') THEN
+        ALTER TABLE switch_payment_attempts ADD CONSTRAINT switch_payment_attempts_environment_check CHECK (environment IN ('test', 'live'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_refunds'::regclass AND conname = 'switch_refunds_environment_check') THEN
+        ALTER TABLE switch_refunds ADD CONSTRAINT switch_refunds_environment_check CHECK (environment IN ('test', 'live'));
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_anomalies'::regclass AND conname = 'switch_anomalies_entity_check') THEN
         ALTER TABLE switch_anomalies ADD CONSTRAINT switch_anomalies_entity_check
             CHECK (entity IN ('intent', 'attempt', 'refund'));

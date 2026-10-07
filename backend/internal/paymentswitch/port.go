@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/connectors"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -139,6 +140,7 @@ type Intent struct {
 	ID                string
 	MerchantID        string
 	PlatformID        string
+	Environment       environment.Environment
 	IdempotencyKey    string
 	Status            IntentStatus
 	Money             Money
@@ -163,6 +165,7 @@ type Attempt struct {
 	ID              string
 	IntentID        string
 	MerchantID      string
+	Environment     environment.Environment
 	ConnectorCode   connectors.Code
 	Status          AttemptStatus
 	RawStatus       connectors.RawStatus
@@ -188,6 +191,7 @@ type Refund struct {
 	IntentID          string
 	AttemptID         string
 	MerchantID        string
+	Environment       environment.Environment
 	ConnectorCode     connectors.Code
 	IdempotencyKey    string
 	Status            RefundStatus

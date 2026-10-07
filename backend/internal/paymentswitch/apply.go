@@ -238,8 +238,8 @@ func (s *Service) lateReceipt(tx *gorm.DB, intent *IntentRow, attempt *AttemptRo
 			"cumulative_received": received.String(), "attempt_status": string(attempt.Status), "late_receipt": true,
 		},
 		Lines: []ledger.Line{
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: u.receivedAsset, Kind: ledger.KindAsset}, Amount: delta},
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: UnallocatedReceiptsOwner, Asset: u.receivedAsset, Kind: ledger.KindLiability}, Amount: delta.Neg()},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: u.receivedAsset, Kind: ledger.KindAsset, Environment: s.env()}, Amount: delta},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: UnallocatedReceiptsOwner, Asset: u.receivedAsset, Kind: ledger.KindLiability, Environment: s.env()}, Amount: delta.Neg()},
 		},
 	}
 	if _, err := s.ledger.PostIn(tx.Statement.Context, tx, j); err != nil {
@@ -338,8 +338,8 @@ func (s *Service) postPayment(tx *gorm.DB, intent *IntentRow, attempt *AttemptRo
 		IdempotencyKey: "switch.payment." + attempt.ID,
 		Metadata:       map[string]any{"intent_id": intent.ID, "connector": string(attempt.ConnectorCode)},
 		Lines: []ledger.Line{
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerConnector, OwnerID: string(attempt.ConnectorCode), Asset: attempt.Asset, Kind: ledger.KindAsset}, Amount: captured},
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: intent.MerchantID, Asset: attempt.Asset, Kind: ledger.KindLiability}, Amount: captured.Neg()},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerConnector, OwnerID: string(attempt.ConnectorCode), Asset: attempt.Asset, Kind: ledger.KindAsset, Environment: s.env()}, Amount: captured},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: intent.MerchantID, Asset: attempt.Asset, Kind: ledger.KindLiability, Environment: s.env()}, Amount: captured.Neg()},
 		},
 	}
 	if _, err := s.ledger.PostIn(tx.Statement.Context, tx, j); err != nil {
@@ -360,8 +360,8 @@ func (s *Service) postDeposit(tx *gorm.DB, intent *IntentRow, attempt *AttemptRo
 			"priced_asset": attempt.Asset, "priced_amount": attempt.Amount.String(), "received_asset": asset, "cumulative_received": cumulative.String(),
 		},
 		Lines: []ledger.Line{
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: asset, Kind: ledger.KindAsset}, Amount: delta},
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: intent.MerchantID, Asset: asset, Kind: ledger.KindLiability}, Amount: delta.Neg()},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: asset, Kind: ledger.KindAsset, Environment: s.env()}, Amount: delta},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: intent.MerchantID, Asset: asset, Kind: ledger.KindLiability, Environment: s.env()}, Amount: delta.Neg()},
 		},
 	}
 	if _, err := s.ledger.PostIn(tx.Statement.Context, tx, j); err != nil {
@@ -463,8 +463,8 @@ func (s *Service) postRefund(tx *gorm.DB, intent *IntentRow, refund *RefundRow) 
 		IdempotencyKey: "switch.refund." + refund.ID,
 		Metadata:       map[string]any{"intent_id": intent.ID, "attempt_id": refund.AttemptID, "connector": string(refund.ConnectorCode)},
 		Lines: []ledger.Line{
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: intent.MerchantID, Asset: refund.Asset, Kind: ledger.KindLiability}, Amount: refund.Amount},
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerConnector, OwnerID: string(refund.ConnectorCode), Asset: refund.Asset, Kind: ledger.KindAsset}, Amount: refund.Amount.Neg()},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: intent.MerchantID, Asset: refund.Asset, Kind: ledger.KindLiability, Environment: s.env()}, Amount: refund.Amount},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerConnector, OwnerID: string(refund.ConnectorCode), Asset: refund.Asset, Kind: ledger.KindAsset, Environment: s.env()}, Amount: refund.Amount.Neg()},
 		},
 	}
 	if _, err := s.ledger.PostIn(tx.Statement.Context, tx, j); err != nil {

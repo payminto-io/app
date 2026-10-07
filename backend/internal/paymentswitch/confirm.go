@@ -12,8 +12,11 @@ import (
 // is one compare-and-set transaction; only one concurrent confirm gets RowsAffected == 1. An intent whose
 // active attempt has an unknown outcome is not confirmable: nothing opens a second attempt until Sync resolves it.
 func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd ConfirmCommand) (Intent, error) {
+	if err := s.requireEnv(ctx); err != nil {
+		return Intent{}, err
+	}
 	db := s.db.WithContext(ctx)
-	intent, err := loadIntent(db, merchantID, intentID)
+	intent, err := s.loadIntent(db, merchantID, intentID)
 	if err != nil {
 		return Intent{}, err
 	}
@@ -53,6 +56,7 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 		ID:              s.newID("pa"),
 		IntentID:        intent.ID,
 		MerchantID:      merchantID,
+		Environment:     s.env(),
 		ConnectorCode:   sel.Code,
 		Status:          AttemptStarted,
 		Amount:          intent.Amount,
@@ -81,7 +85,7 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 			return fmt.Errorf("paymentswitch: claim intent: %w", res.Error)
 		}
 		if res.RowsAffected == 0 {
-			current, err := loadIntent(tx, merchantID, intentID)
+			current, err := s.loadIntent(tx, merchantID, intentID)
 			if err != nil {
 				return err
 			}
@@ -182,7 +186,7 @@ func (s *Service) applyToActiveAttempt(ctx context.Context, merchantID, intentID
 	var out IntentRow
 	var result applyResult
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		intent, err := loadIntent(lockIfPostgres(tx), merchantID, intentID)
+		intent, err := s.loadIntent(lockIfPostgres(tx), merchantID, intentID)
 		if err != nil {
 			return err
 		}
@@ -195,7 +199,7 @@ func (s *Service) applyToActiveAttempt(ctx context.Context, merchantID, intentID
 			return err
 		}
 		if !result.changed {
-			intent, err = loadIntent(tx, merchantID, intentID)
+			intent, err = s.loadIntent(tx, merchantID, intentID)
 			if err != nil {
 				return err
 			}

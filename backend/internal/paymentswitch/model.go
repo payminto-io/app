@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/connectors"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/shopspring/decimal"
 )
 
@@ -43,6 +44,7 @@ type IntentRow struct {
 	ID                string                   `gorm:"type:varchar(64);primarykey"`
 	MerchantID        string                   `gorm:"type:varchar(128);not null;index;uniqueIndex:switch_intents_merchant_idempotency_key,priority:1"`
 	PlatformID        string                   `gorm:"type:varchar(128);not null;default:''"`
+	Environment       environment.Environment  `gorm:"type:varchar(8);not null;default:'test';index"`
 	IdempotencyKey    string                   `gorm:"type:varchar(128);not null;uniqueIndex:switch_intents_merchant_idempotency_key,priority:2"`
 	RequestHash       string                   `gorm:"type:char(64);not null"`
 	Status            IntentStatus             `gorm:"type:varchar(32);not null;index"`
@@ -71,25 +73,26 @@ type IntentRow struct {
 func (IntentRow) TableName() string { return "switch_payment_intents" }
 
 type AttemptRow struct {
-	ID                     string               `gorm:"type:varchar(64);primarykey"`
-	IntentID               string               `gorm:"type:varchar(64);not null;index"`
-	MerchantID             string               `gorm:"type:varchar(128);not null;index"`
-	ConnectorCode          connectors.Code      `gorm:"type:varchar(32);not null;uniqueIndex:switch_attempts_connector_tx_key,priority:1"`
-	Status                 AttemptStatus        `gorm:"type:varchar(32);not null;index"`
-	RawStatus              connectors.RawStatus `gorm:"type:varchar(64);not null;default:''"`
-	Amount                 decimal.Decimal      `gorm:"type:numeric(38,18);not null"`
-	Asset                  string               `gorm:"type:varchar(16);not null"`
-	AmountToCapture        decimal.Decimal      `gorm:"type:numeric(38,18);not null;default:0"`
-	AmountCaptured         decimal.Decimal      `gorm:"type:numeric(38,18);not null;default:0"`
-	AmountReceived         *decimal.Decimal     `gorm:"type:numeric(38,18)"`
-	ReceivedAsset          string               `gorm:"type:varchar(32);not null;default:''"`
-	ConnectorTransactionID *string              `gorm:"type:varchar(128);uniqueIndex:switch_attempts_connector_tx_key,priority:2"`
-	SelectionReason        string               `gorm:"type:text;not null;default:''"`
-	ErrorCode              string               `gorm:"type:varchar(64);not null;default:''"`
-	ErrorMessage           string               `gorm:"type:text;not null;default:''"`
-	NextAction             JSONMap              `gorm:"type:jsonb"`
-	SyncCount              int                  `gorm:"not null;default:0"`
-	NextSyncAt             *time.Time           `gorm:"index"`
+	ID                     string                  `gorm:"type:varchar(64);primarykey"`
+	IntentID               string                  `gorm:"type:varchar(64);not null;index"`
+	MerchantID             string                  `gorm:"type:varchar(128);not null;index"`
+	Environment            environment.Environment `gorm:"type:varchar(8);not null;default:'test'"`
+	ConnectorCode          connectors.Code         `gorm:"type:varchar(32);not null;uniqueIndex:switch_attempts_connector_tx_key,priority:1"`
+	Status                 AttemptStatus           `gorm:"type:varchar(32);not null;index"`
+	RawStatus              connectors.RawStatus    `gorm:"type:varchar(64);not null;default:''"`
+	Amount                 decimal.Decimal         `gorm:"type:numeric(38,18);not null"`
+	Asset                  string                  `gorm:"type:varchar(16);not null"`
+	AmountToCapture        decimal.Decimal         `gorm:"type:numeric(38,18);not null;default:0"`
+	AmountCaptured         decimal.Decimal         `gorm:"type:numeric(38,18);not null;default:0"`
+	AmountReceived         *decimal.Decimal        `gorm:"type:numeric(38,18)"`
+	ReceivedAsset          string                  `gorm:"type:varchar(32);not null;default:''"`
+	ConnectorTransactionID *string                 `gorm:"type:varchar(128);uniqueIndex:switch_attempts_connector_tx_key,priority:2"`
+	SelectionReason        string                  `gorm:"type:text;not null;default:''"`
+	ErrorCode              string                  `gorm:"type:varchar(64);not null;default:''"`
+	ErrorMessage           string                  `gorm:"type:text;not null;default:''"`
+	NextAction             JSONMap                 `gorm:"type:jsonb"`
+	SyncCount              int                     `gorm:"not null;default:0"`
+	NextSyncAt             *time.Time              `gorm:"index"`
 	LastSyncedAt           *time.Time
 	// ClaimedUntil is the lease on an in-flight operation; no rollback edge is applied before it expires.
 	ClaimedUntil *time.Time
@@ -103,23 +106,24 @@ type AttemptRow struct {
 func (AttemptRow) TableName() string { return "switch_payment_attempts" }
 
 type RefundRow struct {
-	ID                string               `gorm:"type:varchar(64);primarykey"`
-	IntentID          string               `gorm:"type:varchar(64);not null;index"`
-	AttemptID         string               `gorm:"type:varchar(64);not null;index"`
-	MerchantID        string               `gorm:"type:varchar(128);not null;uniqueIndex:switch_refunds_merchant_idempotency_key,priority:1"`
-	ConnectorCode     connectors.Code      `gorm:"type:varchar(32);not null;uniqueIndex:switch_refunds_connector_refund_key,priority:1"`
-	IdempotencyKey    string               `gorm:"type:varchar(128);not null;uniqueIndex:switch_refunds_merchant_idempotency_key,priority:2"`
-	RequestHash       string               `gorm:"type:char(64);not null"`
-	Status            RefundStatus         `gorm:"type:varchar(32);not null;index"`
-	RawStatus         connectors.RawStatus `gorm:"type:varchar(64);not null;default:''"`
-	Amount            decimal.Decimal      `gorm:"type:numeric(38,18);not null"`
-	Asset             string               `gorm:"type:varchar(16);not null"`
-	ConnectorRefundID *string              `gorm:"type:varchar(128);uniqueIndex:switch_refunds_connector_refund_key,priority:2"`
-	Reason            string               `gorm:"type:text;not null;default:''"`
-	ErrorCode         string               `gorm:"type:varchar(64);not null;default:''"`
-	ErrorMessage      string               `gorm:"type:text;not null;default:''"`
-	SyncCount         int                  `gorm:"not null;default:0"`
-	NextSyncAt        *time.Time           `gorm:"index"`
+	ID                string                  `gorm:"type:varchar(64);primarykey"`
+	IntentID          string                  `gorm:"type:varchar(64);not null;index"`
+	AttemptID         string                  `gorm:"type:varchar(64);not null;index"`
+	MerchantID        string                  `gorm:"type:varchar(128);not null;uniqueIndex:switch_refunds_merchant_idempotency_key,priority:1"`
+	Environment       environment.Environment `gorm:"type:varchar(8);not null;default:'test'"`
+	ConnectorCode     connectors.Code         `gorm:"type:varchar(32);not null;uniqueIndex:switch_refunds_connector_refund_key,priority:1"`
+	IdempotencyKey    string                  `gorm:"type:varchar(128);not null;uniqueIndex:switch_refunds_merchant_idempotency_key,priority:2"`
+	RequestHash       string                  `gorm:"type:char(64);not null"`
+	Status            RefundStatus            `gorm:"type:varchar(32);not null;index"`
+	RawStatus         connectors.RawStatus    `gorm:"type:varchar(64);not null;default:''"`
+	Amount            decimal.Decimal         `gorm:"type:numeric(38,18);not null"`
+	Asset             string                  `gorm:"type:varchar(16);not null"`
+	ConnectorRefundID *string                 `gorm:"type:varchar(128);uniqueIndex:switch_refunds_connector_refund_key,priority:2"`
+	Reason            string                  `gorm:"type:text;not null;default:''"`
+	ErrorCode         string                  `gorm:"type:varchar(64);not null;default:''"`
+	ErrorMessage      string                  `gorm:"type:text;not null;default:''"`
+	SyncCount         int                     `gorm:"not null;default:0"`
+	NextSyncAt        *time.Time              `gorm:"index"`
 	LastSyncedAt      *time.Time
 	ClaimedUntil      *time.Time
 	StatusChangedAt   time.Time `gorm:"not null"`
@@ -176,6 +180,7 @@ func (r IntentRow) toIntent() Intent {
 		ID:                r.ID,
 		MerchantID:        r.MerchantID,
 		PlatformID:        r.PlatformID,
+		Environment:       r.Environment,
 		IdempotencyKey:    r.IdempotencyKey,
 		Status:            r.Status,
 		Money:             Money{Amount: r.Amount, Asset: r.Asset},
@@ -202,6 +207,7 @@ func (r AttemptRow) toAttempt() Attempt {
 		ID:              r.ID,
 		IntentID:        r.IntentID,
 		MerchantID:      r.MerchantID,
+		Environment:     r.Environment,
 		ConnectorCode:   r.ConnectorCode,
 		Status:          r.Status,
 		RawStatus:       r.RawStatus,
@@ -231,6 +237,7 @@ func (r RefundRow) toRefund() Refund {
 		IntentID:       r.IntentID,
 		AttemptID:      r.AttemptID,
 		MerchantID:     r.MerchantID,
+		Environment:    r.Environment,
 		ConnectorCode:  r.ConnectorCode,
 		IdempotencyKey: r.IdempotencyKey,
 		Status:         r.Status,

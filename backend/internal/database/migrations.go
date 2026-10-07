@@ -42,6 +42,7 @@ var migrationManifest = []struct {
 	{2026100701, "ledger_double_entry", "migrations/2026100701_ledger_double_entry.up.sql"},
 	{2026100702, "fees_rules", "migrations/2026100702_fees_rules.up.sql"},
 	{2026100703, "switch_intents_attempts", "migrations/2026100703_switch_intents_attempts.up.sql"},
+	{2026100705, "environment_isolation", "migrations/2026100705_environment_isolation.up.sql"},
 }
 
 // ApplyMigrations is the production schema-evolution seam. It accepts only a

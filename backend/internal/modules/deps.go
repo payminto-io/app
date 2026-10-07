@@ -26,4 +26,6 @@ type Deps struct {
 	Events       paymentswitch.Events
 	Fees         paymentswitch.Fees
 	Records      paymentswitch.PaymentRecords
+	// Environment is the process environment module (ticket 13); the switch's guard and the connectors slot check.
+	Environment *EnvironmentModule
 }

@@ -21,7 +21,7 @@ func (s *Service) claimAttempt(ctx context.Context, intent IntentRow, attempt At
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Lock order: intent first, then the attempt (I10); the version check keeps the claim compare-and-set.
-		current, err := loadIntent(lockIfPostgres(tx), intent.MerchantID, intent.ID)
+		current, err := s.loadIntent(lockIfPostgres(tx), intent.MerchantID, intent.ID)
 		if err != nil {
 			return err
 		}
@@ -62,8 +62,11 @@ func (s *Service) claimAttempt(ctx context.Context, intent IntentRow, attempt At
 // Capture settles an authorized attempt, in full or in part. A partial capture is terminal: the remainder cannot
 // be captured later. A capture whose outcome is unknown is retried with the same connector key and amount.
 func (s *Service) Capture(ctx context.Context, merchantID, intentID string, cmd CaptureCommand) (Intent, error) {
+	if err := s.requireEnv(ctx); err != nil {
+		return Intent{}, err
+	}
 	db := s.db.WithContext(ctx)
-	intent, err := loadIntent(db, merchantID, intentID)
+	intent, err := s.loadIntent(db, merchantID, intentID)
 	if err != nil {
 		return Intent{}, err
 	}
@@ -142,7 +145,7 @@ func (s *Service) markUnknown(ctx context.Context, merchantID, intentID, attempt
 	ec, em := redact(callErr)
 	s.logf("[paymentswitch] %s outcome unknown for attempt %s: %v", op, attemptID, callErr)
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		intent, err := loadIntent(lockIfPostgres(tx), merchantID, intentID)
+		intent, err := s.loadIntent(lockIfPostgres(tx), merchantID, intentID)
 		if err != nil {
 			return err
 		}
@@ -167,7 +170,7 @@ func (s *Service) markUnknown(ctx context.Context, merchantID, intentID, attempt
 }
 
 func (s *Service) current(ctx context.Context, merchantID, intentID string) (Intent, error) {
-	row, err := loadIntent(s.db.WithContext(ctx), merchantID, intentID)
+	row, err := s.loadIntent(s.db.WithContext(ctx), merchantID, intentID)
 	if err != nil {
 		return Intent{}, err
 	}
@@ -178,8 +181,11 @@ func (s *Service) current(ctx context.Context, merchantID, intentID string) (Int
 // after an exclusive claim into void_initiated. A partially paid deposit may be cancelled: the received funds stay on
 // the books and await refund (ticket 11).
 func (s *Service) Cancel(ctx context.Context, merchantID, intentID string, cmd CancelCommand) (Intent, error) {
+	if err := s.requireEnv(ctx); err != nil {
+		return Intent{}, err
+	}
 	db := s.db.WithContext(ctx)
-	intent, err := loadIntent(db, merchantID, intentID)
+	intent, err := s.loadIntent(db, merchantID, intentID)
 	if err != nil {
 		return Intent{}, err
 	}
@@ -250,7 +256,7 @@ func (s *Service) Cancel(ctx context.Context, merchantID, intentID string, cmd C
 func (s *Service) cancelLocally(ctx context.Context, merchantID, intentID, reason string) (Intent, error) {
 	var out IntentRow
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		intent, err := loadIntent(lockIfPostgres(tx), merchantID, intentID)
+		intent, err := s.loadIntent(lockIfPostgres(tx), merchantID, intentID)
 		if err != nil {
 			return err
 		}

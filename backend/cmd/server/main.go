@@ -54,6 +54,12 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
+	// Boot gate: live and test are isolated before a database is even opened (ticket 13).
+	envModule, err := modules.WireEnvironment(modules.Deps{Config: cfg})
+	if err != nil {
+		log.Fatalf("environment: %v", err)
+	}
+
 	observability.Init(cfg.Server.Environment)
 	observability.InitErrorReporting(cfg.Telemetry.SentryDSN, cfg.Server.Environment)
 	defer observability.FlushErrors()
@@ -63,11 +69,19 @@ func main() {
 		log.Fatalf("database: %v", err)
 	}
 
+	// The database itself is the authority: its reported name and stamp are checked before any
+	// schema work, and the stamp is written once the schema is ready.
+	if err := envModule.VerifyDatabase(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
 	if err := database.PrepareSchema(db, cfg.Server.Environment, cfg.Database.SchemaMode); err != nil {
 		log.Fatalf("schema startup: %v", err)
 	}
+	if err := envModule.VerifySchema(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
 
-	reg, err := service.NewServiceRegistry(db, nil, cfg)
+	reg, err := service.NewServiceRegistry(db, nil, cfg, service.WithEnvironmentModule(envModule))
 	if err != nil {
 		log.Fatalf("service registry: %v", err)
 	}
@@ -75,6 +89,10 @@ func main() {
 	modeRepo := service.NewConfigRepoAdapter(reg.ConfigurationRepo())
 	if err := config.EnforceModeMatch(cfg.Blockchain.NetworkType, modeRepo); err != nil {
 		log.Fatalf("mode enforcement: %v", err)
+	}
+	// Last boot check: only a database every gate accepted gets stamped, and only an empty one.
+	if err := envModule.Stamp(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
 	}
 
 	// Custody is an explicit capability. Config validation guarantees a strong
@@ -106,6 +124,7 @@ func main() {
 	log.Printf("=====================================")
 	log.Printf("  Payminto %s", banner)
 	log.Printf("  Network mode: %s", cfg.Blockchain.NetworkType)
+	log.Printf("  Environment: %s", envModule.Environment)
 	log.Printf("=====================================")
 
 	// Real-time event broker: publishes payment-status changes to connected
@@ -183,6 +202,7 @@ func main() {
 		ChainDeposit: chaindeposit.NewPaymintoBackend(openPayminto(reg.PaymentService()), reg.PaymentRepo(), reg.DepositRepo(), db),
 		Events:       modules.EmitterEvents{Emitter: reg.EventEmitterService()},
 		Fees:         modules.FeesAdapter{Port: reg.FeesModule().Port},
+		Environment:  envModule,
 	})
 	if err != nil {
 		log.Fatalf("payment switch: %v", err)
@@ -233,6 +253,7 @@ func main() {
 		WalletSvc:            reg.WalletService(),
 		VaultSvc:             reg.SecretsVaultService(),
 		APIKeyRepo:           reg.APIKeyRepo(),
+		Environment:          reg.EnvironmentModule(),
 		Fees:                 reg.FeesModule(),
 	})
 
