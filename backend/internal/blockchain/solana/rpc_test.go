@@ -3,6 +3,7 @@ package solana
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -114,5 +115,42 @@ func TestClient_GetTransactionFromNodesTriesOtherNodes(t *testing.T) {
 	tx, err := c.GetTransactionFromNodes(context.Background(), "sig", CommitmentConfirmed, 2)
 	if err != nil || tx == nil || tx.Slot != 7 {
 		t.Fatalf("tx = %+v err = %v", tx, err)
+	}
+}
+
+// NEW-M3: "absent on two nodes" reaches two distinct endpoints; a one-endpoint pool reports one.
+func TestClient_GetTransactionFromDistinctNodesCountsEndpoints(t *testing.T) {
+	a, aCalls := rpcServer(t, func(string, int) (int, any) { return http.StatusOK, nil })
+	b, bCalls := rpcServer(t, func(string, int) (int, any) { return http.StatusOK, nil })
+	pool, _ := testPool(t, a.URL, b.URL)
+	c := NewClient(NewPoolCaller(pool))
+	tx, reached, err := c.GetTransactionFromDistinctNodes(context.Background(), "sig", CommitmentFinalized, 2)
+	if err != nil || tx != nil || reached != 2 {
+		t.Fatalf("tx=%v reached=%d err=%v", tx, reached, err)
+	}
+	if atomic.LoadInt32(aCalls) != 1 || atomic.LoadInt32(bCalls) != 1 {
+		t.Fatalf("each endpoint once: a=%d b=%d", *aCalls, *bCalls)
+	}
+	single, _ := testPool(t, a.URL)
+	if _, reached, _ := NewClient(NewPoolCaller(single)).GetTransactionFromDistinctNodes(context.Background(), "sig", CommitmentFinalized, 2); reached != 1 {
+		t.Fatalf("single pool reached = %d", reached)
+	}
+	if _, reached, _ := NewClient(&StaticCaller{URL: a.URL}).GetTransactionFromDistinctNodes(context.Background(), "sig", CommitmentFinalized, 2); reached != 1 {
+		t.Fatalf("static caller reached = %d", reached)
+	}
+}
+
+// NEW-L3: with every node backing off, Call returns ErrRateLimited at once instead of sleeping.
+func TestPoolCaller_DoesNotSleepWhenAllNodesBackOff(t *testing.T) {
+	limited, _ := rpcServer(t, func(string, int) (int, any) { return http.StatusTooManyRequests, nil })
+	pool, _ := testPool(t, limited.URL)
+	caller := NewPoolCaller(pool)
+	caller.backoffBase = 10 * time.Second
+	var out uint64
+	start := time.Now()
+	_ = caller.Call(context.Background(), "getSlot", nil, &out)
+	err := caller.Call(context.Background(), "getSlot", nil, &out)
+	if !errors.Is(err, ErrRateLimited) || time.Since(start) > time.Second {
+		t.Fatalf("err=%v took %s", err, time.Since(start))
 	}
 }

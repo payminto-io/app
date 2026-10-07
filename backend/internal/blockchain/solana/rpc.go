@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/blockchain"
+	"github.com/payminto/payminto/backend/internal/models"
 	"golang.org/x/time/rate"
 )
 
@@ -26,6 +27,15 @@ const (
 // Caller issues one JSON-RPC call. PoolCaller is the production implementation; tests use fixtures.
 type Caller interface {
 	Call(ctx context.Context, method string, params []any, out any) error
+}
+
+// NodeCaller is a Caller that can address distinct endpoints; "absent on two nodes" checks need it.
+type NodeCaller interface {
+	Caller
+	// NodeIDs lists the endpoints currently in rotation.
+	NodeIDs() []uint
+	// CallOn issues the call to one endpoint.
+	CallOn(ctx context.Context, nodeID uint, method string, params []any, out any) error
 }
 
 // RPCError is a JSON-RPC error object returned by the node.
@@ -145,43 +155,65 @@ func (p *PoolCaller) Call(ctx context.Context, method string, params []any, out 
 		if err != nil {
 			return err
 		}
-		if wait, off := p.backingOff(node.ID); off {
-			if attempt+1 < attempts {
-				continue
-			}
-			select {
-			case <-ctx.Done():
-				return ErrRateLimited
-			case <-time.After(wait):
-			}
+		if _, off := p.backingOff(node.ID); off {
+			// Never sleep inside a call: the ticker retries, the caller sees ErrRateLimited.
+			continue
 		}
-		if l := p.limiter(node.ID); l != nil {
-			if err := l.Wait(ctx); err != nil {
-				return err
-			}
+		err = p.callNode(ctx, node, method, params, out)
+		if errors.Is(err, errTooManyRequests) {
+			continue
 		}
-		auth := ""
-		if node.AuthHeader != nil {
-			auth = *node.AuthHeader
-		}
-		err = doCall(ctx, p.httpClient, node.URL, auth, method, params, out)
-		var rpcErr *RPCError
-		switch {
-		case err == nil, errors.As(err, &rpcErr):
-			// A JSON-RPC error is the node answering; it is not a node failure.
-			p.pool.MarkSuccess(node.ID)
-			return err
-		case errors.Is(err, errTooManyRequests):
-			p.noteRateLimited(node.ID)
-			if attempt+1 == attempts {
-				return fmt.Errorf("%w: %s", ErrRateLimited, method)
-			}
-		default:
-			p.pool.MarkFailure(node.ID, err)
+		return err
+	}
+	return fmt.Errorf("%w: %s", ErrRateLimited, method)
+}
+
+// callNode runs one call on one node and updates its rate limit, backoff and health.
+func (p *PoolCaller) callNode(ctx context.Context, node *models.RPCNode, method string, params []any, out any) error {
+	if l := p.limiter(node.ID); l != nil {
+		if err := l.Wait(ctx); err != nil {
 			return err
 		}
 	}
-	return ErrRateLimited
+	auth := ""
+	if node.AuthHeader != nil {
+		auth = *node.AuthHeader
+	}
+	err := doCall(ctx, p.httpClient, node.URL, auth, method, params, out)
+	var rpcErr *RPCError
+	switch {
+	case err == nil, errors.As(err, &rpcErr):
+		// A JSON-RPC error is the node answering; it is not a node failure.
+		p.pool.MarkSuccess(node.ID)
+	case errors.Is(err, errTooManyRequests):
+		p.noteRateLimited(node.ID)
+	default:
+		p.pool.MarkFailure(node.ID, err)
+	}
+	return err
+}
+
+// NodeIDs implements NodeCaller.
+func (p *PoolCaller) NodeIDs() []uint {
+	if p.pool == nil {
+		return nil
+	}
+	return p.pool.IDs()
+}
+
+// CallOn implements NodeCaller.
+func (p *PoolCaller) CallOn(ctx context.Context, nodeID uint, method string, params []any, out any) error {
+	if p.pool == nil {
+		return errors.New("solana: rpc pool not configured")
+	}
+	node, ok := p.pool.Node(nodeID)
+	if !ok {
+		return fmt.Errorf("solana: node %d not in pool", nodeID)
+	}
+	if _, off := p.backingOff(node.ID); off {
+		return fmt.Errorf("%w: node %d", ErrRateLimited, nodeID)
+	}
+	return p.callNode(ctx, node, method, params, out)
 }
 
 type rpcRequest struct {
@@ -375,21 +407,43 @@ func (c *Client) GetTransaction(ctx context.Context, signature, commitment strin
 	return out, err
 }
 
-// GetTransactionFromNodes asks up to nodes picks for the transaction and returns the first record;
-// a signature one node just listed can be unknown to a lagging one (C1 in the review).
+// GetTransactionFromNodes asks up to nodes distinct endpoints for the transaction and returns the
+// first record. A signature one node just listed can be unknown to a lagging one (C1).
 func (c *Client) GetTransactionFromNodes(ctx context.Context, signature, commitment string, nodes int) (*ParsedTransaction, error) {
-	var lastErr error
-	for i := 0; i < max(nodes, 1); i++ {
-		tx, err := c.GetTransaction(ctx, signature, commitment)
+	tx, _, err := c.GetTransactionFromDistinctNodes(ctx, signature, commitment, nodes)
+	return tx, err
+}
+
+// GetTransactionFromDistinctNodes is GetTransactionFromNodes reporting how many distinct endpoints
+// answered. With a transport that cannot address endpoints, reached is 1: "absent on two nodes"
+// cannot be claimed and callers must not treat the answer as evidence.
+func (c *Client) GetTransactionFromDistinctNodes(ctx context.Context, signature, commitment string, nodes int) (tx *ParsedTransaction, reached int, err error) {
+	params := []any{signature, map[string]any{"encoding": "jsonParsed", "commitment": commitment, "maxSupportedTransactionVersion": 0}}
+	nc, ok := c.caller.(NodeCaller)
+	if !ok {
+		tx, err = c.GetTransaction(ctx, signature, commitment)
 		if err != nil {
+			return nil, 0, err
+		}
+		return tx, 1, nil
+	}
+	ids := nc.NodeIDs()
+	var lastErr error
+	for i := 0; i < len(ids) && reached < max(nodes, 1); i++ {
+		var out *ParsedTransaction
+		if err := nc.CallOn(ctx, ids[i], "getTransaction", params, &out); err != nil {
 			lastErr = err
 			continue
 		}
-		if tx != nil {
-			return tx, nil
+		reached++
+		if out != nil {
+			return out, reached, nil
 		}
 	}
-	return nil, lastErr
+	if reached == 0 {
+		return nil, 0, lastErr
+	}
+	return nil, reached, nil
 }
 
 // MultipleAccount is one entry of getMultipleAccounts; nil when the account does not exist.

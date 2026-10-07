@@ -16,6 +16,8 @@ type SweepItem struct {
 	Owner        PublicKey
 	TokenAccount PublicKey
 	Amount       uint64
+	// Close reclaims the account's rent; only when Amount is the whole balance, or closeAccount fails.
+	Close bool
 }
 
 // SweepParams describes a batched, fee-sponsored sweep of one mint into the hot wallet's ATA.
@@ -55,7 +57,7 @@ func SweepInstructions(p SweepParams) ([]Instruction, PublicKey, error) {
 			return nil, PublicKey{}, fmt.Errorf("solana: sweep item %s has zero amount", it.TokenAccount)
 		}
 		ixs = append(ixs, TokenTransferChecked(p.TokenProgram, it.TokenAccount, p.Mint, hotATA, it.Owner, it.Amount, p.Decimals))
-		if p.CloseAccounts {
+		if p.CloseAccounts && it.Close {
 			ixs = append(ixs, TokenCloseAccount(p.TokenProgram, it.TokenAccount, p.FeePayer, it.Owner))
 		}
 	}

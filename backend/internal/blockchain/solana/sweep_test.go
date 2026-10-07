@@ -14,7 +14,7 @@ func TestSweepInstructions_BatchTransfersCloseAndSponsorFees(t *testing.T) {
 
 	p := SweepParams{
 		FeePayer: feePayer.PublicKey(), HotWalletOwner: hot.PublicKey(), Mint: fxUSDC, TokenProgram: TokenProgram, Decimals: 6,
-		Items:            []SweepItem{{Owner: ownerA.PublicKey(), TokenAccount: ataA, Amount: 25_000_000}, {Owner: ownerB.PublicKey(), TokenAccount: ataB, Amount: 10_000_000}},
+		Items:            []SweepItem{{Owner: ownerA.PublicKey(), TokenAccount: ataA, Amount: 25_000_000, Close: true}, {Owner: ownerB.PublicKey(), TokenAccount: ataB, Amount: 10_000_000, Close: true}},
 		ComputeUnitLimit: 60_000, PriorityFeeMicroLamports: 1_000, CloseAccounts: true,
 	}
 	ixs, gotHot, err := SweepInstructions(p)
@@ -70,7 +70,7 @@ func TestSweepInstructions_BatchTransfersCloseAndSponsorFees(t *testing.T) {
 	for i := 0; i < DefaultSweepBatchSize+1; i++ {
 		o := newTestSigner(t)
 		ata, _ := AssociatedTokenAddress(o.PublicKey(), fxUSDC, TokenProgram)
-		items = append(items, SweepItem{Owner: o.PublicKey(), TokenAccount: ata, Amount: 1})
+		items = append(items, SweepItem{Owner: o.PublicKey(), TokenAccount: ata, Amount: 1, Close: true})
 		sigs = append(sigs, o)
 	}
 	p.Items = items[:DefaultSweepBatchSize]

@@ -14,6 +14,10 @@ type ScriptedCaller struct {
 	mu       sync.Mutex
 	handlers map[string]func(params []any) (any, error)
 	Calls    []ScriptedCall
+	// Nodes is how many distinct endpoints the script pretends to have (0 or 1: a single endpoint).
+	Nodes int
+	// OnNode, when set, answers CallOn for a given endpoint; otherwise the shared handlers answer.
+	OnNode func(nodeID uint, method string, params []any) (any, error, bool)
 }
 
 // ScriptedCall records one invocation.
@@ -73,6 +77,37 @@ func (s *ScriptedCaller) Call(_ context.Context, method string, params []any, ou
 		return err
 	}
 	return json.Unmarshal(raw, out)
+}
+
+// NodeIDs implements NodeCaller with synthetic ids 1..Nodes.
+func (s *ScriptedCaller) NodeIDs() []uint {
+	n := max(s.Nodes, 1)
+	ids := make([]uint, n)
+	for i := range ids {
+		ids[i] = uint(i + 1)
+	}
+	return ids
+}
+
+// CallOn implements NodeCaller.
+func (s *ScriptedCaller) CallOn(ctx context.Context, nodeID uint, method string, params []any, out any) error {
+	if s.OnNode != nil {
+		res, err, handled := s.OnNode(nodeID, method, params)
+		if handled {
+			s.mu.Lock()
+			s.Calls = append(s.Calls, ScriptedCall{Method: method, Params: params})
+			s.mu.Unlock()
+			if err != nil || out == nil || res == nil {
+				return err
+			}
+			raw, err := json.Marshal(res)
+			if err != nil {
+				return err
+			}
+			return json.Unmarshal(raw, out)
+		}
+	}
+	return s.Call(ctx, method, params, out)
 }
 
 // ContextValue wraps a value the way RPC methods with context do.
