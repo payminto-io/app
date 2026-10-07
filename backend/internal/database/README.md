@@ -6,10 +6,11 @@ Owns database connectivity and schema migration for the Payminto backend. Expose
 
 - `database.go` — `Connect` and `AutoMigrate` for runtime use.
 - `startup.go` — `PrepareSchema` and `MigrateExpandSchema` (migration-managed tables such as `internal/ledger`, kept out of the manifest).
+- `testdb.go` (integration tag) — `NewTestDB`, `NewEmptyTestDB` and `NewTestDBConfig` (a container's connection config, for tests that boot a whole process against it).
 - `testdb.go` — `NewTestDB` testcontainer helper, gated by `//go:build integration`.
 
 ## See also
 
 - `internal/config` — `DatabaseConfig` consumed by `Connect`
 - `internal/models` — list of models migrated here
-- `migrations/` — hand-written SQL migrations run outside GORM
+- `migrations/` — hand-written SQL migrations run outside GORM; `2026100705_environment_isolation` adds `environment` to `api_keys` and `ledger_accounts` (columns stay out of the manifest so `ApplyMigrations` can run on a database that predates them)

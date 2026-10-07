@@ -48,4 +48,6 @@ make test-integration   # Postgres testcontainers; fails loudly without Docker
 make smoke-local  # health, CORS, admin and merchant sign-in, core APIs
 ```
 
+Environment: `GATEWAY_ENVIRONMENT=test|live` (default `test`), one per process. A test process needs a database named `*_test` or on a loopback host; a live process refuses the test database, `DEV_KEYSTORE`/`AES_KEY`, any `*_PROVIDER=mock`, a non-hardened `SERVER`, weak `POSTGRES_SSL_MODE` and a non-mainnet network, all before opening a connection (`internal/environment`, `internal/modules/environment.go`). API keys are `sk_test_`/`sk_live_`; the auth middleware answers 401 `api_key_environment_mismatch` to a key from the other environment.
+
 Database: `POSTGRES_SCHEMA_MODE` unset means validate only; `auto-migrate` is allowed in development and test only (`internal/database/startup.go`). Integration tests use a Postgres testcontainer behind the `integration` build tag (`internal/database/testdb.go`). Never point tests at a shared database.

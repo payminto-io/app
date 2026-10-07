@@ -45,15 +45,37 @@ func NewEmptyTestDB(t *testing.T) (*gorm.DB, func()) {
 	if dsn := os.Getenv("PAYMINTO_INTEGRATION_DATABASE_URL"); dsn != "" {
 		return newIsolatedSchemaTestDB(t, dsn)
 	}
+	cfg, stop := NewTestDBConfig(t)
+	db, err := Connect(cfg)
+	if err != nil {
+		stop()
+		t.Fatalf("connect to test db: %v", err)
+	}
+	cleanup := func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+		stop()
+	}
+	return db, cleanup
+}
+
+// NewTestDBConfig starts a Postgres 16 container and returns its connection config, for
+// tests that boot a whole process against it. The password satisfies the deployment
+// strength rule so a live-profile boot can be exercised too.
+func NewTestDBConfig(t *testing.T) (config.DatabaseConfig, func()) {
+	t.Helper()
 	requireContainerProvider(t)
 	ctx := context.Background()
+	const password = "payminto_integration_only_pw"
 
 	req := testcontainers.ContainerRequest{
 		Image:        "postgres:16-alpine",
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
 			"POSTGRES_USER":     "payminto",
-			"POSTGRES_PASSWORD": "payminto_test",
+			"POSTGRES_PASSWORD": password,
 			"POSTGRES_DB":       "payminto_test",
 		},
 		WaitingFor: wait.ForLog("database system is ready to accept connections").
@@ -72,30 +94,20 @@ func NewEmptyTestDB(t *testing.T) (*gorm.DB, func()) {
 	port, _ := container.MappedPort(ctx, "5432")
 
 	cfg := config.DatabaseConfig{
-		Host:     host,
-		Port:     port.Int(),
-		Database: "payminto_test",
-		Username: "payminto",
-		Password: "payminto_test",
-		SSLMode:  "disable",
+		Host:         host,
+		Port:         port.Int(),
+		Database:     "payminto_test",
+		TestDatabase: "payminto_test",
+		Username:     "payminto",
+		Password:     password,
+		SSLMode:      "disable",
 	}
-
-	db, err := Connect(cfg)
-	if err != nil {
-		_ = container.Terminate(ctx)
-		t.Fatalf("connect to test db: %v", err)
-	}
-
-	cleanup := func() {
-		sqlDB, _ := db.DB()
-		if sqlDB != nil {
-			_ = sqlDB.Close()
-		}
+	stop := func() {
 		if err := container.Terminate(context.Background()); err != nil {
 			fmt.Printf("warn: failed to terminate test container: %v\n", err)
 		}
 	}
-	return db, cleanup
+	return cfg, stop
 }
 
 // newIsolatedSchemaTestDB permits PostgreSQL contract tests where a container

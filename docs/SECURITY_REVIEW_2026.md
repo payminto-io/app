@@ -55,3 +55,12 @@ Required remediation: keep merchant secret keys server-side. Give checkout a sho
 ## Production gate
 
 Do not enable mainnet RPCs, custody workers, withdrawal processing, or real-value settlement until all P0 items are fixed, P1 tenant/webhook/idempotency/auth paths are tested, secret history has been scanned and rotated where necessary, and a second independent security review has approved the resulting implementation.
+
+## Addendum 2026-10-07: live and test isolation (ticket 13)
+
+- One process serves one environment (`GATEWAY_ENVIRONMENT`). The boot gate in `internal/environment.CheckBoot` runs before a database connection is opened: live refuses the test database, the development keystore or a local vault master key (`DEV_KEYSTORE`, `AES_KEY`), a vault without a strong passphrase, any `*_PROVIDER=mock`, `SERVER` outside staging/production, `POSTGRES_SSL_MODE` other than `verify-full` (the existing loopback exception excepted) and a non-mainnet network.
+- After schema validation, `EnvironmentModule.VerifyDatabase` refuses a schema without the `environment` columns and any `api_keys` row whose visible prefix disagrees with its environment.
+- API keys carry `environment` and a visible prefix (`sk_test_` / `sk_live_`); keys issued before the column are test keys. `AuthService.ValidateAPIKey` refuses the other environment by prefix before any lookup and by row after it; the middleware answers 401 with code `api_key_environment_mismatch`.
+- Ledger accounts are unique per environment; `ledger.Service` resolves the environment from the key, the request context, then the process default, and asks the guard before every write and owner-level read.
+- Boot tests: `backend/cmd/server/main_test.go` (refusals exit non-zero) and `boot_integration_test.go` (test and live processes start; a test key on a live process is 401).
+
