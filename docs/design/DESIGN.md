@@ -320,3 +320,8 @@ Page captures from the page pass live in `docs/design/screens/pages/` as `<page>
 They are taken from `/design/preview/*`, a development-only route (404 in production) that renders the real page components inside the real shell.
 It answers API calls with labelled sample fixtures from `frontend/app/(public)/design/preview/fixtures.ts` and intercepts nothing outside that prefix.
 Append `?state=empty` or `?state=error` to see the empty and error states.
+
+Ticket 18 refreshed these captures with Chrome DevTools MCP on :3016.
+Every table page has 390 light and dark captures of the stacked rows; home, analytics, sweeps, referrals, hot wallets, admin system and project detail also have 1440 light and dark.
+`admin-project-detail-1100-scrolled-light.png` shows the sticky first column on a table that overflows its card.
+Pages with a chart are captured at a viewport as tall as the page rather than as a full-page capture, because the full-page resize makes Recharts drop the bars.
