@@ -6,6 +6,8 @@
 | App (merchant dashboard) | [app.payminto.io](https://app.payminto.io) |
 | Hosted checkout | [checkout.payminto.io](https://checkout.payminto.io) |
 | Pitch deck | [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1QpXIgz82kQVeH15eYvIeyOrCwypKGi2K/view) |
+| Demo video | [Watch or download (GitHub release)](https://github.com/payminto-io/app/releases/tag/demo-video) |
+| All hackathon material (video and pitch deck) | [Google Drive folder](https://drive.google.com/drive/folders/1LC3jWfza6qiMsV1Xc-qfu8zydhRSwOJk) |
 | Source code | [github.com/payminto-io/app](https://github.com/payminto-io/app) |
 
 ## What you will find
