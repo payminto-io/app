@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -13,6 +14,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/email/transport"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/redis/go-redis/v9"
@@ -360,7 +362,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 	)
 
 	// Phase F.1: LedgerService (depends on accountRepo); dual-writes into internal/ledger
-	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db), currencyAssetResolver(r.currencyRepo)))
+	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db), blockchainCurrencyAssetResolver()))
 	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: ledger.New(db)})
 	if err != nil {
 		return nil, fmt.Errorf("wire fees: %w", err)
@@ -672,18 +674,33 @@ func (r *ServiceRegistry) MissedDepositRepo() repository.MissedDepositRepository
 	return r.missedDepositRepo
 }
 
-// currencyAssetResolver maps a currency id to its code; it fails rather than inventing an asset.
-func currencyAssetResolver(currencies repository.CurrencyRepository) AssetResolver {
-	return func(currencyID uint) (string, error) {
-		c, err := currencies.GetByID(currencyID)
+// blockchainCurrencyAssetResolver maps a blockchain_currencies id to chain-qualified ledger assets.
+// Every Record* caller carries a blockchain_currencies id, so this is the only table it may read.
+// The native asset comes from the chain's own native row; a chain without one fails rather than guessing.
+func blockchainCurrencyAssetResolver() AssetResolver {
+	return func(tx *gorm.DB, blockchainCurrencyID uint) (Assets, error) {
+		var bc models.BlockchainCurrency
+		if err := tx.First(&bc, blockchainCurrencyID).Error; err != nil {
+			return Assets{}, err
+		}
+		if bc.CurrencyCode == "" || bc.BlockchainCode == "" {
+			return Assets{}, fmt.Errorf("blockchain currency %d has no currency or chain code", blockchainCurrencyID)
+		}
+		asset := chainAsset(bc.CurrencyCode, bc.BlockchainCode)
+		if strings.EqualFold(bc.Standard, "native") {
+			return Assets{Asset: asset, Native: asset}, nil
+		}
+		var native models.BlockchainCurrency
+		err := tx.Where("blockchain_id = ? AND LOWER(standard) = 'native'", bc.BlockchainID).First(&native).Error
 		if err != nil {
-			return "", err
+			return Assets{}, fmt.Errorf("chain %s has no native currency row to book gas in: %w", bc.BlockchainCode, err)
 		}
-		if c == nil || c.Code == "" {
-			return "", fmt.Errorf("currency %d has no code", currencyID)
-		}
-		return c.Code, nil
+		return Assets{Asset: asset, Native: chainAsset(native.CurrencyCode, native.BlockchainCode)}, nil
 	}
+}
+
+func chainAsset(currencyCode, blockchainCode string) string {
+	return strings.ToUpper(currencyCode) + "." + strings.ToUpper(blockchainCode)
 }
 
 // ----- Phase F: Sweep + Ledger repository accessors -----

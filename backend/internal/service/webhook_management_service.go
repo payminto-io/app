@@ -21,10 +21,10 @@ var ErrWebhookTenantMismatch = errors.New("webhook belongs to a different platfo
 
 // CreateWebhookInput contains the fields required to register a new webhook.
 type CreateWebhookInput struct {
-	PlatformID  uint
-	URL         string
-	Events      string
-	Active      bool
+	PlatformID uint
+	URL        string
+	Events     string
+	Active     bool
 }
 
 // UpdateWebhookInput contains the fields that can be mutated on an existing webhook.

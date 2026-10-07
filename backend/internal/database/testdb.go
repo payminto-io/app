@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +97,33 @@ func NewEmptyTestDB(t *testing.T) (*gorm.DB, func()) {
 		}
 	}
 	return db, cleanup
+}
+
+var dsnCredential = regexp.MustCompile(`(user|password)=\S+`)
+
+// ConnectTestDBAs opens a second connection to the same test database as another role.
+func ConnectTestDBAs(t *testing.T, db *gorm.DB, user, password string) *gorm.DB {
+	t.Helper()
+	dialector, ok := db.Dialector.(*postgres.Dialector)
+	if !ok || strings.Contains(dialector.Config.DSN, "://") {
+		t.Fatalf("ConnectTestDBAs needs a key=value Postgres DSN, got %T", db.Dialector)
+	}
+	dsn := dsnCredential.ReplaceAllStringFunc(dialector.Config.DSN, func(kv string) string {
+		if strings.HasPrefix(kv, "user=") {
+			return "user=" + user
+		}
+		return "password=" + password
+	})
+	other, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("connect as %s: %v", user, err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := other.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return other
 }
 
 // newIsolatedSchemaTestDB permits PostgreSQL contract tests where a container

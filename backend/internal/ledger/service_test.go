@@ -144,7 +144,7 @@ func TestBalances_GroupsByAssetForOneOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || !got["USDC"].Equal(dec("-10")) || !got["SOL"].Equal(dec("-3")) {
+	if len(got) != 2 || !got["USDC"].Equal(dec("10")) || !got["SOL"].Equal(dec("3")) {
 		t.Fatalf("Balances(m1) = %v", got)
 	}
 	none, err := s.Balances(ctx, OwnerMember, "nobody")
@@ -159,7 +159,7 @@ func TestBalances_GroupsByAssetForOneOwner(t *testing.T) {
 func TestStatement_RunningBalanceStartsFromOpeningBalance(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	base := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	base := time.Now().UTC().Add(-4 * 24 * time.Hour).Truncate(time.Second)
 	post := func(k string, day int, amt string) {
 		mustPost(t, s, Journal{
 			Kind:           KindPayment,
@@ -184,21 +184,113 @@ func TestStatement_RunningBalanceStartsFromOpeningBalance(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("Statement returned %d lines, want 2 (window is [from, to))", len(lines))
 	}
-	if !lines[0].Amount.Equal(dec("-5")) || !lines[0].Running.Equal(dec("-15")) {
-		t.Fatalf("line 0 = %+v, want amount -5 running -15", lines[0])
+	if !lines[0].Amount.Equal(dec("-5")) || !lines[0].Running.Equal(dec("-15")) || !lines[0].RunningNatural.Equal(dec("15")) {
+		t.Fatalf("line 0 = %+v, want amount -5 running -15 natural 15", lines[0])
 	}
-	if !lines[1].Amount.Equal(dec("4")) || !lines[1].Running.Equal(dec("-11")) {
-		t.Fatalf("line 1 = %+v, want amount 4 running -11", lines[1])
+	if !lines[1].Amount.Equal(dec("4")) || !lines[1].Running.Equal(dec("-11")) || !lines[1].RunningNatural.Equal(dec("11")) {
+		t.Fatalf("line 1 = %+v, want amount 4 running -11 natural 11", lines[1])
 	}
 	if lines[0].Asset != "USDC" || lines[0].AccountKind != KindLiability || lines[0].JournalID == 0 {
 		t.Fatalf("line 0 missing identity: %+v", lines[0])
 	}
 }
 
+func TestStatement_RunningBalanceIsPerAccountNotPerAsset(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+	mustPost(t, s, Journal{
+		Kind:           KindPayment,
+		IdempotencyKey: "both-kinds",
+		Lines: []Line{
+			{Account: key(OwnerPlatform, "p", "USDC", KindAsset), Amount: dec("10")},
+			{Account: key(OwnerPlatform, "p", "USDC", KindLiability), Amount: dec("-10")},
+		},
+	})
+	lines, err := s.Statement(ctx, OwnerPlatform, "p", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	if err != nil || len(lines) != 2 {
+		t.Fatalf("statement = %d lines, %v", len(lines), err)
+	}
+	if !lines[0].Running.Equal(dec("10")) || !lines[1].Running.Equal(dec("-10")) {
+		t.Fatalf("running balances must not net across accounts: %+v", lines)
+	}
+}
+
+func TestPost_BoundsPostedAt(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+	old := balancedJournal()
+	old.PostedAt = time.Now().Add(-8 * 24 * time.Hour)
+	if _, err := s.Post(ctx, old); !errors.Is(err, ErrPostedAt) {
+		t.Fatalf("back-dated beyond the window = %v, want ErrPostedAt", err)
+	}
+	future := balancedJournal()
+	future.PostedAt = time.Now().Add(time.Hour)
+	if _, err := s.Post(ctx, future); !errors.Is(err, ErrPostedAt) {
+		t.Fatalf("future-dated = %v, want ErrPostedAt", err)
+	}
+	var n int64
+	s.db.Model(&JournalRow{}).Count(&n)
+	if n != 0 {
+		t.Fatalf("journals = %d, want 0", n)
+	}
+}
+
+func TestPost_ReplayWithDifferentPostedAtConflicts(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+	j := balancedJournal()
+	j.PostedAt = time.Now().Add(-time.Hour)
+	mustPost(t, s, j)
+	j.PostedAt = time.Now().Add(-2 * time.Hour)
+	if _, err := s.Post(ctx, j); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("replay with another PostedAt = %v, want ErrIdempotencyConflict", err)
+	}
+}
+
+func TestBalances_NaturalPerAssetAndMixedKindsRefused(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+	mustPost(t, s, balancedJournal())
+	got, err := s.Balances(ctx, OwnerMember, "m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got["USDC"].Equal(dec("10")) {
+		t.Fatalf("member liability must read as what is owed: %v", got)
+	}
+	mustPost(t, s, Journal{
+		Kind:           KindAdjustment,
+		IdempotencyKey: "mixed",
+		Lines: []Line{
+			{Account: key(OwnerMember, "m1", "USDC", KindAsset), Amount: dec("1")},
+			{Account: key(OwnerMember, "m1", "USDC", KindLiability), Amount: dec("-1")},
+		},
+	})
+	if _, err := s.Balances(ctx, OwnerMember, "m1"); !errors.Is(err, ErrMixedKinds) {
+		t.Fatalf("Balances with two kinds in one asset = %v, want ErrMixedKinds", err)
+	}
+	accounts, err := s.AccountBalances(ctx, OwnerMember, "m1")
+	if err != nil || len(accounts) != 2 {
+		t.Fatalf("AccountBalances = %+v, %v", accounts, err)
+	}
+	for _, a := range accounts {
+		switch a.Account.Kind {
+		case KindAsset:
+			if !a.Signed.Equal(dec("1")) || !a.Natural.Equal(dec("1")) {
+				t.Errorf("asset account = %+v", a)
+			}
+		case KindLiability:
+			if !a.Signed.Equal(dec("-11")) || !a.Natural.Equal(dec("11")) {
+				t.Errorf("liability account = %+v", a)
+			}
+		}
+	}
+}
+
 func TestPost_StoresReferenceMetadataAndPostedAt(t *testing.T) {
 	s := newTestService(t)
 	j := balancedJournal()
-	j.PostedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	j.PostedAt = time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
 	j.Metadata = map[string]any{"tx_hash": "0xabc"}
 	id := mustPost(t, s, j)
 	var row JournalRow
