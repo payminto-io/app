@@ -55,9 +55,20 @@ var (
 	ErrEmptyJournal        = fmt.Errorf("%w: no lines", ErrInvalid)
 	ErrZeroAmount          = fmt.Errorf("%w: zero-amount line", ErrInvalid)
 	ErrUnbalanced          = fmt.Errorf("%w: lines do not sum to zero per asset", ErrInvalid)
+	ErrScale               = fmt.Errorf("%w: amount has more than 18 decimal places", ErrInvalid)
+	ErrMagnitude           = fmt.Errorf("%w: amount magnitude must be below 1e20", ErrInvalid)
+	ErrPostedAt            = fmt.Errorf("%w: posted_at outside the allowed window", ErrInvalid)
+	ErrMixedKinds          = errors.New("ledger: owner holds more than one account kind in one asset; use AccountBalances")
 	ErrIdempotencyConflict = errors.New("ledger: idempotency key reused with a different journal")
 	ErrAccountNotFound     = errors.New("ledger: account not found")
 )
+
+// numeric(38,18) column: anything finer is rounded by Postgres and anything larger overflows; both are refused here.
+const (
+	maxScale = 18
+)
+
+var maxMagnitude = decimal.New(1, 20)
 
 const (
 	maxOwnerIDLen        = 128
@@ -139,6 +150,12 @@ func (j Journal) Validate() error {
 		if l.Amount.IsZero() {
 			return fmt.Errorf("line %d: %w", i, ErrZeroAmount)
 		}
+		if !l.Amount.Equal(l.Amount.Truncate(maxScale)) {
+			return fmt.Errorf("line %d: %w", i, ErrScale)
+		}
+		if l.Amount.Abs().GreaterThanOrEqual(maxMagnitude) {
+			return fmt.Errorf("line %d: %w", i, ErrMagnitude)
+		}
 		sums[l.Account.Asset] = sums[l.Account.Asset].Add(l.Amount)
 	}
 	for asset, sum := range sums {
@@ -160,6 +177,7 @@ type canonicalLine struct {
 type canonicalJournal struct {
 	Kind      JournalKind     `json:"kind"`
 	Reference Reference       `json:"reference"`
+	PostedAt  string          `json:"posted_at,omitempty"`
 	Metadata  map[string]any  `json:"metadata,omitempty"`
 	Lines     []canonicalLine `json:"lines"`
 }
@@ -182,7 +200,11 @@ func (j Journal) requestHash() string {
 			fmt.Sprint(b.OwnerType, "|", b.OwnerID, "|", b.Asset, "|", b.Kind, "|", b.Amount),
 		)
 	})
-	raw, err := json.Marshal(canonicalJournal{Kind: j.Kind, Reference: j.Reference, Metadata: j.Metadata, Lines: lines})
+	postedAt := ""
+	if !j.PostedAt.IsZero() {
+		postedAt = j.PostedAt.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
+	}
+	raw, err := json.Marshal(canonicalJournal{Kind: j.Kind, Reference: j.Reference, PostedAt: postedAt, Metadata: j.Metadata, Lines: lines})
 	if err != nil {
 		// Metadata is the only field that can fail to marshal; fold the failure into the hash so it never matches a good payload.
 		raw = []byte("unmarshalable:" + err.Error())
