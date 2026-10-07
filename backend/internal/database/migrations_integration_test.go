@@ -94,8 +94,8 @@ func TestApplyMigrationsAppliesPaymentLifecycleFoundationOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first ApplyMigrations() error = %v", err)
 	}
-	if len(first) != 3 || first[0].Version != 2026082701 || first[1].Version != 2026100701 || first[2].Version != 2026100705 {
-		t.Fatalf("first result = %#v, want migrations 2026082701, 2026100701 and 2026100705", first)
+	if len(first) != 4 || first[0].Version != 2026082701 || first[1].Version != 2026100701 || first[2].Version != 2026100702 || first[3].Version != 2026100705 {
+		t.Fatalf("first result = %#v, want migrations 2026082701, 2026100701, 2026100702 and 2026100705", first)
 	}
 
 	second, err := ApplyMigrations(context.Background(), db)

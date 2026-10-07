@@ -14,3 +14,4 @@ Owns database connectivity and schema migration for the Payminto backend. Expose
 - `internal/config` — `DatabaseConfig` consumed by `Connect`
 - `internal/models` — list of models migrated here
 - `migrations/` — hand-written SQL migrations run outside GORM; `2026100705_environment_isolation` adds `environment` to `api_keys` and `ledger_accounts` (columns stay out of the manifest so `ApplyMigrations` can run on a database that predates them)
+- `migrations/` — hand-written SQL migrations run outside GORM. After `2026100701` the ledger tables and trigger functions belong to `ledger_owner`; a later migration that alters them must `SET ROLE ledger_owner` first.

@@ -92,6 +92,23 @@ func (c *EVMSweepConfirmer) TrackConfirmations(ctx context.Context) (int, error)
 			confirmed++
 		}
 	}
+
+	// Transactions already confirmed whose sweep never completed (a failed post, or rows from before
+	// the two moved into one transaction) are finished here without another chain round trip.
+	stranded, err := c.sweepTxRepo.ListConfirmedAwaitingCompletion()
+	if err != nil {
+		return confirmed, err
+	}
+	for i := range stranded {
+		if ctx.Err() != nil {
+			return confirmed, ctx.Err()
+		}
+		if err := c.sweepSvc.CompleteConfirmedTransaction(ctx, &stranded[i]); err != nil {
+			log.Printf("[EVMSweepConfirmer] sweep %d complete from confirmed tx %d: %v", stranded[i].SweepID, stranded[i].ID, err)
+			continue
+		}
+		confirmed++
+	}
 	return confirmed, nil
 }
 
@@ -122,13 +139,11 @@ func (c *EVMSweepConfirmer) trackOne(ctx context.Context, tx *models.SweepTransa
 
 	switch {
 	case confs >= required:
-		if err := c.sweepTxRepo.UpdateStatus(tx.ID, SweepTxStatusConfirmed); err != nil {
-			log.Printf("[EVMSweepConfirmer] sweep tx %d mark confirmed: %v", tx.ID, err)
+		// Confirmed status, sweep completion and the ledger journal commit together or not at all;
+		// on failure the tx stays broadcast/confirming and is retried next round.
+		if err := c.sweepSvc.CompleteConfirmedTransaction(ctx, tx); err != nil {
+			log.Printf("[EVMSweepConfirmer] sweep tx %d confirm and complete: %v", tx.ID, err)
 			return false
-		}
-		// MarkCompleted is idempotent (atomic conditional update + ledger).
-		if err := c.sweepSvc.MarkCompleted(ctx, tx.SweepID, tx.Amount, tx.GasFee, tx.BlockchainCurrencyID); err != nil {
-			log.Printf("[EVMSweepConfirmer] sweep %d mark completed: %v", tx.SweepID, err)
 		}
 		log.Printf("[EVMSweepConfirmer] sweep tx %d confirmed (%d/%d) tx=%s", tx.ID, confs, required, tx.TxHash)
 		return true

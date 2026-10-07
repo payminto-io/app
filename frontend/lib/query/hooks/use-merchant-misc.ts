@@ -9,12 +9,11 @@ import { apiKeysApi, type APIKey, type CreateAPIKeyInput } from "@/lib/api/api-k
 import { referralsApi, type ReferralOverview, type ReferralCampaign } from "@/lib/api/referrals";
 import { onramperApi, type OnramperSession } from "@/lib/api/onramper";
 import { tickerApi, type TickerEntry } from "@/lib/api/ticker";
-import { analyticsApi, type SweepStats } from "@/lib/api/analytics";
 import {
   externalPlatformsApi,
   type ExternalPlatformBlockchainCurrency,
 } from "@/lib/api/external-platforms";
-export type { APIKey, CreateAPIKeyInput, ReferralOverview, ReferralCampaign, OnramperSession, TickerEntry, SweepStats, ExternalPlatformBlockchainCurrency };
+export type { APIKey, CreateAPIKeyInput, ReferralOverview, ReferralCampaign, OnramperSession, TickerEntry, ExternalPlatformBlockchainCurrency };
 import { qk } from "@/lib/query/keys";
 import { usePlatformScope } from "./use-platform-scope";
 
@@ -103,12 +102,3 @@ export function useWalletCurrencies() {
 }
 
 // Sweep stats — analytics sweep summary
-export function useSweepStats() {
-  const scope = usePlatformScope();
-  return useQuery({
-    queryKey: qk.sweeps.stats({ platformId: scope.platformId }),
-    queryFn: () => analyticsApi.sweeps(),
-    enabled: scope.ready,
-    staleTime: 60_000,
-  });
-}

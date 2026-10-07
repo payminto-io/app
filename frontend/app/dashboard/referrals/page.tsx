@@ -1,118 +1,102 @@
 "use client";
 
-import {
-  useReferralOverview,
-  useReferralCampaigns,
-} from "@/lib/query/hooks/use-merchant-misc";
-import { LoadingRows, EmptyState, ErrorState } from "@/components/ui/states";
-import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { useReferralOverview, useReferralCampaigns, type ReferralCampaign } from "@/lib/query/hooks/use-merchant-misc";
+import { CurrencyDisplay } from "@/components/currency-display";
+import { PageHeader } from "@/components/page-header";
+import { CopyField } from "@/components/copy-field";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { DateTime } from "@/components/date-time";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/states";
 import { StatusBadge } from "@/components/ui/status-badge";
-import type { ReferralCampaign } from "@/lib/query/hooks/use-merchant-misc";
 
-const campaignColumns: Column<ReferralCampaign>[] = [
-  { key: "name", header: "Name", cell: (r) => r.name },
+const campaignColumns: DataTableColumn<ReferralCampaign>[] = [
+  { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (r) => r.name },
+  { key: "description", stack: "meta", header: "Description", className: "text-ink-soft", cell: (r) => r.description ?? null },
   {
-    key: "description",
-    header: "Description",
-    cell: (r) => r.description ?? "-",
-  },
-  {
-    key: "reward",
+    key: "reward", stack: "detail",
     header: "Reward",
-    cell: (r) =>
-      r.rewardType === "percentage"
-        ? `${r.rewardValue}%`
-        : `$${r.rewardValue}`,
-  },
-  {
-    key: "active",
-    header: "Status",
-    cell: (r) => (
-      <StatusBadge status={r.active ? "active" : "inactive"} />
-    ),
-  },
-  {
-    key: "period",
-    header: "Period",
+    align: "right",
     cell: (r) => {
-      const start = r.startsAt
-        ? new Date(r.startsAt).toLocaleDateString()
-        : "-";
-      const end = r.endsAt ? new Date(r.endsAt).toLocaleDateString() : "-";
-      return `${start} - ${end}`;
+      if (!r.rewardValue) return null;
+      if (r.rewardType === "percentage") return `${r.rewardValue}%`;
+      if (r.rewardType === "fixed" && r.currencyCode) {
+        return <CurrencyDisplay amount={r.rewardValue} currency={r.currencyCode} size="sm" />;
+      }
+      return null;
     },
+  },
+  { key: "active", stack: "trail", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
+  {
+    key: "period", stack: "detail",
+    header: "Runs",
+    className: "text-ink-soft",
+    cell: (r) =>
+      r.startsAt || r.endsAt ? (
+        <span className="num">
+          <DateTime value={r.startsAt} format="date" />
+          {r.startsAt && r.endsAt ? " to " : r.endsAt ? "Until " : ""}
+          <DateTime value={r.endsAt} format="date" />
+        </span>
+      ) : null,
   },
 ];
 
 export default function ReferralsPage() {
   const overview = useReferralOverview();
   const campaigns = useReferralCampaigns();
-
-  if (overview.isLoading) return <LoadingRows rows={4} />;
-  if (overview.error) {
-    return (
-      <ErrorState
-        message={overview.error.message}
-        retry={overview.refetch}
-      />
-    );
-  }
-
   const ov = overview.data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader title="Referrals" />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard title="Referral Code" value={ov?.code ?? "-"} />
-        <MetricCard
-          title="Total Referred"
-          value={String(ov?.totalReferred ?? 0)}
-        />
-        <MetricCard
-          title="Pending Rewards"
-          value={`$${ov?.pendingRewards ?? "0"}`}
-        />
-        <MetricCard
-          title="Paid Rewards"
-          value={`$${ov?.paidRewards ?? "0"}`}
-        />
-      </div>
+      {overview.error ? (
+        <ErrorState message={overview.error.message} retry={overview.refetch} />
+      ) : !ov ? (
+        <Skeleton className="h-[120px] rounded-md" />
+      ) : (
+        <Card>
+          <CardContent className="grid gap-6 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] sm:items-end">
+            <div className="min-w-0 space-y-1.5">
+              <div className="text-label font-medium text-ink-soft">Your code</div>
+              {ov.code ? (
+                <CopyField value={ov.code} />
+              ) : (
+                <p className="text-body-sm text-ink-soft">No code issued yet.</p>
+              )}
+            </div>
+            {ov.totalReferred !== null ? (
+              <Stat label="Referred" value={ov.totalReferred.toLocaleString("en-US")} />
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
 
-      <section className="space-y-4">
-        <h2 className="text-lg font-medium">Campaigns</h2>
-        {campaigns.isLoading ? <LoadingRows rows={3} /> : null}
+      <section className="space-y-3">
+        <h2 className="text-h3 font-semibold text-ink">Campaigns</h2>
         {campaigns.error ? (
-          <ErrorState
-            message={campaigns.error.message}
-            retry={campaigns.refetch}
-          />
-        ) : null}
-        {campaigns.data ? (
+          <ErrorState message={campaigns.error.message} retry={campaigns.refetch} />
+        ) : (
           <DataTable
             columns={campaignColumns}
-            rows={campaigns.data}
-            keyOf={(r) => r.id}
-            empty={<EmptyState title="No campaigns yet" />}
+            rows={campaigns.data ?? []}
+            loading={!campaigns.data}
+            getRowId={(r) => r.id}
+            emptyTitle="No campaigns running."
           />
-        ) : null}
+        )}
       </section>
     </div>
   );
 }
 
-function MetricCard({ title, value }: { title: string; value: string }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm text-muted-foreground">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-2xl font-semibold tracking-tight">{value}</p>
-      </CardContent>
-    </Card>
+    <div className="space-y-1">
+      <div className="text-label font-medium text-ink-soft">{label}</div>
+      <div className="num text-h2 font-semibold text-ink">{value}</div>
+    </div>
   );
 }

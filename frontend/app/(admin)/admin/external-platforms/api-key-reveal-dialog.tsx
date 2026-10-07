@@ -5,10 +5,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { ApiKeyReveal } from "@/components/api-key-reveal";
 
 export function ApiKeyRevealDialog({
@@ -22,17 +19,10 @@ export function ApiKeyRevealDialog({
     <Dialog open={apiKey !== null} onOpenChange={() => onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>API Key Created</DialogTitle>
-          <DialogDescription>
-            Save this API key now. You will not be able to see it again.
-          </DialogDescription>
+          <DialogTitle>Your new API key</DialogTitle>
         </DialogHeader>
 
-        {apiKey ? <ApiKeyReveal secret={apiKey} onConfirm={onClose} /> : null}
-
-        <DialogFooter>
-          <Button onClick={onClose}>Done</Button>
-        </DialogFooter>
+        {apiKey ? <ApiKeyReveal secret={apiKey} label="Secret key" onConfirm={onClose} /> : null}
       </DialogContent>
     </Dialog>
   );

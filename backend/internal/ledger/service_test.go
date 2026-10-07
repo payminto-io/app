@@ -320,3 +320,32 @@ func TestDecimalRoundTrip(t *testing.T) {
 		t.Fatalf("amount = %s, want %s", row.Amount, j.Lines[0].Amount)
 	}
 }
+
+func TestPost_ReplayOutsideThePostedAtWindowReturnsTheOriginal(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+	j := balancedJournal()
+	j.PostedAt = time.Now().Add(-6 * 24 * time.Hour)
+	id := mustPost(t, s, j)
+	// The event drains late: the window has closed but the key and payload are the same.
+	late := New(s.db, WithPostedAtWindow(time.Hour, time.Minute))
+	again, err := late.Post(ctx, j)
+	if err != nil || again != id {
+		t.Fatalf("late replay = (%d, %v), want (%d, nil)", again, err, id)
+	}
+	fresh := balancedJournal()
+	fresh.IdempotencyKey = "never-posted"
+	fresh.PostedAt = j.PostedAt
+	if _, err := late.Post(ctx, fresh); !errors.Is(err, ErrPostedAt) {
+		t.Fatalf("new journal outside the window = %v, want ErrPostedAt", err)
+	}
+}
+
+func TestCurrencyOfAsset(t *testing.T) {
+	cases := map[string]string{"USDC": "USDC", "USDC.BASE": "USDC", "USDC.E.AVALANCHE": "USDC.E", "POL.POLYGON": "POL"}
+	for asset, want := range cases {
+		if got := CurrencyOfAsset(asset); got != want {
+			t.Errorf("CurrencyOfAsset(%q) = %q, want %q", asset, got, want)
+		}
+	}
+}

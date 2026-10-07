@@ -97,6 +97,12 @@ func (s *SweepService) UpdateStatus(id uint, status string) error {
 // The conditional UPDATE makes a second call a no-op.
 func (s *SweepService) MarkCompleted(ctx context.Context, id uint, totalAmount, totalGasFee decimal.Decimal, blockchainCurrencyID uint) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.completeIn(ctx, tx, id, totalAmount, totalGasFee, blockchainCurrencyID)
+	})
+}
+
+func (s *SweepService) completeIn(ctx context.Context, tx *gorm.DB, id uint, totalAmount, totalGasFee decimal.Decimal, blockchainCurrencyID uint) error {
+	{
 		res := tx.Model(&models.Sweep{}).
 			Where("id = ? AND status != ?", id, SweepStatusCompleted).
 			Updates(map[string]any{
@@ -114,6 +120,21 @@ func (s *SweepService) MarkCompleted(ctx context.Context, id uint, totalAmount, 
 			return fmt.Errorf("record sweep ledger for sweep %d: %w", id, err)
 		}
 		return nil
+	}
+}
+
+// CompleteConfirmedTransaction marks a sweep transaction confirmed and completes its sweep (with the
+// ledger journal) in one transaction, so a failed post leaves the transaction unconfirmed for the next round.
+func (s *SweepService) CompleteConfirmedTransaction(ctx context.Context, st *models.SweepTransaction) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		binder, ok := s.sweepTxRepo.(repository.SweepTransactionTxBinder)
+		if !ok {
+			return fmt.Errorf("sweep transaction repository %T cannot join the transaction", s.sweepTxRepo)
+		}
+		if err := binder.WithTx(tx).UpdateStatus(st.ID, SweepTxStatusConfirmed); err != nil {
+			return fmt.Errorf("mark sweep tx %d confirmed: %w", st.ID, err)
+		}
+		return s.completeIn(ctx, tx, st.SweepID, st.Amount, st.GasFee, st.BlockchainCurrencyID)
 	})
 }
 

@@ -191,23 +191,6 @@ export function useWorkersStatus() {
     refetchInterval: 10_000,
   });
 }
-export function useWorkerAction() {
-  const qc = useQueryClient();
-  const ms = useMS();
-  return useMutation({
-    mutationFn: (input: {
-      name: string;
-      action: "start" | "stop" | "restart";
-    }) =>
-      input.action === "start"
-        ? systemApi.startWorker(input.name)
-        : input.action === "stop"
-        ? systemApi.stopWorker(input.name)
-        : systemApi.restartWorker(input.name),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: qk.admin.system.workers(ms) }),
-  });
-}
 
 // Missed deposits
 export function useMissedDeposits(filters?: {

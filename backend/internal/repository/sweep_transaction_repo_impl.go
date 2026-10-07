@@ -14,6 +14,13 @@ type SweepTransactionRepository interface {
 	ListByStatus(status string, opts ...QueryOption) ([]models.SweepTransaction, error)
 	UpdateStatus(id uint, status string) error
 	UpdateTxHash(id uint, txHash string) error
+	// ListConfirmedAwaitingCompletion returns confirmed transactions whose sweep is not completed yet.
+	ListConfirmedAwaitingCompletion() ([]models.SweepTransaction, error)
+}
+
+// SweepTransactionTxBinder is implemented by repositories that can run inside a caller's transaction.
+type SweepTransactionTxBinder interface {
+	WithTx(tx *gorm.DB) SweepTransactionRepository
 }
 
 // SweepTransactionRepositoryImpl is the GORM-backed implementation.
@@ -64,6 +71,24 @@ func (r *SweepTransactionRepositoryImpl) ListByStatus(status string, opts ...Que
 	q := Apply(r.db.Where("status = ?", status), opts...)
 	var txs []models.SweepTransaction
 	if err := q.Find(&txs).Error; err != nil {
+		return nil, err
+	}
+	return txs, nil
+}
+
+// WithTx returns a copy bound to tx so the confirmed status commits with the sweep's ledger journal.
+func (r *SweepTransactionRepositoryImpl) WithTx(tx *gorm.DB) SweepTransactionRepository {
+	return &SweepTransactionRepositoryImpl{db: tx}
+}
+
+// ListConfirmedAwaitingCompletion returns confirmed transactions whose sweep is not completed.
+func (r *SweepTransactionRepositoryImpl) ListConfirmedAwaitingCompletion() ([]models.SweepTransaction, error) {
+	var txs []models.SweepTransaction
+	err := r.db.
+		Joins("JOIN sweeps ON sweeps.id = sweep_transactions.sweep_id").
+		Where("sweep_transactions.status = ? AND sweeps.status <> ?", "confirmed", "completed").
+		Find(&txs).Error
+	if err != nil {
 		return nil, err
 	}
 	return txs, nil

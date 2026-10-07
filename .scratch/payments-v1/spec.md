@@ -64,6 +64,10 @@ Every number is a ledger line or a receipt. No card data on our servers. Live an
 | UI/UX | form design, checkout states, dashboard reviews | Opus |
 | DevOps | compose, CI, mocks, release pipeline, secrets | Opus |
 | QA | money-path tests, conformance suite, security review | Fable for security review, Opus otherwise |
+| Senior designer | Mobbin reference board, design system, auth, shell, checkout | Fable |
+| Junior designer | restyles remaining pages from `docs/design/JUNIOR_BRIEF.md` | Opus |
+
+Design bar: Stripe-level craft with our own identity, never a copy. Every UI ticket reads `docs/design/DESIGN.md` and `docs/design/references.md` (Mobbin references by surface) before starting, and is verified by screenshot at 390px and 1440px in light and dark.
 
 Security review of the money path (tickets 01, 02, 08, 09, 11) is a gate before any live merchant.
 
@@ -80,7 +84,7 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 06 | Routing engine | Principal | 05 |
 | 07 | Card connector through hosted fields | Backend | 05 |
 | 08 | Custody provider interface, mock and direct-to-wallet | Blockchain | 01 |
-| 09 | Solana adapter and USDC deposits | Solana | 08 |
+| 09 | Solana adapter, USDC and USDT side by side | Solana | 08 |
 | 10 | Conversion at receipt | Blockchain | 01, 09 |
 | 11 | Settlement policy, destinations, approvals, runs | Blockchain | 08, 10 |
 | 12 | BitGo custody adapter and conformance suite | Blockchain | 08, 11 |
@@ -88,6 +92,9 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 14 | Hosted checkout rendering every link option | Frontend | 04, 07, 09 |
 | 15 | Compose with mocks, CI, release pipeline | DevOps | 05, 08 |
 | 16 | QA: money-path tests, security review, demo script | QA | 11, 14, 15 |
+| 17 | Public checkout projection fields | Backend | 03, 05, 09 |
+| 18 | Dashboard per-asset totals and mobile tables | Frontend | 01 |
+| 19 | Chainlink CRE research, market fit and module spec | Chainlink | - |
 
 ## Distribution: open core, self-hosted by default, white-label in the paid tier
 

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -73,7 +74,7 @@ var maxMagnitude = decimal.New(1, 20)
 
 const (
 	maxOwnerIDLen        = 128
-	maxAssetLen          = 16
+	maxAssetLen          = 32
 	maxIdempotencyKeyLen = 128
 	maxReferenceLen      = 128
 )
@@ -107,10 +108,22 @@ func (k AccountKey) validate() error {
 	if n := len(strings.TrimSpace(k.OwnerID)); n == 0 || n > maxOwnerIDLen || n != len(k.OwnerID) {
 		return fmt.Errorf("%w: owner id %q", ErrInvalid, k.OwnerID)
 	}
-	if n := len(strings.TrimSpace(k.Asset)); n == 0 || n > maxAssetLen || n != len(k.Asset) {
+	if len(k.Asset) > maxAssetLen || !assetPattern.MatchString(k.Asset) {
 		return fmt.Errorf("%w: asset %q", ErrInvalid, k.Asset)
 	}
 	return nil
+}
+
+// assetPattern: upper-case code segments joined by single dots, e.g. USDC, USDC.BASE, USDC.E.AVALANCHE.
+// The last segment of a chain-qualified asset is the chain; CurrencyOfAsset strips it.
+var assetPattern = regexp.MustCompile(`^[A-Z0-9_-]+(\.[A-Z0-9_-]+)*$`)
+
+// CurrencyOfAsset returns the currency part of an asset code: everything before the last dot, or the code itself.
+func CurrencyOfAsset(asset string) string {
+	if i := strings.LastIndex(asset, "."); i >= 0 {
+		return asset[:i]
+	}
+	return asset
 }
 
 // Reference ties a journal to the domain object that caused it.

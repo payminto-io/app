@@ -50,46 +50,55 @@ BEGIN
 END;
 $$;
 
--- The only sanctioned rewrite of ledger rows: relabelling a database that is being adopted as live
--- (cmd/migrate adopt-live). SECURITY DEFINER so the table owner's right to pause the append-only
--- triggers is exercised here and nowhere else; it refuses once any live row exists.
-CREATE OR REPLACE FUNCTION ledger_adopt_environment(target text)
-RETURNS TABLE (accounts bigint, journals bigint)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_catalog, public
-AS $$
+-- The relabel function (see constraints.sql for the body). It must be owned by whoever owns the
+-- ledger tables, because only the owner may pause their triggers; when that transfer is impossible
+-- the function is not installed and adopt-live refuses with the manual step (docs/OPERATIONS.md).
+DO $install$
 DECLARE
-    relabelled_accounts bigint;
-    relabelled_journals bigint;
+    s text := current_schema();
+    table_owner text;
 BEGIN
-    IF target <> 'live' THEN
-        RAISE EXCEPTION 'ledger: adoption only moves test rows to live, not to %', target;
+    SELECT pg_get_userbyid(relowner) INTO table_owner
+      FROM pg_class WHERE oid = format('%I.ledger_accounts', s)::regclass;
+    -- The only sanctioned rewrite of ledger rows: relabelling a database adopted as live (cmd/migrate
+    -- adopt-live). SECURITY DEFINER so the table owner's right to pause the append-only triggers is
+    -- exercised here and nowhere else; it refuses once any live row exists.
+    EXECUTE format($f$
+        CREATE OR REPLACE FUNCTION %1$I.ledger_adopt_environment(target text)
+        RETURNS TABLE (accounts bigint, journals bigint)
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $body$
+        DECLARE
+            relabelled_accounts bigint;
+            relabelled_journals bigint;
+        BEGIN
+            IF target <> 'live' THEN
+                RAISE EXCEPTION 'ledger: adoption only moves test rows to live, not to %%', target;
+            END IF;
+            IF EXISTS (SELECT 1 FROM %1$I.ledger_accounts WHERE environment = 'live')
+               OR EXISTS (SELECT 1 FROM %1$I.ledger_journals WHERE environment = 'live') THEN
+                RAISE EXCEPTION 'ledger: live rows already exist; this database was adopted or served live before';
+            END IF;
+            ALTER TABLE %1$I.ledger_accounts DISABLE TRIGGER ledger_accounts_append_only;
+            ALTER TABLE %1$I.ledger_journals DISABLE TRIGGER ledger_journals_append_only;
+            UPDATE %1$I.ledger_accounts SET environment = 'live' WHERE environment = 'test';
+            GET DIAGNOSTICS relabelled_accounts = ROW_COUNT;
+            UPDATE %1$I.ledger_journals SET environment = 'live' WHERE environment = 'test';
+            GET DIAGNOSTICS relabelled_journals = ROW_COUNT;
+            ALTER TABLE %1$I.ledger_accounts ENABLE TRIGGER ledger_accounts_append_only;
+            ALTER TABLE %1$I.ledger_journals ENABLE TRIGGER ledger_journals_append_only;
+            RETURN QUERY SELECT relabelled_accounts, relabelled_journals;
+        END;
+        $body$$f$, s);
+    EXECUTE format('REVOKE ALL ON FUNCTION %I.ledger_adopt_environment(text) FROM PUBLIC', s);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %I.ledger_adopt_environment(text) TO %I', s, current_user);
+    IF table_owner <> current_user THEN
+        IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
+           OR pg_has_role(current_user, table_owner, 'MEMBER') THEN
+            EXECUTE format('ALTER FUNCTION %I.ledger_adopt_environment(text) OWNER TO %I', s, table_owner);
+        ELSE
+            EXECUTE format('DROP FUNCTION %I.ledger_adopt_environment(text)', s);
+            RAISE NOTICE 'environment: % cannot give ledger_adopt_environment to %; adopt-live is not installed. See docs/OPERATIONS.md, Environments.', current_user, table_owner;
+        END IF;
     END IF;
-    IF EXISTS (SELECT 1 FROM ledger_accounts WHERE environment = 'live')
-       OR EXISTS (SELECT 1 FROM ledger_journals WHERE environment = 'live') THEN
-        RAISE EXCEPTION 'ledger: live rows already exist; this database was adopted or served live before';
-    END IF;
-    ALTER TABLE ledger_accounts DISABLE TRIGGER ledger_accounts_append_only;
-    ALTER TABLE ledger_journals DISABLE TRIGGER ledger_journals_append_only;
-    UPDATE ledger_accounts SET environment = 'live' WHERE environment = 'test';
-    GET DIAGNOSTICS relabelled_accounts = ROW_COUNT;
-    UPDATE ledger_journals SET environment = 'live' WHERE environment = 'test';
-    GET DIAGNOSTICS relabelled_journals = ROW_COUNT;
-    ALTER TABLE ledger_accounts ENABLE TRIGGER ledger_accounts_append_only;
-    ALTER TABLE ledger_journals ENABLE TRIGGER ledger_journals_append_only;
-    RETURN QUERY SELECT relabelled_accounts, relabelled_journals;
 END;
-$$;
-REVOKE ALL ON FUNCTION ledger_adopt_environment(text) FROM PUBLIC;
-
--- The relabel function belongs to the ledger owner (migration 2026100701) and only the migrator may call it.
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ledger_owner')
-       AND (SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user) THEN
-        ALTER FUNCTION ledger_adopt_environment(text) OWNER TO ledger_owner;
-    END IF;
-    EXECUTE format('GRANT EXECUTE ON FUNCTION ledger_adopt_environment(text) TO %I', current_user);
-END;
-$$;
+$install$;

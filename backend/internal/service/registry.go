@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -122,6 +123,7 @@ type ServiceRegistry struct {
 
 	// Phase F: Sweep + ledger services
 	ledgerService               *LedgerService
+	feesModule                  *modules.FeesModule
 	sweepService                *SweepService
 	sweepTransactionService     *SweepTransactionService
 	utxoService                 *UTXOService
@@ -384,7 +386,13 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 	)
 
 	// Phase F.1: LedgerService (depends on accountRepo); dual-writes into internal/ledger
-	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db, ledger.WithEnvironment(r.environmentModule.Environment), ledger.WithGuard(r.environmentModule.Guard)), blockchainCurrencyAssetResolver()))
+	journal := ledger.New(db, ledger.WithEnvironment(r.environmentModule.Environment), ledger.WithGuard(r.environmentModule.Guard))
+	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(journal, blockchainCurrencyAssetResolver()))
+	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: journal, LedgerAsset: LedgerAssetResolver()})
+	if err != nil {
+		return nil, fmt.Errorf("wire fees: %w", err)
+	}
+	r.feesModule = feesModule
 
 	// Phase F.2: SweepTransactionService (depends on ledgerService)
 	r.sweepTransactionService = NewSweepTransactionService(
@@ -569,6 +577,9 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 // NetworkType returns the current boot-mode network (testnet|mainnet).
 func (r *ServiceRegistry) NetworkType() string { return r.networkType }
 
+// FeesModule returns the wired fee rules module.
+func (r *ServiceRegistry) FeesModule() *modules.FeesModule { return r.feesModule }
+
 // DB returns the underlying *gorm.DB for services that need it directly.
 // Should be used sparingly — prefer repositories.
 func (r *ServiceRegistry) DB() *gorm.DB { return r.db }
@@ -693,7 +704,8 @@ func (r *ServiceRegistry) MissedDepositRepo() repository.MissedDepositRepository
 
 // blockchainCurrencyAssetResolver maps a blockchain_currencies id to chain-qualified ledger assets.
 // Every Record* caller carries a blockchain_currencies id, so this is the only table it may read.
-// The native asset comes from the chain's own native row; a chain without one fails rather than guessing.
+// The native asset comes from the chain's own native row; without one Native is empty and only a
+// journal that books gas fails (gasLines), never a gas-free one.
 func blockchainCurrencyAssetResolver() AssetResolver {
 	return func(tx *gorm.DB, blockchainCurrencyID uint) (Assets, error) {
 		var bc models.BlockchainCurrency
@@ -709,10 +721,22 @@ func blockchainCurrencyAssetResolver() AssetResolver {
 		}
 		var native models.BlockchainCurrency
 		err := tx.Where("blockchain_id = ? AND LOWER(standard) = 'native'", bc.BlockchainID).First(&native).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return Assets{Asset: asset}, nil
+		}
 		if err != nil {
-			return Assets{}, fmt.Errorf("chain %s has no native currency row to book gas in: %w", bc.BlockchainCode, err)
+			return Assets{}, fmt.Errorf("chain %s native currency row: %w", bc.BlockchainCode, err)
 		}
 		return Assets{Asset: asset, Native: chainAsset(native.CurrencyCode, native.BlockchainCode)}, nil
+	}
+}
+
+// LedgerAssetResolver exposes the ledger's asset for one blockchain_currencies row to modules that post journals.
+func LedgerAssetResolver() func(tx *gorm.DB, blockchainCurrencyID uint) (string, error) {
+	resolve := blockchainCurrencyAssetResolver()
+	return func(tx *gorm.DB, blockchainCurrencyID uint) (string, error) {
+		a, err := resolve(tx, blockchainCurrencyID)
+		return a.Asset, err
 	}
 }
 

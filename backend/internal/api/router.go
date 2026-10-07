@@ -81,6 +81,9 @@ type RouterConfig struct {
 
 	// Environment is the process environment module; NewRouter refuses to build without one (ticket 13).
 	Environment *modules.EnvironmentModule
+
+	// Fees is the fee rules module (internal/fees); nil leaves its routes unmounted.
+	Fees *modules.FeesModule
 }
 
 // processEnvironment is the environment every request is tagged with; there is no default.
@@ -331,7 +334,6 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 			analyticsGrp.GET("/volume", analyticsH.GetVolume)
 			analyticsGrp.GET("/customers/top", analyticsH.GetTopCustomers)
 			analyticsGrp.GET("/revenue", analyticsH.GetRevenueBreakdown)
-			analyticsGrp.GET("/sweeps", analyticsH.GetSweepStats)
 			analyticsGrp.GET("/withdrawals", analyticsH.GetWithdrawalStats)
 			analyticsGrp.GET("/summary", analyticsH.GetSummary)
 		}
@@ -431,6 +433,15 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 				mdGrp.POST("/:id/resolve", mdH.Resolve)
 			}
 		}
+	}
+
+	// ---- Fee rules: preview for merchants; management needs a dashboard session and system.admin ----
+	if cfg.Fees != nil && cfg.AuthSvc != nil {
+		auth := FeesAuth{Merchant: middleware.JWTOrAPIKey(cfg.AuthSvc), Session: middleware.JWTAuth(cfg.AuthSvc)}
+		if cfg.MEPRoleSvc != nil {
+			auth.Admin = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
+		}
+		RegisterFeesRoutes(v1, cfg.Fees, auth)
 	}
 
 	return r

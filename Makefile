@@ -38,7 +38,7 @@ test-integration:
 	if [ -z "$$DOCKER_HOST" ] && [ -S "$$HOME/.colima/default/docker.sock" ]; then \
 		export DOCKER_HOST=unix://$$HOME/.colima/default/docker.sock TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock; \
 	fi; \
-	go test -tags=integration -count=1 -timeout 45m ./...
+	go test -tags=integration -count=1 -timeout 45m -p 4 ./...
 
 lint:
 	cd backend && golangci-lint run

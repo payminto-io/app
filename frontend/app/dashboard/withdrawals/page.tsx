@@ -1,17 +1,30 @@
 "use client";
 
 import { useState } from "react";
+import { Clock3, ExternalLink } from "lucide-react";
 import {
   useWithdrawalsList,
   useCreateWithdrawal,
   useVerifyWithdrawalOTP,
 } from "@/lib/query/hooks/use-withdrawals";
-import { ErrorState } from "@/components/ui/states";
+import { isApiError } from "@/lib/query/hooks/use-auth";
+import { presentWithdrawalState, type Withdrawal } from "@/lib/api/withdrawal-contract";
+import { getExplorerUrl } from "@/lib/formatters";
+import { chainName, PAYOUT_CHAINS } from "@/lib/chains";
+import { PageHeader } from "@/components/page-header";
+import { CopyField } from "@/components/copy-field";
+import { CurrencyDisplay } from "@/components/currency-display";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { DateTime } from "@/components/date-time";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { BlockchainIcon } from "@/components/blockchain-icon";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FormField, TextInput } from "@/components/ui/form-field";
 import {
   Select,
@@ -20,115 +33,95 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { isApiError } from "@/lib/query/hooks/use-auth";
-import { presentWithdrawalState } from "@/lib/api/withdrawal-contract";
-import type { BlockchainNetwork } from "@/lib/types";
-import { Clock3 } from "lucide-react";
+import { ErrorState } from "@/components/ui/states";
+import { StatusBadge } from "@/components/ui/status-badge";
 
-const CHAIN_MAP: Record<string, BlockchainNetwork> = {
-  ETH: "ethereum", BTC: "bitcoin", BASE: "base", POLYGON: "polygon", TRON: "tron",
+const EXPLORER_CHAIN: Record<string, string> = {
+  ETH: "ethereum",
+  BTC: "bitcoin",
+  BASE: "base",
+  POLYGON: "polygon",
+  TRON: "tron",
 };
+
+function truncateMiddle(value: string): string {
+  return value.length > 18 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
+}
+
+const COLUMNS: DataTableColumn<Withdrawal>[] = [
+  {
+    key: "amount", stack: "lead",
+    header: "Amount",
+    align: "right",
+    className: "w-0",
+    cell: (w) => <CurrencyDisplay amount={w.amount} currency={w.currencyCode} size="sm" />,
+  },
+  { key: "status", stack: "trail", header: "Status", cell: (w) => <StatusBadge status={presentWithdrawalState(w.state)} /> },
+  {
+    key: "recipient", stack: "meta",
+    header: "Recipient",
+    cell: (w) => <CopyField value={w.recipientAddress} display={truncateMiddle(w.recipientAddress)} boxed={false} />,
+  },
+  {
+    key: "chain", stack: "detail",
+    header: "Chain",
+    className: "text-ink-soft",
+    cell: (w) => chainName(w.blockchainCode),
+  },
+  {
+    key: "tx", stack: "detail",
+    header: "Transaction",
+    cell: (w) => {
+      const chain = EXPLORER_CHAIN[w.blockchainCode?.toUpperCase()];
+      if (!w.transactionHash || !chain) return null;
+      return (
+        <a
+          href={getExplorerUrl(chain, w.transactionHash)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="tap inline-flex items-center gap-1 rounded-xs font-mono text-label text-tide hover:text-tide-strong"
+        >
+          {truncateMiddle(w.transactionHash)}
+          <ExternalLink className="size-3" />
+        </a>
+      );
+    },
+  },
+  {
+    key: "created", stack: "meta",
+    header: "Created",
+    align: "right",
+    className: "text-ink-soft",
+    cell: (w) => <DateTime value={w.createdAt} />,
+  },
+];
 
 export default function WithdrawalsPage() {
   const [open, setOpen] = useState(false);
-  const { data, isLoading, error, refetch } = useWithdrawalsList();
+  const { data, error, refetch } = useWithdrawalsList();
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold tracking-tight">Withdrawals</h1>
-        <Button
-          onClick={() => setOpen(true)}
-          className="h-9 rounded-lg bg-[var(--pm-primary)] text-white hover:bg-[var(--pm-primary-deep)]"
-        >
-          Request Payout
-        </Button>
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="Withdrawals">
+        <Button onClick={() => setOpen(true)}>Request payout</Button>
+      </PageHeader>
 
       {error ? (
         <ErrorState message={error.message} retry={refetch} />
-      ) : isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full rounded-lg" />
-          ))}
-        </div>
-      ) : data?.withdrawals && data.withdrawals.length > 0 ? (
-        <Card className="border-border shadow-sm overflow-hidden">
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="pm-label pl-6">ID</TableHead>
-                  <TableHead className="pm-label">Recipient</TableHead>
-                  <TableHead className="pm-label">Amount</TableHead>
-                  <TableHead className="pm-label">Chain</TableHead>
-                  <TableHead className="pm-label">Status</TableHead>
-                  <TableHead className="pm-label text-right pr-6">Created</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.withdrawals.map((w) => (
-                  <TableRow key={w.id} className="border-border/60 hover:bg-muted/30">
-                    <TableCell className="pl-6 font-medium text-[13px]">
-                      #{w.id}
-                    </TableCell>
-                    <TableCell className="font-mono text-[12px] text-muted-foreground">
-                      {w.recipientAddress.slice(0, 8)}...{w.recipientAddress.slice(-6)}
-                    </TableCell>
-                    <TableCell className="font-semibold tabular-nums text-[13px]">
-                      {w.amount}{" "}
-                      <span className="text-muted-foreground font-normal">
-                        {w.currencyCode}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {CHAIN_MAP[w.blockchainCode?.toUpperCase()] ? (
-                        <BlockchainIcon
-                          blockchain={CHAIN_MAP[w.blockchainCode.toUpperCase()]}
-                          size="sm"
-                          showLabel
-                        />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          {w.blockchainCode || "Unknown chain"}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={presentWithdrawalState(w.state)} />
-                    </TableCell>
-                    <TableCell className="text-right pr-6 text-[12px] text-muted-foreground">
-                      {new Date(w.createdAt).toLocaleDateString()}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
       ) : (
-        <Card className="border-border shadow-sm">
-          <CardContent className="flex h-40 items-center justify-center">
-            <p className="text-sm text-muted-foreground">No withdrawals yet</p>
-          </CardContent>
-        </Card>
+        <DataTable
+          columns={COLUMNS}
+          rows={data?.withdrawals ?? []}
+          loading={!data}
+          getRowId={(w) => w.id}
+          emptyTitle="No withdrawals yet."
+          emptyDescription="Payouts you request appear here with their approval state."
+          emptyAction={
+            <Button size="sm" onClick={() => setOpen(true)}>
+              Request payout
+            </Button>
+          }
+        />
       )}
 
       <CreatePayoutDialog open={open} onOpenChange={setOpen} />
@@ -196,7 +189,7 @@ function CreatePayoutDialog({
         setStep("awaiting-approval");
       }
     } catch (error) {
-      setErr(isApiError(error) ? error.message : "Failed to create payout.");
+      setErr(isApiError(error) ? error.message : "The payout could not be created.");
     }
   }
 
@@ -207,7 +200,7 @@ function CreatePayoutDialog({
       await verifyOTP.mutateAsync(otpCode);
       setStep("awaiting-approval");
     } catch (error) {
-      setErr(isApiError(error) ? error.message : "OTP verification failed.");
+      setErr(isApiError(error) ? error.message : "That code was not accepted.");
     }
   }
 
@@ -216,40 +209,43 @@ function CreatePayoutDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {step === "form" ? "Request Payout" : step === "otp" ? "Verify OTP" : "Awaiting Approval"}
+            {step === "form" ? "Request payout" : step === "otp" ? "Enter the code" : "Awaiting approval"}
           </DialogTitle>
+          {step === "form" ? (
+            <DialogDescription>Nothing moves until the payout is approved.</DialogDescription>
+          ) : null}
         </DialogHeader>
 
         {step === "form" && (
           <form onSubmit={onSubmitForm} className="space-y-4">
-            <FormField label="Recipient Address" htmlFor="wd-addr">
-              <TextInput id="wd-addr" required value={address} onChange={(e) => setAddress(e.target.value)} />
+            <FormField label="Recipient address" htmlFor="wd-addr">
+              <TextInput id="wd-addr" required value={address} onChange={(e) => setAddress(e.target.value)} className="font-mono" autoComplete="off" spellCheck={false} />
             </FormField>
             <div className="grid grid-cols-2 gap-3">
-              <FormField label="Blockchain" htmlFor="wd-chain">
+              <FormField label="Chain" htmlFor="wd-chain">
                 <Select value={blockchain} onValueChange={(v) => { if (v) setBlockchain(v); }}>
-                  <SelectTrigger id="wd-chain"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="wd-chain" className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["ETH", "BTC", "BASE", "POLYGON", "TRON"].map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    {PAYOUT_CHAINS.map((c) => (
+                      <SelectItem key={c} value={c}>{chainName(c)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </FormField>
-              <FormField label="Currency" htmlFor="wd-cur">
-                <TextInput id="wd-cur" required value={currency} onChange={(e) => setCurrency(e.target.value)} />
+              <FormField label="Asset" htmlFor="wd-cur">
+                <TextInput id="wd-cur" required value={currency} onChange={(e) => setCurrency(e.target.value)} className="uppercase" />
               </FormField>
             </div>
             <FormField label="Amount" htmlFor="wd-amt">
-              <TextInput id="wd-amt" required value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+              <TextInput id="wd-amt" required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="num" />
             </FormField>
             <FormField label="Memo" htmlFor="wd-memo" hint="Optional">
               <TextInput id="wd-memo" value={memo} onChange={(e) => setMemo(e.target.value)} />
             </FormField>
-            {err ? <p role="alert" className="text-sm text-destructive">{err}</p> : null}
+            {err ? <p role="alert" className="text-body-sm text-bad">{err}</p> : null}
             <DialogFooter>
-              <Button type="submit" disabled={create.isPending} className="bg-[var(--pm-primary)] text-white hover:bg-[var(--pm-primary-deep)]">
-                {create.isPending ? "Submitting..." : "Submit for Review"}
+              <Button type="submit" disabled={create.isPending}>
+                {create.isPending ? "Submitting..." : "Submit for approval"}
               </Button>
             </DialogFooter>
           </form>
@@ -257,10 +253,8 @@ function CreatePayoutDialog({
 
         {step === "otp" && (
           <form onSubmit={onSubmitOTP} className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {otpPrompt}
-            </p>
-            <FormField label="OTP Code" htmlFor="otp-code">
+            <p className="text-body-sm text-ink-soft">{otpPrompt}</p>
+            <FormField label="Code" htmlFor="otp-code">
               <TextInput
                 id="otp-code"
                 required
@@ -270,36 +264,36 @@ function CreatePayoutDialog({
                 aria-describedby="otp-help"
                 value={otpCode}
                 onChange={(e) => setOtpCode(e.target.value)}
-                placeholder="Enter one-time code"
+                className="num font-mono"
               />
             </FormField>
             <p id="otp-help" className="sr-only">
               Enter the one-time code. Verification submits the payout for approval; it does not approve or process funds.
             </p>
-            {err ? <p role="alert" className="text-sm text-destructive">{err}</p> : null}
+            {err ? <p role="alert" className="text-body-sm text-bad">{err}</p> : null}
             <DialogFooter>
-              <Button type="submit" disabled={verifyOTP.isPending} className="bg-[var(--pm-primary)] text-white hover:bg-[var(--pm-primary-deep)]">
-                {verifyOTP.isPending ? "Verifying..." : "Verify OTP"}
+              <Button type="submit" disabled={verifyOTP.isPending}>
+                {verifyOTP.isPending ? "Verifying..." : "Verify"}
               </Button>
             </DialogFooter>
           </form>
         )}
 
         {step === "awaiting-approval" && (
-          <div
-            className="space-y-4 text-center"
-            role="status"
-            aria-live="polite"
-          >
-            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-muted">
-              <Clock3 className="size-6 text-muted-foreground" aria-hidden="true" />
+          <div className="space-y-4" role="status" aria-live="polite">
+            <div className="flex items-start gap-3">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-wait-tint text-wait">
+                <Clock3 className="size-4" aria-hidden="true" />
+              </span>
+              <p className="pt-1 text-body text-ink">
+                Payout <span className="num font-medium">#{withdrawalId}</span> is waiting for approval. No funds have moved.
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Payout #{withdrawalId} is awaiting approval. No funds have been processed.
-            </p>
-            <Button variant="outline" onClick={() => handleClose(false)}>
-              Close
-            </Button>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => handleClose(false)}>
+                Close
+              </Button>
+            </DialogFooter>
           </div>
         )}
       </DialogContent>

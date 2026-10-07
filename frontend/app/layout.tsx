@@ -1,23 +1,26 @@
 import type { Metadata } from "next";
-import { Inter, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/lib/query/provider";
+import { ThemeProvider } from "@/components/theme-provider";
 
-const inter = Inter({
-  variable: "--font-inter",
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
   subsets: ["latin"],
+  weight: ["400", "500"],
   display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "Payminto - Merchant Dashboard",
-  description: "Self-hosted cryptocurrency payment gateway",
+  description: "Open-source payment gateway: cards and stablecoins, one ledger",
 };
 
 export default function RootLayout({
@@ -28,11 +31,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${geistMono.variable} h-full`}
+      className={`${plexSans.variable} ${plexMono.variable} h-full`}
       suppressHydrationWarning
     >
-      <body className="min-h-full antialiased">
-        <QueryProvider>{children}</QueryProvider>
+      <body className="min-h-full">
+        <ThemeProvider>
+          <QueryProvider>{children}</QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

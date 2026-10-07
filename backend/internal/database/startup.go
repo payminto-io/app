@@ -7,6 +7,7 @@ import (
 
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/environment"
+	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"gorm.io/gorm"
 )
@@ -183,7 +184,10 @@ func MigrateExpandSchema(db *gorm.DB) error {
 	if err := db.AutoMigrate(&environment.StampRow{}); err != nil {
 		return fmt.Errorf("environment: automigrate: %w", err)
 	}
-	return ledger.Migrate(db)
+	if err := ledger.Migrate(db); err != nil {
+		return err
+	}
+	return fees.Migrate(db)
 }
 
 func validateCurrentSchema(db *gorm.DB) error {

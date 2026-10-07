@@ -44,6 +44,8 @@ Optional / feature flags:
 - `SENTRY_DSN` — enables error reporting; empty = structured logging only.
 - `POSTGRES_LEDGER_APP_ROLE` — role that `cmd/migrate` narrows to `SELECT, INSERT`
   on the ledger tables after applying migrations (also `--ledger-app-role`).
+- `FEES_SURCHARGE_FORBIDDEN_METHODS`, `FEES_ASSET_PRECISION`, `FEES_OPERATOR_PLATFORM_ID` - fee
+  rules (see Fee rules below and `backend/internal/fees/README.md`).
 - `SMTP_HOST/PORT/USERNAME/PASSWORD/FROM` — enables real email; otherwise emails
   are logged (no-op transport).
 
@@ -66,16 +68,31 @@ The double-entry ledger (`ledger_accounts`, `ledger_journals`, `ledger_lines`) i
 by trigger. A role that owns those tables can disable the triggers, so two roles are required:
 
 - A privileged migration role runs `cmd/migrate`. Migration `2026100701` creates a `NOLOGIN`
-  role `ledger_owner` and moves the ledger tables and trigger functions to it, keeping
-  `SELECT, INSERT` for the migrator. This needs `CREATEROLE` or superuser; without it the
-  migration logs a notice and the transfer must be done by hand with the same statements.
+  role `ledger_owner`, grants it to the migrator (`WITH SET TRUE, INHERIT TRUE`) and moves the
+  ledger tables and trigger functions to it, keeping `SELECT, INSERT` for the migrator. This works
+  for a superuser and for a `CREATEROLE` role that owns the database (a managed-Postgres admin user),
+  since the new owner must be granted `CREATE` on the schema by its owner.
+  Without either, the migration logs a NOTICE, leaves ownership with the migrator, and a DBA runs:
+  `CREATE ROLE ledger_owner NOLOGIN; GRANT ledger_owner TO <migrator> WITH SET TRUE, INHERIT TRUE;
+  GRANT USAGE, CREATE ON SCHEMA public TO ledger_owner;` then `ALTER TABLE ledger_accounts, ledger_journals, ledger_lines OWNER TO ledger_owner` (one
+  statement per table) and `ALTER FUNCTION ledger_* OWNER TO ledger_owner` for the five trigger
+  functions, then `GRANT SELECT, INSERT` on the tables and `USAGE, SELECT` on their sequences to the
+  migrator. A role that is a member of `ledger_owner` must never be the server's role.
 - The server connects as a separate application role with ordinary rights on every other table
   and only `SELECT, INSERT` plus sequence `USAGE` on the ledger. `cmd/migrate --ledger-app-role
   <role>` (or `POSTGRES_LEDGER_APP_ROLE`) applies exactly that grant set.
 
 At boot in staging and production the server checks that its role is not a superuser, does not
-own the ledger tables, holds no `UPDATE`, `DELETE`, `TRUNCATE` or `TRIGGER` on them, and can
-`SELECT` and `INSERT`; any other state refuses to start. Every environment also refuses to boot
+own the ledger tables or their trigger functions, holds no `UPDATE`, `DELETE`, `TRUNCATE` or
+`TRIGGER` on the tables, can `SELECT` and `INSERT`, and cannot `CREATE` in the database or in any
+schema; any other state refuses to start. The trigger functions pin `search_path` and qualify
+every reference, so `SET search_path` and temporary objects cannot shadow them.
+
+Backups: a journal is sealed by its posting transaction id and start time. `pg_upgrade` and
+physical (base) backups preserve both; a logical `pg_dump`/`pg_restore` into a fresh cluster
+keeps the stamps but the new cluster reuses low transaction ids, so restore the ledger only
+through `pg_upgrade` or a physical backup. Future migrations that alter a ledger table or
+function must `SET ROLE ledger_owner` first. Every environment also refuses to boot
 when the ledger tables, triggers or functions are missing, and validate mode additionally requires
 migration `2026100701` recorded as applied.
 
@@ -107,6 +124,35 @@ refuses once any live row exists; relabels legacy API keys (no visible prefix) a
 `sk_test_` keys as test keys; and restamps the database `live` with `adopted_from = test`.
 Only the migrator role holds `EXECUTE` on the function. Run it before the first live boot; there
 is no reverse.
+### Fee rules
+
+Migration `2026100702` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`, which backs the
+constraint that no two fee rules for one scope are active at the same instant.
+`btree_gist` is a trusted extension (PostgreSQL 13 and later), so the migration role needs
+`CREATE` on the database rather than superuser.
+If the migration role lacks it, the migration fails and leaves nothing applied; run once as a
+role that has it, then rerun `cmd/migrate`:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+```
+
+Versions are closed only through `fee_rules_close_lineage`, a `SECURITY DEFINER` function the migration
+gives to `ledger_owner` (and grants `ledger_owner` `SELECT, UPDATE` on `fee_rules`) when the migrator can
+`SET ROLE ledger_owner`; the `fee_rules` trigger accepts an `effective_to` change only from that owner.
+If the migration logs `fees: fee_rules_close_lineage stays owned by ...`, hand it over by hand once the
+ledger roles exist:
+
+```sql
+GRANT SELECT, UPDATE ON fee_rules TO ledger_owner;
+ALTER FUNCTION fee_rules_close_lineage(uuid, timestamptz) OWNER TO ledger_owner;
+```
+
+The application role needs `SELECT, INSERT` on `fee_rules`, `fee_snapshots` and `fee_postings` (no
+`UPDATE` on `fee_rules`), `EXECUTE` on `fee_rules_close_lineage`, and `UPDATE` on `payment_requests` for the
+legacy `fee_rule_id`/`fee_rule_version` columns.
+Fee rule management is limited to the platform in `FEES_OPERATOR_PLATFORM_ID`; in staging and
+production the admin routes answer 403 until it is set.
 
 ## Observability
 

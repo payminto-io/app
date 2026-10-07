@@ -167,3 +167,22 @@ func TestRequestHash_IncludesExplicitPostedAt(t *testing.T) {
 		t.Fatal("zone and sub-microsecond differences must not change the hash")
 	}
 }
+
+func TestValidate_AssetCodeFormatAndLength(t *testing.T) {
+	ok := []string{"USDC", "USDC.BASE", "USDC.E.AVALANCHE", "WSTETH.ARBITRUM", "USDT.AVALANCHE_C", "USD"}
+	for _, asset := range ok {
+		j := balancedJournal()
+		j.Lines[0].Account.Asset, j.Lines[1].Account.Asset = asset, asset
+		if err := j.Validate(); err != nil {
+			t.Errorf("asset %q rejected: %v", asset, err)
+		}
+	}
+	bad := []string{"usdc", ".USDC", "USDC.", "USDC..BASE", "US DC", "USDC/BASE", "A2345678901234567890123456789012X"}
+	for _, asset := range bad {
+		j := balancedJournal()
+		j.Lines[0].Account.Asset, j.Lines[1].Account.Asset = asset, asset
+		if err := j.Validate(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("asset %q accepted", asset)
+		}
+	}
+}

@@ -8,46 +8,19 @@ interface BlockchainIconProps {
   className?: string
 }
 
-const CHAIN_CONFIG: Record<
-  BlockchainNetwork,
-  { label: string; abbr: string; color: string; bgColor: string }
-> = {
-  bitcoin: {
-    label: "Bitcoin",
-    abbr: "BTC",
-    color: "text-orange-400",
-    bgColor: "bg-orange-500/10",
-  },
-  ethereum: {
-    label: "Ethereum",
-    abbr: "ETH",
-    color: "text-blue-400",
-    bgColor: "bg-blue-500/10",
-  },
-  base: {
-    label: "Base",
-    abbr: "BASE",
-    color: "text-blue-300",
-    bgColor: "bg-blue-400/10",
-  },
-  polygon: {
-    label: "Polygon",
-    abbr: "POL",
-    color: "text-purple-400",
-    bgColor: "bg-purple-500/10",
-  },
-  tron: {
-    label: "Tron",
-    abbr: "TRX",
-    color: "text-red-400",
-    bgColor: "bg-red-500/10",
-  },
+/** Chain names and tickers. The mark is a neutral monogram; colour never identifies a chain. */
+const CHAIN_CONFIG: Record<BlockchainNetwork, { label: string; abbr: string }> = {
+  bitcoin: { label: "Bitcoin", abbr: "BTC" },
+  ethereum: { label: "Ethereum", abbr: "ETH" },
+  base: { label: "Base", abbr: "BASE" },
+  polygon: { label: "Polygon", abbr: "POL" },
+  tron: { label: "Tron", abbr: "TRX" },
 }
 
 const SIZE_MAP = {
-  sm: "size-5 text-[10px]",
-  md: "size-6 text-xs",
-  lg: "size-8 text-sm",
+  sm: "size-5 text-caption",
+  md: "size-6 text-label",
+  lg: "size-8 text-body-sm",
 }
 
 export function BlockchainIcon({
@@ -62,20 +35,16 @@ export function BlockchainIcon({
   return (
     <span className={cn("inline-flex items-center gap-1.5", className)}>
       <span
+        aria-hidden={showLabel}
+        title={config.label}
         className={cn(
-          "inline-flex items-center justify-center rounded-full font-mono font-semibold",
-          config.bgColor,
-          config.color,
+          "inline-flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-sunken font-mono font-medium text-ink-soft",
           SIZE_MAP[size]
         )}
       >
         {config.abbr.charAt(0)}
       </span>
-      {showLabel && (
-        <span className={cn("text-sm font-medium", config.color)}>
-          {config.label}
-        </span>
-      )}
+      {showLabel && <span className="text-body text-ink">{config.label}</span>}
     </span>
   )
 }
@@ -91,9 +60,9 @@ export function BlockchainLabel({
   if (!config) return null
 
   return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
-      <span className={cn("size-2 rounded-full", config.bgColor, config.color)} style={{ backgroundColor: "currentColor" }} />
-      <span className="text-sm">{config.label}</span>
+    <span className={cn("inline-flex items-center gap-1.5 text-body-sm text-ink", className)}>
+      {config.label}
+      <span className="font-mono text-label text-ink-soft">{config.abbr}</span>
     </span>
   )
 }

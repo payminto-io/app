@@ -125,6 +125,10 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 		postedAt = now
 	}
 	if postedAt.Before(now.Add(-s.maxBackdate)) || postedAt.After(now.Add(s.maxFuture)) {
+		// A late retry of an already posted key is still a replay; only a new journal is bound by the window.
+		if receipt, ok, err := replay(tx, j.IdempotencyKey, env, hash, j.legacyRequestHash()); err != nil || ok {
+			return receipt, err
+		}
 		return Receipt{}, fmt.Errorf("%w: %s", ErrPostedAt, postedAt.Format(time.RFC3339))
 	}
 
@@ -153,17 +157,14 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 		return Receipt{}, fmt.Errorf("ledger: insert journal: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
-		var existing JournalRow
-		if err := tx.Where("idempotency_key = ?", j.IdempotencyKey).First(&existing).Error; err != nil {
-			return Receipt{}, fmt.Errorf("ledger: load journal for key %q: %w", j.IdempotencyKey, err)
+		receipt, ok, err := replay(tx, j.IdempotencyKey, env, hash, j.legacyRequestHash())
+		if err != nil {
+			return Receipt{}, err
 		}
-		if existing.Environment != env {
-			return Receipt{}, fmt.Errorf("%w: key %q was posted in the %s environment", ErrIdempotencyConflict, j.IdempotencyKey, existing.Environment)
+		if !ok {
+			return Receipt{}, fmt.Errorf("ledger: journal for key %q vanished after conflict", j.IdempotencyKey)
 		}
-		if existing.RequestHash != hash && existing.RequestHash != j.legacyRequestHash() {
-			return Receipt{}, fmt.Errorf("%w: key %q", ErrIdempotencyConflict, j.IdempotencyKey)
-		}
-		return Receipt{ID: existing.ID, Replayed: true}, nil
+		return receipt, nil
 	}
 
 	lines := make([]LineRow, 0, len(j.Lines))
@@ -174,6 +175,27 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 		return Receipt{}, fmt.Errorf("ledger: insert lines: %w", err)
 	}
 	return Receipt{ID: row.ID}, nil
+}
+
+// replay returns the receipt for an already posted key; ok is false when the key is unknown. A key
+// posted in the other environment is a conflict, never a replay; rows carrying the pre-environment
+// hash still replay against legacyHash.
+func replay(tx *gorm.DB, key string, env environment.Environment, hash, legacyHash string) (Receipt, bool, error) {
+	var existing JournalRow
+	err := tx.Where("idempotency_key = ?", key).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Receipt{}, false, nil
+	}
+	if err != nil {
+		return Receipt{}, false, fmt.Errorf("ledger: load journal for key %q: %w", key, err)
+	}
+	if existing.Environment != env {
+		return Receipt{}, false, fmt.Errorf("%w: key %q was posted in the %s environment", ErrIdempotencyConflict, key, existing.Environment)
+	}
+	if existing.RequestHash != hash && existing.RequestHash != legacyHash {
+		return Receipt{}, false, fmt.Errorf("%w: key %q", ErrIdempotencyConflict, key)
+	}
+	return Receipt{ID: existing.ID, Replayed: true}, true, nil
 }
 
 func sortedAccountKeys(lines []Line) []AccountKey {

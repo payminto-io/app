@@ -235,6 +235,7 @@ func main() {
 		VaultSvc:             reg.SecretsVaultService(),
 		APIKeyRepo:           reg.APIKeyRepo(),
 		Environment:          reg.EnvironmentModule(),
+		Fees:                 reg.FeesModule(),
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
