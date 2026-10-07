@@ -85,6 +85,134 @@ sequenceDiagram
 
 Contract rules: only the configured forwarder may call `onReport`; each report kind is bound to a workflow id, owner and name; a report is accepted once (seen-set on its hash) in any order; a solvency item is stored only if newer than the latest for its asset, otherwise it is recorded as ignored; no ETH or token custody; two-step ownership; no upgradeability.
 
+## Screenshots
+
+CRE settings in the merchant dashboard, with the module on and the latest attestation per workflow:
+
+![CRE attestation settings, light](../../docs/design/screens/pages/settings-attestations-1440-light.png)
+
+The same page in dark mode, and the off state a deployer sees when CRE is not enabled at install:
+
+![CRE attestation settings, dark](../../docs/design/screens/pages/settings-attestations-1440-dark.png)
+![CRE off at install](../../docs/design/screens/pages/settings-attestations-off-1440-light.png)
+
+The attestation the gateway stored after verifying the on-chain report from its own RPC (real response from the local end-to-end run, `GET /api/v1/public/attestations/<id>`):
+
+```json
+{
+  "kind": "solvency",
+  "status": "attested",
+  "provider": "chainlink",
+  "independently_signed": true,
+  "simulated": false,
+  "chain": "ethereum-testnet-sepolia-base-1",
+  "block_number": 1441,
+  "consumer_address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+  "forwarder_address": "0x82300bd7c3958625581cc2F77bC6464dcEcDF3e5",
+  "report_id": "0x0001",
+  "subject_type": "ledger_checkpoint",
+  "item": {
+    "asset": "USDC",
+    "decimals": 6,
+    "liabilities_minor": "1250000000",
+    "reserves_minor": "1300000000",
+    "checkpoint_hash": "0xa3896d0d7e18dda7b3225fedc0d7b5833b661692c6d90cb1f98c493f7cf420b5"
+  }
+}
+```
+
+## The code
+
+### Consumer contract: `contracts/src/cre/GatewayAttestations.sol`
+
+Only the Keystone forwarder may call `onReport`; the report is bound to a workflow, checked for replay, then recorded:
+
+```solidity
+function onReport(bytes calldata metadata, bytes calldata report) external override onlyForwarder {
+    Metadata memory m = _decodeMetadata(metadata);
+    (uint8 kind, bytes32 gatewayId, uint64 observedAt, uint256 itemCount) = _decodeHeader(report);
+    _requireBoundWorkflow(kind, m);
+    bytes32 reportHash = keccak256(report);
+    _admit(gatewayId, kind, observedAt, reportHash);
+
+    if (kind == KIND_SOLVENCY) {
+        _recordSolvency(report, gatewayId, observedAt);
+    } else if (kind == KIND_DEPOSIT_FINALITY) {
+        _recordDeposits(report, gatewayId, observedAt);
+    } else {
+        _recordConversions(report, gatewayId, observedAt);
+    }
+    ...
+}
+```
+
+### Workflow name binding: `contracts/src/cre/WorkflowName.sol`
+
+Keystone writes the workflow name into report metadata as the ASCII of the first 10 hex characters of `sha256(name)`. Binding it any other way makes every real report revert, which the audit caught:
+
+```solidity
+function keystone(string memory name) internal pure returns (bytes10 out) {
+    bytes32 digest = sha256(bytes(name));
+    bytes memory ascii = new bytes(10);
+    for (uint256 i = 0; i < 5; ++i) {
+        uint8 b = uint8(digest[i]);
+        ascii[2 * i] = HEX[b >> 4];
+        ascii[2 * i + 1] = HEX[b & 0x0f];
+    }
+    out = bytes10(ascii);
+}
+```
+
+### Solvency workflow: `cre/workflows/solvency/main.ts`
+
+Reads the liabilities checkpoint with identical-aggregation consensus, reads reserves at finalized blocks, and encodes exactly what the contract decodes:
+
+```ts
+export const encodeSolvencyReport = (report: SolvencyReport): Hex => {
+  if (report.items.length === 0) throw new Error('solvency report carries no items')
+  if (report.observedAt < 0n || report.observedAt > UINT64_MAX) throw new Error('observedAt is outside uint64')
+  for (const item of report.items) {
+    assertUint256(item.liabilities, `liabilities for ${item.asset}`)
+    assertUint256(item.reserves, `reserves for ${item.asset}`)
+  }
+  return encodeAbiParameters(SOLVENCY_REPORT_PARAMS, [
+    REPORT_VERSION, KIND_SOLVENCY, report.gatewayId, report.observedAt, report.items,
+  ])
+}
+```
+
+### Gateway verifier: `backend/internal/cre/verify.go`
+
+Nothing from the request is trusted: workflow id, owner, name and gateway must match the configured bindings, and the chainlink provider re-reads the transaction from its own RPC:
+
+```go
+want, ok := v.Bindings[report.Kind]
+if !ok || want.ID == ([32]byte{}) || meta.WorkflowID != want.ID {
+    return nil, fmt.Errorf("%w: %x", ErrWrongWorkflow, meta.WorkflowID)
+}
+if meta.Owner != want.Owner {
+    return nil, fmt.Errorf("%w: %s", ErrWrongOwner, common.BytesToAddress(meta.Owner[:]))
+}
+if meta.WorkflowName != want.Name {
+    return nil, fmt.Errorf("%w: %x", ErrWrongName, meta.WorkflowName)
+}
+if report.GatewayID != v.GatewayID {
+    return nil, fmt.Errorf("%w: %x", ErrWrongGateway, report.GatewayID)
+}
+```
+
+### Code map
+
+| Path | What |
+| --- | --- |
+| `contracts/src/cre/GatewayAttestations.sol`, `IReceiver.sol`, `WorkflowName.sol` | Consumer contract |
+| `contracts/test/cre/` | Unit, fuzz, invariant, gas and real-forwarder tests |
+| `contracts/script/DeployGatewayAttestations.s.sol` | Deploy script, dry run unless `--broadcast` |
+| `cre/workflows/solvency/` | The workflow, its configs per target and tests |
+| `cre/README.md` | Run with and without Chainlink access |
+| `backend/internal/cre/` | Module: port, providers, verifier, poller, checkpoints, storage |
+| `docs/cre/RESEARCH.md`, `SPEC.md`, `OPERATIONS.md` | Research, spec, operations |
+
 ## Proven end to end (local chain)
 
 The workflow ran against a local Anvil chain with the Keystone mock forwarder:
