@@ -34,14 +34,15 @@ var (
 				"refund_failed":  RefundFailed,
 			},
 		},
-		// Payminto payment_requests.state, lower-cased by the chaindeposit connector.
+		// Payminto payment_requests.state, lower-cased by the chaindeposit connector; an open request waits on the customer.
 		"chaindeposit": {
 			Payment: map[connectors.RawStatus]AttemptStatus{
-				"open":             AttemptPending,
-				"partially_filled": AttemptPartiallyPaid,
-				"filled":           AttemptCharged,
-				"over_filled":      AttemptOverpaid,
-				"cancelled":        AttemptVoided,
+				"open":                AttemptAuthenticationPending,
+				"partially_filled":    AttemptPartiallyPaid,
+				"filled":              AttemptCharged,
+				"over_filled":         AttemptOverpaid,
+				"cancelled":           AttemptVoided,
+				"cancelled_underpaid": AttemptUnderpaid,
 			},
 			Refund: map[connectors.RawStatus]RefundStatus{},
 		},

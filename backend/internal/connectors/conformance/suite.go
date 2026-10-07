@@ -47,6 +47,12 @@ type Harness struct {
 	Settle func(t *testing.T, c connectors.Connector, attemptID, connectorTransactionID string)
 	// Webhook builds a signed delivery announcing the transaction settled; nil when the provider has no webhooks.
 	Webhook func(t *testing.T, c connectors.Connector, eventID, connectorTransactionID string) (http.Header, []byte)
+	// StaleWebhook builds a correctly signed delivery whose timestamp is outside the provider's window.
+	StaleWebhook func(t *testing.T, c connectors.Connector, eventID, connectorTransactionID string) (http.Header, []byte)
+	// SettleRefund drives the provider side so a pending refund finishes; nil when refunds are never pending.
+	SettleRefund func(t *testing.T, c connectors.Connector, connectorRefundID string)
+	// PendingRefundReason is the RefundRequest.Reason that makes the provider answer with a pending refund, if any.
+	PendingRefundReason string
 }
 
 var seq int
@@ -181,13 +187,17 @@ func Run(t *testing.T, h Harness) {
 		if _, err := c.Capture(ctx, connectors.CaptureRequest{AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: over}); !errors.Is(err, connectors.ErrInvalidRequest) {
 			t.Fatalf("over-capture err = %v, want ErrInvalidRequest", err)
 		}
-		capResp, err := c.Capture(ctx, connectors.CaptureRequest{AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: h.Money})
+		capResp, err := c.Capture(ctx, connectors.CaptureRequest{AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: h.Money, IdempotencyKey: req.AttemptID + ".capture"})
 		if err != nil || h.Classify(capResp.RawStatus) != ClassSettled || !capResp.AmountCaptured.Equal(h.Money.Amount) {
 			t.Fatalf("Capture = %+v, %v", capResp, err)
 		}
 		declared(t, c, capResp.RawStatus)
-		if _, err := c.Capture(ctx, connectors.CaptureRequest{AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: h.Money}); err == nil {
-			t.Fatal("a second capture must fail")
+		again, err := c.Capture(ctx, connectors.CaptureRequest{AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: h.Money, IdempotencyKey: req.AttemptID + ".capture"})
+		if err != nil || again.RawStatus != capResp.RawStatus || !again.AmountCaptured.Equal(capResp.AmountCaptured) {
+			t.Fatalf("a repeat with the same idempotency key must return the first outcome: %+v, %v", again, err)
+		}
+		if _, err := c.Capture(ctx, connectors.CaptureRequest{AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: h.Money, IdempotencyKey: req.AttemptID + ".capture2"}); err == nil {
+			t.Fatal("a second capture under a new key must fail")
 		}
 
 		if c.Capabilities().PartialCapture {
@@ -250,11 +260,52 @@ func Run(t *testing.T, h Harness) {
 		if c.Capabilities().PartialRefund {
 			amount = connectors.Money{Amount: h.Money.Amount.Div(decimal.NewFromInt(2)), Asset: h.Money.Asset}
 		}
-		r, err := c.Refund(ctx, connectors.RefundRequest{RefundID: "r1", AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: amount})
+		r, err := c.Refund(ctx, connectors.RefundRequest{RefundID: "r1", AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: amount, IdempotencyKey: "r1"})
 		if err != nil || r.ConnectorRefundID == "" {
 			t.Fatalf("Refund = %+v, %v", r, err)
 		}
 		declaredRefund(t, c, r.RawStatus)
+		again, err := c.Refund(ctx, connectors.RefundRequest{RefundID: "r1", AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: amount, IdempotencyKey: "r1"})
+		if err != nil || again.ConnectorRefundID != r.ConnectorRefundID {
+			t.Fatalf("a repeat with the same idempotency key must return the first refund: %+v, %v", again, err)
+		}
+	})
+
+	t.Run("refund sync", func(t *testing.T) {
+		c := h.New(t)
+		if !c.Capabilities().RefundSync {
+			if _, err := c.SyncRefund(ctx, connectors.SyncRefundRequest{RefundID: "x"}); !errors.Is(err, connectors.ErrUnsupported) {
+				t.Fatalf("SyncRefund without capability err = %v, want ErrUnsupported", err)
+			}
+			t.Skip("provider cannot sync refunds")
+		}
+		if !c.Capabilities().Refund {
+			t.Fatal("RefundSync without Refund is contradictory")
+		}
+		if _, err := c.SyncRefund(ctx, connectors.SyncRefundRequest{RefundID: "never", ConnectorRefundID: "never"}); !errors.Is(err, connectors.ErrNotFound) {
+			t.Fatalf("SyncRefund of unknown err = %v, want ErrNotFound", err)
+		}
+		req, resp, ok := h.authorize(t, c, OutcomeSettled, connectors.CaptureAutomatic)
+		if !ok {
+			t.Skip("harness cannot produce settled money to refund")
+		}
+		r, err := c.Refund(ctx, connectors.RefundRequest{RefundID: "rs1", AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID, Money: h.Money, Reason: h.PendingRefundReason, IdempotencyKey: "rs1"})
+		if err != nil {
+			t.Fatalf("Refund: %v", err)
+		}
+		byOurs, err := c.SyncRefund(ctx, connectors.SyncRefundRequest{RefundID: "rs1", AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID})
+		if err != nil || byOurs.ConnectorRefundID != r.ConnectorRefundID {
+			t.Fatalf("SyncRefund by our id = %+v, %v", byOurs, err)
+		}
+		declaredRefund(t, c, byOurs.RawStatus)
+		if h.SettleRefund != nil {
+			h.SettleRefund(t, c, r.ConnectorRefundID)
+		}
+		byTheirs, err := c.SyncRefund(ctx, connectors.SyncRefundRequest{RefundID: "rs1", ConnectorRefundID: r.ConnectorRefundID, ConnectorTransactionID: resp.ConnectorTransactionID})
+		if err != nil || byTheirs.ConnectorRefundID != r.ConnectorRefundID {
+			t.Fatalf("SyncRefund by connector id = %+v, %v", byTheirs, err)
+		}
+		declaredRefund(t, c, byTheirs.RawStatus)
 	})
 
 	t.Run("pending then sync", func(t *testing.T) {
@@ -324,6 +375,13 @@ func Run(t *testing.T, h Harness) {
 		tampered[len(tampered)-1] ^= 0x01
 		if _, err := c.VerifyWebhook(ctx, headers, tampered); !errors.Is(err, connectors.ErrWebhookSignature) {
 			t.Fatalf("tampered delivery err = %v, want ErrWebhookSignature", err)
+		}
+		if h.StaleWebhook == nil {
+			t.Fatal("provider declares webhooks but the harness cannot build a stale delivery; a timestamp window is part of the contract")
+		}
+		staleH, staleB := h.StaleWebhook(t, c, "conf_evt_stale", resp.ConnectorTransactionID)
+		if _, err := c.VerifyWebhook(ctx, staleH, staleB); !errors.Is(err, connectors.ErrWebhookStale) {
+			t.Fatalf("stale delivery err = %v, want ErrWebhookStale", err)
 		}
 		if c.Capabilities().Sync {
 			sync, err := c.Sync(ctx, connectors.SyncRequest{AttemptID: req.AttemptID, ConnectorTransactionID: resp.ConnectorTransactionID})

@@ -20,12 +20,14 @@ var expectedIntentEdges = map[intentEdge]bool{
 	{IntentRequiresAction, IntentRequiresCapture}:             true,
 	{IntentRequiresAction, IntentSucceeded}:                   true,
 	{IntentRequiresAction, IntentPartiallyCaptured}:           true,
+	{IntentRequiresAction, IntentPartiallyPaid}:               true,
 	{IntentRequiresAction, IntentFailed}:                      true,
 	{IntentRequiresAction, IntentCancelled}:                   true,
 	{IntentProcessing, IntentRequiresAction}:                  true,
 	{IntentProcessing, IntentRequiresCapture}:                 true,
 	{IntentProcessing, IntentSucceeded}:                       true,
 	{IntentProcessing, IntentPartiallyCaptured}:               true,
+	{IntentProcessing, IntentPartiallyPaid}:                   true,
 	{IntentProcessing, IntentFailed}:                          true,
 	{IntentProcessing, IntentCancelled}:                       true,
 	{IntentRequiresCapture, IntentProcessing}:                 true,
@@ -58,6 +60,9 @@ var expectedAttemptEdges = map[attemptEdge]bool{
 	{AttemptAuthenticationPending, AttemptCharged}:             true,
 	{AttemptAuthenticationPending, AttemptAuthorizationFailed}: true,
 	{AttemptAuthenticationPending, AttemptVoided}:              true,
+	{AttemptAuthenticationPending, AttemptPartiallyPaid}:       true,
+	{AttemptAuthenticationPending, AttemptOverpaid}:            true,
+	{AttemptAuthenticationPending, AttemptVoidInitiated}:       true,
 	{AttemptAuthenticationPending, AttemptFailure}:             true,
 	{AttemptAuthorized, AttemptCaptureInitiated}:               true,
 	{AttemptAuthorized, AttemptCharged}:                        true,
@@ -68,23 +73,34 @@ var expectedAttemptEdges = map[attemptEdge]bool{
 	{AttemptCaptureInitiated, AttemptCharged}:                  true,
 	{AttemptCaptureInitiated, AttemptPartialCharged}:           true,
 	{AttemptCaptureInitiated, AttemptCaptureFailed}:            true,
+	{AttemptCaptureInitiated, AttemptAuthorized}:               true,
+	{AttemptCaptureInitiated, AttemptVoided}:                   true,
+	{AttemptCaptureFailed, AttemptCharged}:                     true,
+	{AttemptCaptureFailed, AttemptPartialCharged}:              true,
 	{AttemptCaptureFailed, AttemptCaptureInitiated}:            true,
 	{AttemptCaptureFailed, AttemptVoidInitiated}:               true,
 	{AttemptCaptureFailed, AttemptVoided}:                      true,
 	{AttemptCaptureFailed, AttemptFailure}:                     true,
 	{AttemptPartiallyPaid, AttemptCharged}:                     true,
 	{AttemptPartiallyPaid, AttemptOverpaid}:                    true,
-	{AttemptPartiallyPaid, AttemptVoided}:                      true,
+	{AttemptPartiallyPaid, AttemptVoidInitiated}:               true,
+	{AttemptPartiallyPaid, AttemptUnderpaid}:                   true,
 	{AttemptPartiallyPaid, AttemptFailure}:                     true,
 	{AttemptVoidInitiated, AttemptVoided}:                      true,
 	{AttemptVoidInitiated, AttemptVoidFailed}:                  true,
+	{AttemptVoidInitiated, AttemptAuthorized}:                  true,
+	{AttemptVoidInitiated, AttemptUnderpaid}:                   true,
+	{AttemptVoidInitiated, AttemptCharged}:                     true,
+	{AttemptVoidInitiated, AttemptPartialCharged}:              true,
+	{AttemptVoidFailed, AttemptCharged}:                        true,
+	{AttemptVoidFailed, AttemptPartialCharged}:                 true,
 	{AttemptVoidFailed, AttemptVoidInitiated}:                  true,
 	{AttemptVoidFailed, AttemptVoided}:                         true,
 	{AttemptVoidFailed, AttemptFailure}:                        true,
 }
 
 func TestIntentTransitions_EveryPairMatchesTheExpectedTable(t *testing.T) {
-	if len(AllIntentStatuses) != 9 {
+	if len(AllIntentStatuses) != 10 {
 		t.Fatalf("vocabulary changed: %d intent statuses; update the expected edges", len(AllIntentStatuses))
 	}
 	seen := 0
@@ -120,7 +136,7 @@ func TestIntentTransitions_EveryPairMatchesTheExpectedTable(t *testing.T) {
 }
 
 func TestAttemptTransitions_EveryPairMatchesTheExpectedTable(t *testing.T) {
-	if len(AllAttemptStatuses) != 15 {
+	if len(AllAttemptStatuses) != 16 {
 		t.Fatalf("vocabulary changed: %d attempt statuses; update the expected edges", len(AllAttemptStatuses))
 	}
 	seen := 0
@@ -168,13 +184,13 @@ func TestRefundTransitions(t *testing.T) {
 
 func TestTerminalStatuses(t *testing.T) {
 	for _, s := range AllIntentStatuses {
-		want := s == IntentSucceeded || s == IntentPartiallyCaptured || s == IntentCancelled
+		want := s == IntentSucceeded || s == IntentPartiallyCaptured || s == IntentPartiallyPaid || s == IntentCancelled
 		if s.IsTerminal() != want {
 			t.Errorf("intent %s terminal=%v want %v", s, s.IsTerminal(), want)
 		}
 	}
 	terminalAttempts := map[AttemptStatus]bool{
-		AttemptCharged: true, AttemptPartialCharged: true, AttemptOverpaid: true,
+		AttemptCharged: true, AttemptPartialCharged: true, AttemptOverpaid: true, AttemptUnderpaid: true,
 		AttemptAuthorizationFailed: true, AttemptVoided: true, AttemptFailure: true,
 	}
 	for _, s := range AllAttemptStatuses {
@@ -193,7 +209,8 @@ func TestIntentStatusFor_CoversEveryAttemptStatusWithAValidIntentStatus(t *testi
 		AttemptCaptureInitiated:      IntentProcessing,
 		AttemptCharged:               IntentSucceeded,
 		AttemptPartialCharged:        IntentPartiallyCaptured,
-		AttemptPartiallyPaid:         IntentProcessing,
+		AttemptPartiallyPaid:         IntentRequiresAction,
+		AttemptUnderpaid:             IntentPartiallyPaid,
 		AttemptOverpaid:              IntentSucceeded,
 		AttemptCaptureFailed:         IntentRequiresCapture,
 		AttemptAuthorizationFailed:   IntentFailed,
@@ -220,6 +237,19 @@ func TestAttemptEdgesDeriveAllowedIntentEdges(t *testing.T) {
 		from, to := IntentStatusFor(edge.from), IntentStatusFor(edge.to)
 		if err := transitionIntent(from, to); err != nil {
 			t.Errorf("attempt %s -> %s derives intent %s -> %s: %v", edge.from, edge.to, from, to, err)
+		}
+	}
+}
+
+func TestMoneyInAndInFlight(t *testing.T) {
+	moneyIn := map[AttemptStatus]bool{AttemptCharged: true, AttemptPartialCharged: true, AttemptOverpaid: true, AttemptPartiallyPaid: true, AttemptUnderpaid: true}
+	inFlight := map[AttemptStatus]bool{AttemptPending: true, AttemptCaptureInitiated: true, AttemptVoidInitiated: true}
+	for _, s := range AllAttemptStatuses {
+		if s.MoneyIn() != moneyIn[s] {
+			t.Errorf("%s MoneyIn = %v", s, s.MoneyIn())
+		}
+		if s.InFlight() != inFlight[s] {
+			t.Errorf("%s InFlight = %v", s, s.InFlight())
 		}
 	}
 }

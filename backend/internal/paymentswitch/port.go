@@ -24,9 +24,11 @@ const (
 	IntentProcessing            IntentStatus = "processing"
 	IntentRequiresCapture       IntentStatus = "requires_capture"
 	IntentPartiallyCaptured     IntentStatus = "partially_captured"
-	IntentSucceeded             IntentStatus = "succeeded"
-	IntentFailed                IntentStatus = "failed"
-	IntentCancelled             IntentStatus = "cancelled"
+	// IntentPartiallyPaid is terminal: a chain deposit closed short; the received funds are on the books and await refund (ticket 11).
+	IntentPartiallyPaid IntentStatus = "partially_paid"
+	IntentSucceeded     IntentStatus = "succeeded"
+	IntentFailed        IntentStatus = "failed"
+	IntentCancelled     IntentStatus = "cancelled"
 )
 
 // AttemptStatus is one connector attempt's state; an intent derives its status from its active attempt.
@@ -41,6 +43,7 @@ const (
 	AttemptCharged               AttemptStatus = "charged"
 	AttemptPartialCharged        AttemptStatus = "partial_charged"
 	AttemptPartiallyPaid         AttemptStatus = "partially_paid"
+	AttemptUnderpaid             AttemptStatus = "underpaid"
 	AttemptOverpaid              AttemptStatus = "overpaid"
 	AttemptCaptureFailed         AttemptStatus = "capture_failed"
 	AttemptAuthorizationFailed   AttemptStatus = "authorization_failed"
@@ -54,6 +57,8 @@ const (
 type RefundStatus string
 
 const (
+	// RefundInitiated is the claim: the connector call is in flight or its outcome is unknown; Sync resolves it.
+	RefundInitiated RefundStatus = "initiated"
 	RefundPending   RefundStatus = "pending"
 	RefundSucceeded RefundStatus = "succeeded"
 	RefundFailed    RefundStatus = "failed"

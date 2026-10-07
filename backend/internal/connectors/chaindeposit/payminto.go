@@ -18,20 +18,27 @@ type PaymentOpener interface {
 }
 
 // PaymintoBackend drives the inherited deposit flow through its existing services; nothing in Payminto changes.
+// The attempt id travels as CreatePaymentInput.InvoiceID, which CreatePayment persists in the same insert, so a
+// crash after the request committed still leaves it findable by attempt.
 type PaymintoBackend struct {
 	payments PaymentOpener
 	repo     repository.PaymentRepository
 	deposits repository.DepositRepository
+	db       *gorm.DB
 }
 
-func NewPaymintoBackend(payments PaymentOpener, repo repository.PaymentRepository, deposits repository.DepositRepository) *PaymintoBackend {
-	return &PaymintoBackend{payments: payments, repo: repo, deposits: deposits}
+func NewPaymintoBackend(payments PaymentOpener, repo repository.PaymentRepository, deposits repository.DepositRepository, db *gorm.DB) *PaymintoBackend {
+	return &PaymintoBackend{payments: payments, repo: repo, deposits: deposits, db: db}
 }
 
-// OpenPayment creates the payment request and assigns a deposit address; Payminto picks the reference id.
 func (b *PaymintoBackend) OpenPayment(_ context.Context, req OpenRequest) (OpenResult, error) {
+	if req.AttemptID == "" {
+		return OpenResult{}, fmt.Errorf("attempt id required")
+	}
+	invoice := req.AttemptID
 	result, err := b.payments.CreatePayment(service.CreatePaymentInput{
 		AmountInUSD:    req.AmountInUSD,
+		InvoiceID:      &invoice,
 		BlockchainCode: req.ChainCode,
 		CurrencyCode:   req.CurrencyCode,
 	}, req.MerchantMemberID, req.PlatformID)
@@ -45,7 +52,7 @@ func (b *PaymintoBackend) OpenPayment(_ context.Context, req OpenRequest) (OpenR
 }
 
 // PaymentStatus reports the state Payminto's finalizer wrote and the sum of confirmed deposits.
-func (b *PaymintoBackend) PaymentStatus(_ context.Context, reference string) (PaymentStatus, error) {
+func (b *PaymintoBackend) PaymentStatus(ctx context.Context, reference string) (PaymentStatus, error) {
 	p, err := b.repo.GetByReferenceID(reference)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -53,6 +60,22 @@ func (b *PaymintoBackend) PaymentStatus(_ context.Context, reference string) (Pa
 		}
 		return PaymentStatus{}, err
 	}
+	return b.status(ctx, p)
+}
+
+func (b *PaymintoBackend) PaymentStatusByAttempt(ctx context.Context, attemptID string) (PaymentStatus, error) {
+	var p models.PaymentRequest
+	err := b.db.WithContext(ctx).Where("invoice_id = ?", attemptID).Order("id").First(&p).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return PaymentStatus{}, ErrBackendNotFound
+		}
+		return PaymentStatus{}, err
+	}
+	return b.status(ctx, &p)
+}
+
+func (b *PaymintoBackend) status(ctx context.Context, p *models.PaymentRequest) (PaymentStatus, error) {
 	deposits, err := b.deposits.ListByPaymentRequestID(p.ID)
 	if err != nil {
 		return PaymentStatus{}, err
@@ -63,7 +86,19 @@ func (b *PaymintoBackend) PaymentStatus(_ context.Context, reference string) (Pa
 			received = received.Add(d.Amount)
 		}
 	}
-	return PaymentStatus{State: p.State, AmountInUSD: p.AmountInUSD, Received: received}, nil
+	st := PaymentStatus{Reference: p.ReferenceID, State: p.State, AmountInUSD: p.AmountInUSD, Received: received, ExpiresAt: p.ExpiresAt}
+	var addr models.DepositAddress
+	err = b.db.WithContext(ctx).Preload("BlockchainCurrency").Where("payment_request_id = ?", p.ID).Order("id").First(&addr).Error
+	if err == nil {
+		st.Address = addr.Address
+		if addr.BlockchainCurrency != nil {
+			st.CurrencyCode = addr.BlockchainCurrency.CurrencyCode
+			st.ChainCode = addr.BlockchainCurrency.BlockchainCode
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return PaymentStatus{}, err
+	}
+	return st, nil
 }
 
 func (b *PaymintoBackend) CancelPayment(_ context.Context, reference string) error {
@@ -74,7 +109,7 @@ func (b *PaymintoBackend) CancelPayment(_ context.Context, reference string) err
 		}
 		return err
 	}
-	if p.State != models.PaymentStateOpen {
+	if p.State != models.PaymentStateOpen && p.State != models.PaymentStatePartiallyFilled {
 		return fmt.Errorf("payment %s is %s", reference, p.State)
 	}
 	return b.repo.UpdateState(p.ID, models.PaymentStateCancelled)

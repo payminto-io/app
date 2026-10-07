@@ -3,6 +3,7 @@ package conformance_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/payminto/payminto/backend/internal/connectors/conformance"
@@ -48,5 +49,14 @@ func TestMockConformance(t *testing.T) {
 		Webhook: func(t *testing.T, c connectors.Connector, eventID, txID string) (http.Header, []byte) {
 			return c.(*mock.Connector).SignWebhook(mock.Event{EventID: eventID, TransactionID: txID, Status: string(mock.StatusCaptured)})
 		},
+		StaleWebhook: func(t *testing.T, c connectors.Connector, eventID, txID string) (http.Header, []byte) {
+			return c.(*mock.Connector).SignWebhookAt(mock.Event{EventID: eventID, TransactionID: txID, Status: string(mock.StatusCaptured)}, time.Now().Add(-mock.WebhookWindow-time.Minute))
+		},
+		SettleRefund: func(t *testing.T, c connectors.Connector, refundID string) {
+			if err := c.(*mock.Connector).SettleRefund(refundID, mock.RefundDone); err != nil {
+				t.Fatalf("settle refund: %v", err)
+			}
+		},
+		PendingRefundReason: mock.ScenarioRefundAsync,
 	})
 }

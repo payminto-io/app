@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/shopspring/decimal"
@@ -116,6 +117,10 @@ func TestVoidAndRefundRules(t *testing.T) {
 	if err != nil || r2.RawStatus != RefundPending {
 		t.Fatalf("async refund = %+v, %v", r2, err)
 	}
+	r2, err = c.Refund(ctx, connectors.RefundRequest{ConnectorTransactionID: paid.ConnectorTransactionID, Money: usd(1), Reason: ScenarioRefundAsync})
+	if err != nil || r2.RawStatus != RefundPending {
+		t.Fatalf("async refund = %+v, %v", r2, err)
+	}
 	if _, err := c.Sync(ctx, connectors.SyncRequest{ConnectorTransactionID: "nope"}); !errors.Is(err, connectors.ErrNotFound) {
 		t.Fatalf("sync unknown err = %v", err)
 	}
@@ -138,6 +143,7 @@ func TestVerifyWebhook(t *testing.T) {
 
 	bad := http.Header{}
 	bad.Set(SignatureHeader, "deadbeef")
+	bad.Set(TimestampHeader, headers.Get(TimestampHeader))
 	if _, err := c.VerifyWebhook(ctx, bad, body); !errors.Is(err, connectors.ErrWebhookSignature) {
 		t.Fatalf("bad signature err = %v", err)
 	}
@@ -151,5 +157,54 @@ func TestVerifyWebhook(t *testing.T) {
 	h2, b2 := c.SignWebhook(Event{TransactionID: auth.ConnectorTransactionID, Status: "captured"})
 	if _, err := c.VerifyWebhook(ctx, h2, b2); !errors.Is(err, connectors.ErrWebhookMalformed) {
 		t.Fatalf("empty event id err = %v", err)
+	}
+	h3, b3 := c.SignWebhookAt(Event{EventID: "evt_old", TransactionID: auth.ConnectorTransactionID, Status: "captured"}, time.Now().Add(-WebhookWindow-time.Second))
+	if _, err := c.VerifyWebhook(ctx, h3, b3); !errors.Is(err, connectors.ErrWebhookStale) {
+		t.Fatalf("stale err = %v", err)
+	}
+}
+
+func TestIdempotencyKeys_ReplayFirstOutcomeEvenAfterAnUnansweredCall(t *testing.T) {
+	c := New()
+	ctx := context.Background()
+	auth, _ := authorize(t, c, ScenarioCaptureTimeoutLand, connectors.CaptureManual)
+	req := connectors.CaptureRequest{AttemptID: "pa_x", ConnectorTransactionID: auth.ConnectorTransactionID, Money: usd(100), IdempotencyKey: "cap-1"}
+	if _, err := c.Capture(ctx, req); !errors.Is(err, connectors.ErrTimeout) {
+		t.Fatalf("first capture err = %v, want timeout", err)
+	}
+	again, err := c.Capture(ctx, req)
+	if err != nil || again.RawStatus != StatusCaptured || !again.AmountCaptured.Equal(decimal.NewFromInt(100)) {
+		t.Fatalf("repeat = %+v, %v; the landed capture must replay as its result", again, err)
+	}
+	if c.Calls("capture") != 2 {
+		t.Fatalf("capture calls = %d", c.Calls("capture"))
+	}
+
+	lost, _ := authorize(t, c, ScenarioCaptureTimeoutLost, connectors.CaptureManual)
+	lostReq := connectors.CaptureRequest{AttemptID: "pa_y", ConnectorTransactionID: lost.ConnectorTransactionID, Money: usd(100), IdempotencyKey: "cap-2"}
+	if _, err := c.Capture(ctx, lostReq); !errors.Is(err, connectors.ErrTimeout) {
+		t.Fatalf("lost capture err = %v", err)
+	}
+	sync, _ := c.Sync(ctx, connectors.SyncRequest{ConnectorTransactionID: lost.ConnectorTransactionID})
+	if sync.RawStatus != StatusAuthorized {
+		t.Fatalf("a lost capture must leave the authorization, got %s", sync.RawStatus)
+	}
+
+	paid, _ := authorize(t, c, ScenarioSuccess, connectors.CaptureAutomatic)
+	rreq := connectors.RefundRequest{RefundID: "re_1", ConnectorTransactionID: paid.ConnectorTransactionID, Money: usd(10), Reason: ScenarioRefundErrorLand, IdempotencyKey: "re_1"}
+	if _, err := c.Refund(ctx, rreq); err == nil || errors.Is(err, connectors.ErrDeclined) {
+		t.Fatalf("refund error-landed err = %v", err)
+	}
+	rreq.Reason = ""
+	r, err := c.Refund(ctx, rreq)
+	if err != nil || r.RawStatus != RefundDone {
+		t.Fatalf("repeat refund = %+v, %v", r, err)
+	}
+	sr, err := c.SyncRefund(ctx, connectors.SyncRefundRequest{RefundID: "re_1"})
+	if err != nil || sr.ConnectorRefundID != r.ConnectorRefundID {
+		t.Fatalf("sync refund by our id = %+v, %v", sr, err)
+	}
+	if _, err := c.Refund(ctx, connectors.RefundRequest{RefundID: "re_2", ConnectorTransactionID: paid.ConnectorTransactionID, Money: usd(10), Reason: ScenarioRefundFail, IdempotencyKey: "re_2"}); !errors.Is(err, connectors.ErrDeclined) {
+		t.Fatalf("refund fail must be a typed decline, err = %v", err)
 	}
 }

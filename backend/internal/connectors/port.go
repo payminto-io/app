@@ -35,15 +35,25 @@ const (
 	CaptureManual    CaptureMethod = "manual"
 )
 
+// Error contract. Only ErrDeclined is definitive: the provider refused and nothing happened. ErrUnsupported and
+// ErrInvalidRequest are raised before any provider call. Every other error, including ErrTimeout, a context
+// deadline, a reset after send or a parse failure, means "outcome unknown": the switch keeps the operation in
+// flight and resolves it with Sync, retrying with the same IdempotencyKey. A provider must never return
+// ErrDeclined for a call that may have taken effect.
 var (
 	ErrUnsupported      = errors.New("connectors: operation not supported by this connector")
 	ErrNotFound         = errors.New("connectors: transaction not known to the connector")
 	ErrTimeout          = errors.New("connectors: no definitive answer from the connector; sync later")
+	ErrDeclined         = errors.New("connectors: provider refused the operation; nothing happened")
 	ErrInvalidRequest   = errors.New("connectors: invalid request")
 	ErrWebhookSignature = errors.New("connectors: webhook signature invalid")
+	ErrWebhookStale     = errors.New("connectors: webhook outside the accepted time window")
 	ErrWebhookMalformed = errors.New("connectors: webhook body malformed")
 	ErrUnknownConnector = errors.New("connectors: connector not registered")
 )
+
+// Definitive reports whether err proves the operation did not take effect at the provider.
+func Definitive(err error) bool { return errors.Is(err, ErrDeclined) }
 
 // Money is an exact amount in one asset (ISO currency or token code). Never a float.
 type Money struct {
@@ -62,6 +72,7 @@ type Capabilities struct {
 	PartialRefund  bool
 	Webhooks       bool
 	Sync           bool
+	RefundSync     bool
 	// RawStatuses is every status this provider can report for payments; RawRefundStatuses for refunds.
 	RawStatuses       []RawStatus
 	RawRefundStatuses []RawStatus
@@ -104,8 +115,9 @@ type AuthorizeRequest struct {
 type AuthorizeResponse struct {
 	ConnectorTransactionID string
 	RawStatus              RawStatus
-	// AmountReceived is set when the provider reports an amount that differs from the request (chain deposits).
+	// AmountReceived with ReceivedAsset is what actually arrived (a chain deposit's token and chain-qualified code).
 	AmountReceived *decimal.Decimal
+	ReceivedAsset  string
 	NextAction     *NextAction
 	ErrorCode      string
 	ErrorMessage   string
@@ -161,14 +173,31 @@ type SyncRequest struct {
 	ConnectorTransactionID string
 }
 
+// AmountReceived with ReceivedAsset is what actually arrived (a chain deposit's token and chain-qualified code).
 type SyncResponse struct {
 	ConnectorTransactionID string
 	RawStatus              RawStatus
 	AmountCaptured         *decimal.Decimal
 	AmountReceived         *decimal.Decimal
+	ReceivedAsset          string
 	NextAction             *NextAction
 	ErrorCode              string
 	ErrorMessage           string
+}
+
+// SyncRefundRequest carries our refund id as well, because after an unknown outcome the switch may hold no connector id.
+type SyncRefundRequest struct {
+	RefundID               string
+	AttemptID              string
+	ConnectorTransactionID string
+	ConnectorRefundID      string
+}
+
+type SyncRefundResponse struct {
+	ConnectorRefundID string
+	RawStatus         RawStatus
+	ErrorCode         string
+	ErrorMessage      string
 }
 
 // WebhookKind says which object a webhook event is about.
@@ -190,13 +219,14 @@ type WebhookEvent struct {
 	RawStatus              RawStatus
 	AmountCaptured         *decimal.Decimal
 	AmountReceived         *decimal.Decimal
+	ReceivedAsset          string
 	OccurredAt             time.Time
 }
 
 // Connector is the port every provider implements. Operations the provider cannot do return ErrUnsupported.
-// A call that reached the provider but got no definitive answer returns ErrTimeout and leaves the switch to Sync.
-// VerifyWebhook checks authenticity (signature, timestamp window) and decodes the event; replay protection is the
-// switch's job via WebhookEvent.EventID.
+// Capture, Void and Refund must honour IdempotencyKey: a repeat with the same key returns the first outcome.
+// VerifyWebhook checks authenticity (signature and a timestamp window, ErrWebhookStale outside it) and decodes
+// the event; replay protection is the switch's job via WebhookEvent.EventID.
 type Connector interface {
 	Code() Code
 	Capabilities() Capabilities
@@ -205,6 +235,7 @@ type Connector interface {
 	Void(ctx context.Context, req VoidRequest) (VoidResponse, error)
 	Refund(ctx context.Context, req RefundRequest) (RefundResponse, error)
 	Sync(ctx context.Context, req SyncRequest) (SyncResponse, error)
+	SyncRefund(ctx context.Context, req SyncRefundRequest) (SyncRefundResponse, error)
 	VerifyWebhook(ctx context.Context, headers http.Header, body []byte) (WebhookEvent, error)
 }
 

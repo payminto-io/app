@@ -10,28 +10,31 @@ import (
 var intentTransitions = map[IntentStatus][]IntentStatus{
 	IntentRequiresPaymentMethod: {IntentRequiresConfirmation, IntentProcessing, IntentCancelled},
 	IntentRequiresConfirmation:  {IntentProcessing, IntentCancelled},
-	IntentRequiresAction:        {IntentProcessing, IntentRequiresCapture, IntentSucceeded, IntentPartiallyCaptured, IntentFailed, IntentCancelled},
-	IntentProcessing:            {IntentRequiresAction, IntentRequiresCapture, IntentSucceeded, IntentPartiallyCaptured, IntentFailed, IntentCancelled},
+	IntentRequiresAction:        {IntentProcessing, IntentRequiresCapture, IntentSucceeded, IntentPartiallyCaptured, IntentPartiallyPaid, IntentFailed, IntentCancelled},
+	IntentProcessing:            {IntentRequiresAction, IntentRequiresCapture, IntentSucceeded, IntentPartiallyCaptured, IntentPartiallyPaid, IntentFailed, IntentCancelled},
 	IntentRequiresCapture:       {IntentProcessing, IntentSucceeded, IntentPartiallyCaptured, IntentFailed, IntentCancelled},
 	IntentPartiallyCaptured:     {},
+	IntentPartiallyPaid:         {},
 	IntentSucceeded:             {},
 	// A failed intent may be retried with a new attempt (Hyperswitch: "can be retried manually").
 	IntentFailed:    {IntentRequiresPaymentMethod, IntentProcessing},
 	IntentCancelled: {},
 }
 
+// Connector evidence wins: a failed or initiated operation may still turn out to have landed (C1, I1 in the review).
 var attemptTransitions = map[AttemptStatus][]AttemptStatus{
 	AttemptStarted:               {AttemptPending, AttemptAuthenticationPending, AttemptAuthorized, AttemptCharged, AttemptPartiallyPaid, AttemptAuthorizationFailed, AttemptFailure},
 	AttemptPending:               {AttemptAuthenticationPending, AttemptAuthorized, AttemptCharged, AttemptPartiallyPaid, AttemptOverpaid, AttemptAuthorizationFailed, AttemptVoided, AttemptFailure},
-	AttemptAuthenticationPending: {AttemptPending, AttemptAuthorized, AttemptCharged, AttemptAuthorizationFailed, AttemptVoided, AttemptFailure},
+	AttemptAuthenticationPending: {AttemptPending, AttemptAuthorized, AttemptCharged, AttemptPartiallyPaid, AttemptOverpaid, AttemptAuthorizationFailed, AttemptVoidInitiated, AttemptVoided, AttemptFailure},
 	AttemptAuthorized:            {AttemptCaptureInitiated, AttemptCharged, AttemptPartialCharged, AttemptVoidInitiated, AttemptVoided, AttemptFailure},
-	AttemptCaptureInitiated:      {AttemptCharged, AttemptPartialCharged, AttemptCaptureFailed},
-	AttemptCaptureFailed:         {AttemptCaptureInitiated, AttemptVoidInitiated, AttemptVoided, AttemptFailure},
-	AttemptPartiallyPaid:         {AttemptCharged, AttemptOverpaid, AttemptVoided, AttemptFailure},
-	AttemptVoidInitiated:         {AttemptVoided, AttemptVoidFailed},
-	AttemptVoidFailed:            {AttemptVoidInitiated, AttemptVoided, AttemptFailure},
+	AttemptCaptureInitiated:      {AttemptAuthorized, AttemptCharged, AttemptPartialCharged, AttemptCaptureFailed, AttemptVoided},
+	AttemptCaptureFailed:         {AttemptCaptureInitiated, AttemptCharged, AttemptPartialCharged, AttemptVoidInitiated, AttemptVoided, AttemptFailure},
+	AttemptPartiallyPaid:         {AttemptCharged, AttemptOverpaid, AttemptVoidInitiated, AttemptUnderpaid, AttemptFailure},
+	AttemptVoidInitiated:         {AttemptAuthorized, AttemptVoided, AttemptVoidFailed, AttemptUnderpaid, AttemptCharged, AttemptPartialCharged},
+	AttemptVoidFailed:            {AttemptVoidInitiated, AttemptVoided, AttemptCharged, AttemptPartialCharged, AttemptFailure},
 	AttemptCharged:               {},
 	AttemptPartialCharged:        {},
+	AttemptUnderpaid:             {},
 	AttemptOverpaid:              {},
 	AttemptAuthorizationFailed:   {},
 	AttemptVoided:                {},
@@ -39,6 +42,7 @@ var attemptTransitions = map[AttemptStatus][]AttemptStatus{
 }
 
 var refundTransitions = map[RefundStatus][]RefundStatus{
+	RefundInitiated: {RefundPending, RefundSucceeded, RefundFailed},
 	RefundPending:   {RefundSucceeded, RefundFailed},
 	RefundSucceeded: {},
 	RefundFailed:    {},
@@ -48,14 +52,14 @@ var refundTransitions = map[RefundStatus][]RefundStatus{
 var (
 	AllIntentStatuses = []IntentStatus{
 		IntentRequiresPaymentMethod, IntentRequiresConfirmation, IntentRequiresAction, IntentProcessing,
-		IntentRequiresCapture, IntentPartiallyCaptured, IntentSucceeded, IntentFailed, IntentCancelled,
+		IntentRequiresCapture, IntentPartiallyCaptured, IntentPartiallyPaid, IntentSucceeded, IntentFailed, IntentCancelled,
 	}
 	AllAttemptStatuses = []AttemptStatus{
 		AttemptStarted, AttemptPending, AttemptAuthenticationPending, AttemptAuthorized, AttemptCaptureInitiated,
-		AttemptCharged, AttemptPartialCharged, AttemptPartiallyPaid, AttemptOverpaid, AttemptCaptureFailed,
+		AttemptCharged, AttemptPartialCharged, AttemptPartiallyPaid, AttemptUnderpaid, AttemptOverpaid, AttemptCaptureFailed,
 		AttemptAuthorizationFailed, AttemptVoidInitiated, AttemptVoided, AttemptVoidFailed, AttemptFailure,
 	}
-	AllRefundStatuses = []RefundStatus{RefundPending, RefundSucceeded, RefundFailed}
+	AllRefundStatuses = []RefundStatus{RefundInitiated, RefundPending, RefundSucceeded, RefundFailed}
 )
 
 func (s IntentStatus) CanTransitionTo(to IntentStatus) bool {
@@ -79,6 +83,13 @@ func (s RefundStatus) CanTransitionTo(to RefundStatus) bool {
 }
 
 func (s RefundStatus) Valid() bool { return slices.Contains(AllRefundStatuses, s) }
+
+func (s RefundStatus) IsTerminal() bool { return len(refundTransitions[s]) == 0 }
+
+// InFlight reports whether a connector operation was claimed on this attempt and its outcome is still unknown.
+func (s AttemptStatus) InFlight() bool {
+	return s == AttemptPending || s == AttemptCaptureInitiated || s == AttemptVoidInitiated
+}
 
 func transitionIntent(from, to IntentStatus) error {
 	if from == to {
@@ -112,13 +123,15 @@ func transitionRefund(from, to RefundStatus) error {
 
 // IntentStatusFor derives the intent status from its active attempt, as Hyperswitch derives IntentStatus
 // from AttemptStatus. Deviations: capture_failed and void_failed keep the authorization, so they stay in
-// requires_capture rather than failing the intent; partially_paid is a chain deposit still waiting for funds.
+// requires_capture rather than failing the intent; partially_paid is a chain deposit still waiting on the customer.
 func IntentStatusFor(a AttemptStatus) IntentStatus {
 	switch a {
-	case AttemptStarted, AttemptPending, AttemptCaptureInitiated, AttemptVoidInitiated, AttemptPartiallyPaid:
+	case AttemptStarted, AttemptPending, AttemptCaptureInitiated, AttemptVoidInitiated:
 		return IntentProcessing
-	case AttemptAuthenticationPending:
+	case AttemptAuthenticationPending, AttemptPartiallyPaid:
 		return IntentRequiresAction
+	case AttemptUnderpaid:
+		return IntentPartiallyPaid
 	case AttemptAuthorized, AttemptCaptureFailed, AttemptVoidFailed:
 		return IntentRequiresCapture
 	case AttemptCharged, AttemptOverpaid:
@@ -133,7 +146,7 @@ func IntentStatusFor(a AttemptStatus) IntentStatus {
 	return IntentFailed
 }
 
-// MoneyIn reports whether an attempt in this status has captured funds the ledger must know about.
+// MoneyIn reports whether an attempt in this status holds received funds the ledger must know about.
 func (s AttemptStatus) MoneyIn() bool {
-	return s == AttemptCharged || s == AttemptPartialCharged || s == AttemptOverpaid
+	return s == AttemptCharged || s == AttemptPartialCharged || s == AttemptOverpaid || s == AttemptPartiallyPaid || s == AttemptUnderpaid
 }
