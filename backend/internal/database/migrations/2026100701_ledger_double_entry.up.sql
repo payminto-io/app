@@ -226,3 +226,31 @@ CREATE CONSTRAINT TRIGGER ledger_journals_has_lines
     AFTER INSERT ON ledger_journals
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION ledger_check_journal_has_lines();
+
+-- Ownership moves to a NOLOGIN role so the application role cannot disable or replace the
+-- guarantees above. The migrator keeps SELECT, INSERT; narrow other roles with cmd/migrate
+-- --ledger-app-role. Without CREATEROLE this is skipped and must be done by hand (docs/OPERATIONS.md).
+DO $$
+DECLARE
+    privileged boolean;
+BEGIN
+    SELECT rolsuper OR rolcreaterole INTO privileged FROM pg_roles WHERE rolname = current_user;
+    IF NOT COALESCE(privileged, false) THEN
+        RAISE NOTICE 'ledger: % cannot create roles; ledger tables stay owned by it. See docs/OPERATIONS.md, Ledger roles.', current_user;
+        RETURN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ledger_owner') THEN
+        CREATE ROLE ledger_owner NOLOGIN;
+    END IF;
+    ALTER TABLE ledger_accounts OWNER TO ledger_owner;
+    ALTER TABLE ledger_journals OWNER TO ledger_owner;
+    ALTER TABLE ledger_lines OWNER TO ledger_owner;
+    ALTER FUNCTION ledger_reject_mutation() OWNER TO ledger_owner;
+    ALTER FUNCTION ledger_check_journal_balance() OWNER TO ledger_owner;
+    ALTER FUNCTION ledger_check_journal_has_lines() OWNER TO ledger_owner;
+    ALTER FUNCTION ledger_stamp_journal_txid() OWNER TO ledger_owner;
+    ALTER FUNCTION ledger_check_line_same_transaction() OWNER TO ledger_owner;
+    EXECUTE format('GRANT SELECT, INSERT ON ledger_accounts, ledger_journals, ledger_lines TO %I', current_user);
+    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE ledger_accounts_id_seq, ledger_journals_id_seq, ledger_lines_id_seq TO %I', current_user);
+END;
+$$;

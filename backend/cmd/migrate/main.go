@@ -13,6 +13,7 @@ import (
 
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/database"
+	"github.com/payminto/payminto/backend/internal/ledger"
 	"gorm.io/gorm"
 )
 
@@ -22,6 +23,7 @@ func main() {
 		seedDir  = flag.String("seeds", "migrations/seeds", "Directory holding seed SQL files")
 		seed     = flag.Bool("seed", false, "Explicitly apply network catalog seeds after migrations")
 		seedOnly = flag.Bool("seed-only", false, "Deprecated alias for the explicit seed action")
+		appRole  = flag.String("ledger-app-role", "", "Role to narrow to SELECT, INSERT on the ledger tables (default: $POSTGRES_LEDGER_APP_ROLE)")
 	)
 	flag.Parse()
 
@@ -55,6 +57,12 @@ func main() {
 			}
 			for _, result := range results {
 				log.Printf("  applied %d %s (%s)", result.Version, result.Name, result.Checksum)
+			}
+			if role := cmp.Or(*appRole, cfg.Database.LedgerAppRole); role != "" {
+				if err := ledger.GrantAppRole(db, role); err != nil {
+					log.Fatalf("ledger app role: %v", err)
+				}
+				log.Printf("  ledger: role %s limited to SELECT, INSERT", role)
 			}
 		}
 		if *seed || *seedOnly {
