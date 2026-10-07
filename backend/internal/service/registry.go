@@ -121,6 +121,7 @@ type ServiceRegistry struct {
 	// Phase F: Sweep + ledger services
 	ledgerService               *LedgerService
 	feesModule                  *modules.FeesModule
+	linksModule                 *modules.LinksModule
 	sweepService                *SweepService
 	sweepTransactionService     *SweepTransactionService
 	utxoService                 *UTXOService
@@ -369,6 +370,9 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		return nil, fmt.Errorf("wire fees: %w", err)
 	}
 	r.feesModule = feesModule
+	if r.linksModule, err = modules.WireLinks(modules.Deps{DB: db, Config: cfg, Fees: feesModule.Port, LinkPayments: NewLinkPaymentCreator(r.paymentService, db, cfg.Server.CheckoutBaseURL)}); err != nil {
+		return nil, fmt.Errorf("wire links: %w", err)
+	}
 
 	// Phase F.2: SweepTransactionService (depends on ledgerService)
 	r.sweepTransactionService = NewSweepTransactionService(
@@ -552,6 +556,9 @@ func (r *ServiceRegistry) NetworkType() string { return r.networkType }
 
 // FeesModule returns the wired fee rules module.
 func (r *ServiceRegistry) FeesModule() *modules.FeesModule { return r.feesModule }
+
+// LinksModule returns the wired payment links module.
+func (r *ServiceRegistry) LinksModule() *modules.LinksModule { return r.linksModule }
 
 // DB returns the underlying *gorm.DB for services that need it directly.
 // Should be used sparingly — prefer repositories.
