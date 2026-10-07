@@ -248,7 +248,18 @@ Anything that looks like a stock 3D icon pack is rejected even if it is on palet
 
 ## 13. Asset log
 
-Filled by the curation pass; see the end of this file.
+Pass 1, 2026-10-07: 0 images generated, 0 kept, 0 rejected.
+Every call to the Images API returned `429 insufficient_quota` (`credit_balance_exhausted`) for the organisation behind the key in `.secrets/providers.yaml`, on `gpt-image-2` and on `gpt-image-1-mini` alike.
+The pipeline is complete and dry-runs cleanly; once credits exist, the first pass is one candidate per asset (13 images), then at most two more per rejected asset within the budget of 30:
+
+```bash
+node scripts/brand/generate.mjs
+node scripts/brand/generate.mjs --only <id> -n 2      # only for rejects
+node scripts/brand/generate.mjs --promote <id>=<k>    # per kept candidate
+```
+
+Until then `frontend/public/brand/generated/` does not exist, `EmptyState`'s `illustration` prop is wired but unused by any page, and the OG template renders its vector rail fallback.
+Record each pass here as: asset id, candidates seen, kept candidate, reason for each rejection in the words of section 7.
 
 ## 14. Proposed token changes
 
