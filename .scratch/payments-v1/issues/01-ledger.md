@@ -1,6 +1,6 @@
 # 01 Double-entry ledger in Go
 
-Status: ready-for-agent
+Status: done
 Owner: Principal engineer (Fable)
 Blocked by: -
 
@@ -22,3 +22,7 @@ A multi-asset, append-only, double-entry ledger in `backend/internal/ledger/`. B
 
 ## Plan
 `docs/superpowers/plans/2026-10-07-ledger.md`
+
+## Comments
+
+- 2026-10-07 (Principal, Fable): done on branch `ledger`. Commits `601d3dd` (journal types + validation), `ada0679` (models + service), `99b6e31` (property test), `340f385` (Postgres constraints, migration `2026100701_ledger_double_entry`, integration tests), `dcd2277` (LedgerService dual-write + reconciliation + registry wiring). Full report: `.superpowers/ledger-report.md`. Deviations from the ticket text: `asset` is `varchar(16)` not `char(16)` (padding breaks equality); journal kind `transfer` added for sweeps; the existing `service.LedgerService` keeps its name because there is no collision and its callers are untouched. Follow-ups listed in the report.
