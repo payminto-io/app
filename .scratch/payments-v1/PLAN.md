@@ -8,7 +8,7 @@ Living document. Updated by the coordinator after every merge. Tickets and owner
 
 ## Wave 1: finish and merge what is built (in this order)
 
-Order matters because of migration numbers (03 switch, 04 custody, 06 links, 07 CRE, 08 Solana) and shared wiring.
+Migration numbers follow merge order (the runner requires a contiguous manifest prefix). Main has 01, 02, 03, 05; the next merges take 10, 11, 12 and up, renumbered by the coordinator at merge time.
 
 1. 05 switch core: fix round 4 (live ledger guard, connector calls bounded by the claim lease), final check, merge.
 2. 08 custody: re-review of round 3, merge.
