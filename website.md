@@ -5,6 +5,7 @@
 | Website | [payminto.io](https://payminto.io) |
 | App (merchant dashboard) | [app.payminto.io](https://app.payminto.io) |
 | Hosted checkout | [checkout.payminto.io](https://checkout.payminto.io) |
+| Pitch deck | [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1QpXIgz82kQVeH15eYvIeyOrCwypKGi2K/view) |
 | Source code | [github.com/payminto-io/app](https://github.com/payminto-io/app) |
 
 ## What you will find
@@ -18,6 +19,7 @@
 
 | What | Link |
 | --- | --- |
+| Pitch deck | [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1QpXIgz82kQVeH15eYvIeyOrCwypKGi2K/view) |
 | Demo walkthrough (click path, what is real, how to re-run) | [DEMO.md](DEMO.md) |
 | Chainlink CRE solvency attestation | [tracks/chainlink/README.md](tracks/chainlink/README.md) |
 | Solana USDC and USDT | [tracks/solana/README.md](tracks/solana/README.md) |
