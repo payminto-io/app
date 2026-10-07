@@ -1,8 +1,10 @@
 import { cn } from "@/lib/utils";
 
 /**
- * The rail mark: a rounded square with three bars. Edit the SVG here and in
- * app/icon.svg together. docs/design/DESIGN.md section 1.
+ * The rail mark: a rounded square with three bars. Geometry is locked in
+ * docs/brand/BRAND.md; public/brand/*.svg and app/icon.svg are exported copies
+ * and must be edited together. The accent is the opposite scheme's tide so it
+ * reads on the ink square in both schemes.
  */
 export function LogoMark({ className, size = 28 }: { className?: string; size?: number }) {
   return (
@@ -17,7 +19,7 @@ export function LogoMark({ className, size = 28 }: { className?: string; size?: 
       <rect width="28" height="28" rx="7" className="fill-ink" />
       <rect x="7" y="8.5" width="14" height="2.5" rx="1.25" className="fill-ink-inverse" />
       <rect x="7" y="12.75" width="14" height="2.5" rx="1.25" className="fill-ink-inverse" />
-      <rect x="7" y="17" width="8" height="2.5" rx="1.25" className="fill-tide" />
+      <rect x="7" y="17" width="8" height="2.5" rx="1.25" className="fill-[#3FB8CC] dark:fill-[#0B7285]" />
     </svg>
   );
 }

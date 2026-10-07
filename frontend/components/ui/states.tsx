@@ -3,9 +3,15 @@
  * Rules: docs/design/DESIGN.md sections 13 and 14; references.md "Empty and error states".
  */
 import type { ReactNode } from "react";
+import Image from "next/image";
 import { Skeleton } from "./skeleton";
 import { Button } from "./button";
 import { cn } from "@/lib/utils";
+import {
+  EMPTY_ILLUSTRATIONS,
+  EMPTY_ILLUSTRATION_SIZE,
+  type EmptyIllustration,
+} from "@/lib/brand/illustrations";
 
 export function LoadingRows({ rows = 5 }: { rows?: number }) {
   return (
@@ -26,6 +32,8 @@ export type EmptyStateProps = {
   description?: string;
   action?: ReactNode;
   icon?: ReactNode;
+  /** Brand render by id (docs/brand/BRAND.md section 11); replaces `icon` when set. */
+  illustration?: EmptyIllustration;
   className?: string;
 };
 
@@ -34,6 +42,7 @@ export function EmptyState({
   description,
   action,
   icon,
+  illustration,
   className,
 }: EmptyStateProps) {
   return (
@@ -43,7 +52,16 @@ export function EmptyState({
         className
       )}
     >
-      {icon ? (
+      {illustration ? (
+        <Image
+          src={EMPTY_ILLUSTRATIONS[illustration]}
+          alt=""
+          aria-hidden
+          width={EMPTY_ILLUSTRATION_SIZE.width}
+          height={EMPTY_ILLUSTRATION_SIZE.height}
+          className="mb-2 h-auto w-[180px] sm:w-[240px]"
+        />
+      ) : icon ? (
         <div className="mb-3 flex size-9 items-center justify-center rounded-sm border border-line bg-surface-sunken text-ink-soft [&_svg]:size-4">
           {icon}
         </div>

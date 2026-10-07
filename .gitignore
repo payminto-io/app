@@ -31,3 +31,4 @@ docker/postgres/data/
 .DS_Store
 Thumbs.db
 .superpowers/
+frontend/public/brand/generated/candidates/
