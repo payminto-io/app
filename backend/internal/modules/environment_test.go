@@ -156,6 +156,94 @@ func TestVerifyDatabaseAndStamp(t *testing.T) {
 	}
 }
 
+func TestStamp_RefusesAnUnstampedDatabaseThatHoldsData(t *testing.T) {
+	ctx := context.Background()
+	db := sqliteDB(t)
+	if err := db.AutoMigrate(&environment.StampRow{}, &models.APIKey{}); err != nil {
+		t.Fatal(err)
+	}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	if err := db.Create(&models.APIKey{Key: "legacy", ExternalPlatformID: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	err := live.Stamp(ctx, db)
+	if !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "adopt-live --confirm-adopt-live=payminto") || !strings.Contains(err.Error(), "adopt-test --confirm-adopt-test=payminto") {
+		t.Fatalf("Stamp over data = %v, want refusal naming both adoption commands", err)
+	}
+	var n int64
+	db.Model(&environment.StampRow{}).Count(&n)
+	if n != 0 {
+		t.Fatal("a process stamped a database that holds data")
+	}
+	test := &EnvironmentModule{Environment: environment.Test, databaseName: "payminto", databaseHost: "localhost", testDatabase: "payminto_test"}
+	if err := test.Stamp(ctx, db); !environment.IsBootRefusal(err) {
+		t.Fatalf("test process stamped a populated database: %v", err)
+	}
+	db.Unscoped().Where("1 = 1").Delete(&models.APIKey{})
+	if err := live.Stamp(ctx, db); err != nil {
+		t.Fatalf("empty database refused: %v", err)
+	}
+}
+
+func TestAdoptLive_AcceptsAnUnstampedPopulatedDatabase(t *testing.T) {
+	ctx := context.Background()
+	db := sqliteDB(t)
+	if err := db.AutoMigrate(&environment.StampRow{}, &models.APIKey{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.APIKey{Key: "legacy", ExternalPlatformID: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	result, err := live.AdoptLive(ctx, db, "payminto")
+	if err != nil || result.APIKeys != 1 {
+		t.Fatalf("adopt unstamped = %+v, %v", result, err)
+	}
+	var stamp environment.StampRow
+	if err := db.First(&stamp, environment.StampID).Error; err != nil || stamp.Environment != environment.Live || stamp.AdoptedFrom == nil {
+		t.Fatalf("stamp after adoption = %+v, %v", stamp, err)
+	}
+	if err := live.Stamp(ctx, db); err != nil {
+		t.Fatalf("live boot after adoption refused: %v", err)
+	}
+}
+
+func TestAdoptTest(t *testing.T) {
+	ctx := context.Background()
+	db := sqliteDB(t)
+	if err := db.AutoMigrate(&environment.StampRow{}, &models.APIKey{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.APIKey{Key: "legacy", ExternalPlatformID: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	if _, err := live.AdoptTest(ctx, db, "payminto"); !environment.IsBootRefusal(err) {
+		t.Fatalf("live process ran adopt-test: %v", err)
+	}
+	remote := &EnvironmentModule{Environment: environment.Test, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	if _, err := remote.AdoptTest(ctx, db, "payminto"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "GATEWAY_TEST_DATABASE_NAME") {
+		t.Fatalf("remote non-_test database adopted as test without the allow name: %v", err)
+	}
+	allowed := &EnvironmentModule{Environment: environment.Test, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test", allowName: "payminto"}
+	if _, err := allowed.AdoptTest(ctx, db, "other"); !environment.IsBootRefusal(err) {
+		t.Fatalf("wrong confirmation accepted: %v", err)
+	}
+	name, err := allowed.AdoptTest(ctx, db, "payminto")
+	if err != nil || name != "payminto" {
+		t.Fatalf("adopt-test = %q, %v", name, err)
+	}
+	if err := allowed.VerifyDatabase(ctx, db); err != nil {
+		t.Fatalf("test process refused its adopted database: %v", err)
+	}
+	if err := live.VerifyDatabase(ctx, db); !environment.IsBootRefusal(err) {
+		t.Fatalf("live process accepted a test-adopted database: %v", err)
+	}
+	if _, err := allowed.AdoptTest(ctx, db, "payminto"); !environment.IsBootRefusal(err) {
+		t.Fatalf("second adopt-test accepted: %v", err)
+	}
+}
+
 func TestAdoptLive_Guards(t *testing.T) {
 	ctx := context.Background()
 	db := sqliteDB(t)
@@ -166,9 +254,6 @@ func TestAdoptLive_Guards(t *testing.T) {
 	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
 	if _, err := test.AdoptLive(ctx, db, "payminto"); !environment.IsBootRefusal(err) {
 		t.Fatalf("test process adopted: %v", err)
-	}
-	if _, err := live.AdoptLive(ctx, db, "payminto"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "not stamped") {
-		t.Fatalf("unstamped database adopted: %v", err)
 	}
 	if err := test.Stamp(ctx, db); err != nil {
 		t.Fatal(err)

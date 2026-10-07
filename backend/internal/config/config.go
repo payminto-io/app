@@ -39,6 +39,9 @@ type FeesConfig struct {
 type GatewayConfig struct {
 	// Environment is "test" or "live" (GATEWAY_ENVIRONMENT, default test).
 	Environment string
+	// TestDatabaseName (GATEWAY_TEST_DATABASE_NAME) names the one remote database a test process may
+	// open although its name does not end in _test; it must equal current_database() exactly.
+	TestDatabaseName string
 }
 
 // ModulesConfig holds the provider chosen for each slot module (docs/architecture/MODULES.md).
@@ -46,9 +49,6 @@ type ModulesConfig struct {
 	// Providers maps a slot name ("custody") to its provider ("mock", "bitgo"); unset slots are absent.
 	Providers map[string]string
 }
-
-// slotModules are the slot names read as <SLOT>_PROVIDER.
-var slotModules = []string{"custody", "connectors", "conversion", "payout", "kyc", "fraud", "bridge"}
 
 // EmailConfig holds SMTP delivery settings. When Host/From are empty, email
 // delivery falls back to a no-op logger (safe for dev/test).
@@ -209,7 +209,8 @@ func Load() (*Config, error) {
 			SentryDSN:      envStr("SENTRY_DSN", ""),
 		},
 		Gateway: GatewayConfig{
-			Environment: envStr("GATEWAY_ENVIRONMENT", string(environmentpkg.Test)),
+			Environment:      envStr("GATEWAY_ENVIRONMENT", string(environmentpkg.Test)),
+			TestDatabaseName: strings.TrimSpace(envStr("GATEWAY_TEST_DATABASE_NAME", "")),
 		},
 		Modules: ModulesConfig{
 			Providers: envSlotProviders(),
@@ -241,6 +242,9 @@ func (c *Config) validate() error {
 
 	c.Database.Database = strings.TrimSpace(c.Database.Database)
 	c.Database.TestDatabase = strings.TrimSpace(c.Database.TestDatabase)
+	if strings.ContainsAny(c.Gateway.TestDatabaseName, dsnUnsafe) {
+		return fmt.Errorf("GATEWAY_TEST_DATABASE_NAME must be a plain database name; got %q", c.Gateway.TestDatabaseName)
+	}
 	for name, value := range map[string]string{"POSTGRES_DATABASE": c.Database.Database, "POSTGRES_TEST_DATABASE": c.Database.TestDatabase, "POSTGRES_HOST": c.Database.Host, "POSTGRES_USERNAME": c.Database.Username} {
 		if value == "" {
 			return fmt.Errorf("%s must not be empty", name)
@@ -345,13 +349,13 @@ func (d DatabaseConfig) DSN() string {
 
 // dsnValue single-quotes a keyword/value parameter, escaping backslashes and quotes (libpq syntax).
 func dsnValue(v string) string {
-	return "'" + strings.NewReplacer(`\`, `\`, `'`, `\'`).Replace(v) + "'"
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
 }
 
 // envSlotProviders reads <SLOT>_PROVIDER for every slot module; absent slots are left out.
 func envSlotProviders() map[string]string {
 	providers := map[string]string{}
-	for _, slot := range slotModules {
+	for _, slot := range environmentpkg.KnownSlots {
 		if v := strings.TrimSpace(os.Getenv(strings.ToUpper(slot) + "_PROVIDER")); v != "" {
 			providers[slot] = v
 		}
@@ -366,6 +370,7 @@ func (c *Config) BootFacts() environmentpkg.BootFacts {
 		DatabaseName:                   c.Database.Database,
 		DatabaseHost:                   c.Database.Host,
 		TestDatabaseName:               c.Database.TestDatabase,
+		TestDatabaseAllowName:          c.Gateway.TestDatabaseName,
 		DevKeystore:                    c.Security.DevKeystore || c.Security.AESKey != "",
 		VaultDevMode:                   c.Security.CustodyEnabled && !isStrongSecret(c.Security.VaultPassphrase, 24),
 		SlotProviders:                  c.Modules.Providers,
@@ -464,6 +469,22 @@ type ConfigurationReader interface {
 // stamp so subsequent boots have something to compare against.
 //
 // If envMode is empty, this is a no-op (development mode).
+// CheckModeMatch is EnforceModeMatch without the first-boot write: it compares only when the row
+// exists, for tools that must not stamp anything (cmd/migrate before the environment stamp).
+func CheckModeMatch(envMode string, repo ConfigurationReader) error {
+	if envMode == "" {
+		return nil
+	}
+	c, err := repo.Get("mode")
+	if err != nil {
+		return nil
+	}
+	if c != "" && c != envMode {
+		return fmt.Errorf("network mode mismatch: database is stamped as %q but BLOCKCHAIN_NETWORK_TYPE=%q; refusing", c, envMode)
+	}
+	return nil
+}
+
 func EnforceModeMatch(envMode string, repo ConfigurationReader) error {
 	if envMode == "" {
 		return nil

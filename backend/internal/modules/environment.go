@@ -18,6 +18,7 @@ type EnvironmentModule struct {
 	databaseName string
 	databaseHost string
 	testDatabase string
+	allowName    string
 }
 
 // WireEnvironment runs the boot gate against the configuration and returns the process guard.
@@ -40,7 +41,12 @@ func WireEnvironment(deps Deps) (*EnvironmentModule, error) {
 		databaseName: facts.DatabaseName,
 		databaseHost: facts.DatabaseHost,
 		testDatabase: facts.TestDatabaseName,
+		allowName:    facts.TestDatabaseAllowName,
 	}, nil
+}
+
+func (m *EnvironmentModule) policy(name string, stamp environment.Environment) environment.DatabasePolicy {
+	return environment.DatabasePolicy{Name: name, TestName: m.testDatabase, AllowName: m.allowName, Host: m.databaseHost, Stamp: stamp}
 }
 
 // VerifyDatabase runs right after connecting and before any schema work: the name Postgres reports
@@ -57,7 +63,7 @@ func (m *EnvironmentModule) VerifyDatabase(ctx context.Context, db *gorm.DB) err
 	if err != nil {
 		return err
 	}
-	return environment.CheckDatabase(m.Environment, name, m.testDatabase, m.databaseHost, stamp)
+	return environment.CheckDatabase(m.Environment, m.policy(name, stamp))
 }
 
 // VerifySchema runs after schema preparation: the environment columns must exist and no key row may
@@ -95,7 +101,12 @@ func (m *EnvironmentModule) VerifySchema(ctx context.Context, db *gorm.DB) error
 	return nil
 }
 
-// Stamp records the process environment on a new database; a stamp that disagrees refuses.
+// dataTables are the tables whose rows prove a database already served money before it was stamped.
+var dataTables = []string{"ledger_accounts", "api_keys", "payment_requests"}
+
+// Stamp is the last boot step: it records the process environment on an empty, unstamped database.
+// An unstamped database that already holds data is never stamped by a process; only the explicit
+// adoption commands may decide what it is. A stamp that disagrees refuses.
 func (m *EnvironmentModule) Stamp(ctx context.Context, db *gorm.DB) error {
 	if !db.Migrator().HasTable(&environment.StampRow{}) {
 		return fmt.Errorf("%w: gateway_environment is missing; apply migration 2026100705_environment_isolation", environment.ErrBoot)
@@ -110,9 +121,68 @@ func (m *EnvironmentModule) Stamp(ctx context.Context, db *gorm.DB) error {
 	if stamp != "" {
 		return fmt.Errorf("%w: database is stamped %s, this process is %s", environment.ErrBoot, stamp, m.Environment)
 	}
+	name, err := m.reportedDatabaseName(ctx, db)
+	if err != nil {
+		return err
+	}
+	populated, err := holdsData(ctx, db)
+	if err != nil {
+		return err
+	}
+	if populated != "" {
+		return fmt.Errorf("%w: database %q holds %s rows but carries no environment stamp; a process never decides what existing data is. Adopt it explicitly: go run ./cmd/migrate adopt-live --confirm-adopt-live=%s (or adopt-test --confirm-adopt-test=%s)", environment.ErrBoot, name, populated, name, name)
+	}
 	row := environment.StampRow{ID: environment.StampID, Environment: m.Environment, StampedAt: time.Now().UTC()}
 	if err := db.WithContext(ctx).Create(&row).Error; err != nil {
 		return fmt.Errorf("environment: stamp database: %w", err)
+	}
+	return nil
+}
+
+// holdsData names the first data table with rows, or "" when every one is empty or absent.
+func holdsData(ctx context.Context, db *gorm.DB) (string, error) {
+	for _, table := range dataTables {
+		if !db.Migrator().HasTable(table) {
+			continue
+		}
+		var n int64
+		if err := db.WithContext(ctx).Table(table).Count(&n).Error; err != nil {
+			return "", fmt.Errorf("environment: count %s: %w", table, err)
+		}
+		if n > 0 {
+			return table, nil
+		}
+	}
+	return "", nil
+}
+
+// adoptionManualStep is what an operator runs when the migration could not hand the relabel function to the ledger owner.
+const adoptionManualStep = "as a role that may: ALTER FUNCTION ledger_adopt_environment(text) OWNER TO ledger_owner; GRANT EXECUTE ON FUNCTION ledger_adopt_environment(text) TO <migrator>; (docs/OPERATIONS.md, Environments)"
+
+// verifyAdoptFunction refuses early when the relabel function is missing or not owned by the ledger owner.
+func verifyAdoptFunction(ctx context.Context, db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	var row struct {
+		Installed  bool
+		OwnerMatch bool
+	}
+	err := db.WithContext(ctx).Raw(`
+SELECT count(p.oid) > 0 AS installed,
+       COALESCE(bool_and(p.proowner = c.relowner), false) AS owner_match
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  LEFT JOIN pg_proc p ON p.pronamespace = n.oid AND p.proname = 'ledger_adopt_environment'
+ WHERE n.nspname = current_schema() AND c.relname = 'ledger_accounts'`).Scan(&row).Error
+	if err != nil {
+		return fmt.Errorf("environment: inspect ledger_adopt_environment: %w", err)
+	}
+	if !row.Installed {
+		return fmt.Errorf("%w: ledger_adopt_environment is not installed (the migration could not hand it to the ledger owner); install it %s", environment.ErrBoot, adoptionManualStep)
+	}
+	if !row.OwnerMatch {
+		return fmt.Errorf("%w: ledger_adopt_environment is not owned by the owner of the ledger tables; fix it %s", environment.ErrBoot, adoptionManualStep)
 	}
 	return nil
 }
@@ -146,21 +216,27 @@ func (m *EnvironmentModule) AdoptLive(ctx context.Context, db *gorm.DB, confirm 
 	if environment.NormalizeDatabaseName(confirm) == "" || environment.NormalizeDatabaseName(confirm) != environment.NormalizeDatabaseName(name) {
 		return result, fmt.Errorf("%w: --confirm-adopt-live must name the connected database %q", environment.ErrBoot, name)
 	}
-	if err := environment.CheckDatabase(environment.Live, name, m.testDatabase, m.databaseHost, ""); err != nil {
+	if err := environment.CheckDatabase(environment.Live, m.policy(name, "")); err != nil {
 		return result, err
 	}
 	if !db.Migrator().HasTable(&environment.StampRow{}) {
 		return result, fmt.Errorf("%w: gateway_environment is missing; run migrations first", environment.ErrBoot)
 	}
+	if db.Migrator().HasTable("ledger_accounts") {
+		if err := verifyAdoptFunction(ctx, db); err != nil {
+			return result, err
+		}
+	}
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var stamp environment.StampRow
+		stamped := true
 		if err := tx.First(&stamp, environment.StampID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("%w: database is not stamped; a database that never served test money needs no adoption, boot it live", environment.ErrBoot)
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("environment: read stamp: %w", err)
 			}
-			return fmt.Errorf("environment: read stamp: %w", err)
+			stamped = false
 		}
-		if stamp.Environment != environment.Test || stamp.AdoptedFrom != nil {
+		if stamped && (stamp.Environment != environment.Test || stamp.AdoptedFrom != nil) {
 			return fmt.Errorf("%w: database is stamped %s (adopted from %v); adoption happens once", environment.ErrBoot, stamp.Environment, stamp.AdoptedFrom)
 		}
 		if tx.Migrator().HasTable("ledger_accounts") {
@@ -182,6 +258,13 @@ func (m *EnvironmentModule) AdoptLive(ctx context.Context, db *gorm.DB, confirm 
 		}
 		now := time.Now().UTC()
 		from := environment.Test
+		if !stamped {
+			row := environment.StampRow{ID: environment.StampID, Environment: environment.Live, StampedAt: now, AdoptedFrom: &from, AdoptedAt: &now}
+			if err := tx.Create(&row).Error; err != nil {
+				return fmt.Errorf("environment: stamp adopted database: %w", err)
+			}
+			return nil
+		}
 		res := tx.Model(&environment.StampRow{}).Where("id = ? AND environment = ?", environment.StampID, environment.Test).
 			Updates(map[string]any{"environment": environment.Live, "adopted_from": &from, "adopted_at": &now})
 		if res.Error != nil {
@@ -196,6 +279,45 @@ func (m *EnvironmentModule) AdoptLive(ctx context.Context, db *gorm.DB, confirm 
 		return AdoptResult{Database: name}, err
 	}
 	return result, nil
+}
+
+// AdoptTest stamps an unstamped database that already holds data as test. Nothing is relabelled:
+// every pre-ticket row already reads test. It runs only from a test-configured process, only when the
+// database carries no stamp, and only when confirm names the database Postgres reports.
+func (m *EnvironmentModule) AdoptTest(ctx context.Context, db *gorm.DB, confirm string) (string, error) {
+	if db == nil {
+		return "", errors.New("environment: database is nil")
+	}
+	if m.Environment != environment.Test {
+		return "", fmt.Errorf("%w: adopt-test runs from a test-configured process, this one is %s", environment.ErrBoot, m.Environment)
+	}
+	name, err := m.reportedDatabaseName(ctx, db)
+	if err != nil {
+		return "", err
+	}
+	if environment.NormalizeDatabaseName(confirm) == "" || environment.NormalizeDatabaseName(confirm) != environment.NormalizeDatabaseName(name) {
+		return name, fmt.Errorf("%w: --confirm-adopt-test must name the connected database %q", environment.ErrBoot, name)
+	}
+	if err := environment.CheckDatabase(environment.Test, m.policy(name, "")); err != nil {
+		return name, err
+	}
+	if !db.Migrator().HasTable(&environment.StampRow{}) {
+		return name, fmt.Errorf("%w: gateway_environment is missing; run migrations first", environment.ErrBoot)
+	}
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var stamp environment.StampRow
+		if err := tx.First(&stamp, environment.StampID).Error; err == nil {
+			return fmt.Errorf("%w: database is already stamped %s; adopt-test is for an unstamped database", environment.ErrBoot, stamp.Environment)
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("environment: read stamp: %w", err)
+		}
+		row := environment.StampRow{ID: environment.StampID, Environment: environment.Test, StampedAt: time.Now().UTC()}
+		if err := tx.Create(&row).Error; err != nil {
+			return fmt.Errorf("environment: stamp database: %w", err)
+		}
+		return nil
+	})
+	return name, err
 }
 
 func (m *EnvironmentModule) reportedDatabaseName(ctx context.Context, db *gorm.DB) (string, error) {

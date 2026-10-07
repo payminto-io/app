@@ -109,6 +109,8 @@ type BootFacts struct {
 	DatabaseHost string
 	// TestDatabaseName is the name reserved for test money; live must never open it.
 	TestDatabaseName string
+	// TestDatabaseAllowName is the one remote database a test process may open without a _test suffix.
+	TestDatabaseAllowName string
 	// DevKeystore is true when the development keystore or a local vault master key is configured.
 	DevKeystore bool
 	// VaultDevMode is true when the secrets vault runs without a real passphrase.
@@ -149,7 +151,7 @@ func CheckBoot(facts BootFacts) error {
 
 	// The configured name is checked before connecting; VerifyDatabase repeats the policy on
 	// what Postgres reports plus the stamp, which is the authority.
-	if err := CheckDatabase(facts.Environment, facts.DatabaseName, facts.TestDatabaseName, facts.DatabaseHost, ""); err != nil {
+	if err := CheckDatabase(facts.Environment, DatabasePolicy{Name: facts.DatabaseName, TestName: facts.TestDatabaseName, AllowName: facts.TestDatabaseAllowName, Host: facts.DatabaseHost}); err != nil {
 		var boot *BootError
 		if errors.As(err, &boot) {
 			reasons = append(reasons, boot.Reasons...)
@@ -201,17 +203,27 @@ func CheckBoot(facts BootFacts) error {
 // NormalizeDatabaseName is how every database name is compared: trimmed and case-folded.
 func NormalizeDatabaseName(name string) string { return strings.ToLower(strings.TrimSpace(name)) }
 
-// CheckDatabase is the database policy for env. name is the database (configured, or as Postgres
-// reports it), stamp is the environment the database is stamped with ("" when new or unstamped).
-// A test process may use a non-*_test name only on a loopback host and only when the stamp says
-// test or the database is new; a stamp never agrees with the other environment.
-func CheckDatabase(env Environment, name, testName, host string, stamp Environment) error {
+// DatabasePolicy is what CheckDatabase judges: the name (configured, or as Postgres reports it), the
+// reserved test name, the one remote name a test process may open without a _test suffix, the host,
+// and the stamp the database carries ("" when new or unstamped).
+type DatabasePolicy struct {
+	Name      string
+	TestName  string
+	AllowName string
+	Host      string
+	Stamp     Environment
+}
+
+// CheckDatabase is the database policy for env. A test process may use a non-*_test name only on a
+// loopback host (while the stamp says test or the database is new) or when the name is the configured
+// GATEWAY_TEST_DATABASE_NAME; a stamp never agrees with the other environment.
+func CheckDatabase(env Environment, p DatabasePolicy) error {
 	if !env.Valid() {
 		return fmt.Errorf("%w: %q", ErrInvalid, env)
 	}
 	var reasons []string
 	refuse := func(format string, args ...any) { reasons = append(reasons, fmt.Sprintf(format, args...)) }
-	name, testName = NormalizeDatabaseName(name), NormalizeDatabaseName(testName)
+	name, testName, allowName, host, stamp := NormalizeDatabaseName(p.Name), NormalizeDatabaseName(p.TestName), NormalizeDatabaseName(p.AllowName), p.Host, p.Stamp
 	if name == "" {
 		refuse("database name is empty")
 	}
@@ -230,10 +242,10 @@ func CheckDatabase(env Environment, name, testName, host string, stamp Environme
 			refuse("database %q ends in _test", name)
 		}
 	case Test:
-		if name != "" && !strings.HasSuffix(name, "_test") {
+		if name != "" && !strings.HasSuffix(name, "_test") && name != allowName {
 			switch {
 			case !isLoopbackHost(host):
-				refuse("database %q on %q is neither named *_test nor local; test money needs its own database", name, host)
+				refuse("database %q on %q is neither named *_test nor local; test money needs its own database (or set GATEWAY_TEST_DATABASE_NAME=%s)", name, host, name)
 			case stamp == "":
 				// New or unstamped on loopback: allowed, and the process stamps it test.
 			case stamp != Test:

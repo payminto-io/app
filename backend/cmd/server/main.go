@@ -77,9 +77,6 @@ func main() {
 	if err := envModule.VerifySchema(context.Background(), db); err != nil {
 		log.Fatalf("environment: %v", err)
 	}
-	if err := envModule.Stamp(context.Background(), db); err != nil {
-		log.Fatalf("environment: %v", err)
-	}
 
 	reg, err := service.NewServiceRegistry(db, nil, cfg, service.WithEnvironmentModule(envModule))
 	if err != nil {
@@ -89,6 +86,10 @@ func main() {
 	modeRepo := service.NewConfigRepoAdapter(reg.ConfigurationRepo())
 	if err := config.EnforceModeMatch(cfg.Blockchain.NetworkType, modeRepo); err != nil {
 		log.Fatalf("mode enforcement: %v", err)
+	}
+	// Last boot check: only a database every gate accepted gets stamped, and only an empty one.
+	if err := envModule.Stamp(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
 	}
 
 	// Custody is an explicit capability. Config validation guarantees a strong

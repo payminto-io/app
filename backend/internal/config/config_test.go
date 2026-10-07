@@ -284,7 +284,7 @@ func TestEnforceModeMatch_EmptyEnv(t *testing.T) {
 }
 
 func TestEnforceModeMatch_FirstBootStamps(t *testing.T) {
-	repo := &fakeConfigRepo{}
+	repo := &fakeConfigRepo{values: map[string]string{}}
 	if err := EnforceModeMatch("testnet", repo); err != nil {
 		t.Fatal(err)
 	}
@@ -418,10 +418,49 @@ func TestLoad_RejectsDatabaseNamesThatCouldEscapeTheDSN(t *testing.T) {
 }
 
 func TestDSN_QuotesEveryValue(t *testing.T) {
-	d := DatabaseConfig{Host: "localhost", Port: 5432, Username: "u", Password: `p a'ss\\word`, Database: "payminto_test", SSLMode: "disable"}
+	d := DatabaseConfig{Host: "localhost", Port: 5432, Username: "u", Password: `p a'ss\word`, Database: "payminto_test", SSLMode: "disable"}
 	got := d.DSN()
 	want := `host='localhost' port=5432 user='u' password='p a\'ss\\word' dbname='payminto_test' sslmode='disable'`
 	if got != want {
 		t.Fatalf("DSN() = %s\nwant   %s", got, want)
 	}
 }
+
+func TestLoad_GatewayTestDatabaseName(t *testing.T) {
+	t.Setenv("GATEWAY_TEST_DATABASE_NAME", " payminto_staging ")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Gateway.TestDatabaseName != "payminto_staging" || cfg.BootFacts().TestDatabaseAllowName != "payminto_staging" {
+		t.Fatalf("GATEWAY_TEST_DATABASE_NAME = %q", cfg.Gateway.TestDatabaseName)
+	}
+	t.Setenv("GATEWAY_TEST_DATABASE_NAME", "a b")
+	if _, err := Load(); err == nil {
+		t.Fatal("unsafe GATEWAY_TEST_DATABASE_NAME accepted")
+	}
+}
+
+func TestCheckModeMatch_OnlyComparesWhenTheRowExists(t *testing.T) {
+	repo := &modeOnlyRepo{}
+	if err := CheckModeMatch("mainnet", repo); err != nil || repo.set {
+		t.Fatalf("absent row: err %v, wrote %v", err, repo.set)
+	}
+	repo.value = "testnet"
+	if err := CheckModeMatch("mainnet", repo); err == nil {
+		t.Fatal("mismatch accepted")
+	}
+}
+
+type modeOnlyRepo struct {
+	value string
+	set   bool
+}
+
+func (f *modeOnlyRepo) Get(string) (string, error) {
+	if f.value == "" {
+		return "", errors.New("not found")
+	}
+	return f.value, nil
+}
+func (f *modeOnlyRepo) Set(string, string) error { f.set = true; return nil }

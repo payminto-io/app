@@ -15,6 +15,8 @@ import (
 	"github.com/payminto/payminto/backend/internal/database"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/modules"
+	"github.com/payminto/payminto/backend/internal/repository"
+	"github.com/payminto/payminto/backend/internal/service"
 	"gorm.io/gorm"
 )
 
@@ -26,6 +28,7 @@ func main() {
 		seedOnly = flag.Bool("seed-only", false, "Deprecated alias for the explicit seed action")
 		appRole  = flag.String("ledger-app-role", "", "Role to narrow to SELECT, INSERT on the ledger tables (default: $POSTGRES_LEDGER_APP_ROLE)")
 		adopt    = flag.String("confirm-adopt-live", "", "adopt-live only: the name of the connected database, typed out as confirmation")
+		adoptT   = flag.String("confirm-adopt-test", "", "adopt-test only: the name of the connected database, typed out as confirmation")
 	)
 	flag.Parse()
 
@@ -53,8 +56,8 @@ func main() {
 	if flag.NArg() > 0 {
 		action = flag.Arg(0)
 	}
-	// adopt-live is the one action that expects the stamp to disagree with the process.
-	if action != "adopt-live" {
+	// The adoption actions are the ones that expect an unstamped or disagreeing database.
+	if action != "adopt-live" && action != "adopt-test" {
 		if err := envModule.VerifyDatabase(context.Background(), db); err != nil {
 			log.Fatalf("environment: %v", err)
 		}
@@ -67,6 +70,12 @@ func main() {
 			log.Fatalf("adopt-live: %v", err)
 		}
 		log.Printf("adopt-live: %s is now live (ledger accounts %d, journals %d, legacy api keys %d)", result.Database, result.LedgerAccounts, result.LedgerJournals, result.APIKeys)
+	case "adopt-test":
+		name, err := envModule.AdoptTest(context.Background(), db, *adoptT)
+		if err != nil {
+			log.Fatalf("adopt-test: %v", err)
+		}
+		log.Printf("adopt-test: %s is stamped test", name)
 	case "up":
 		if !*seedOnly {
 			log.Println("Applying checksummed schema migrations...")
@@ -79,6 +88,10 @@ func main() {
 			}
 			if err := envModule.VerifySchema(context.Background(), db); err != nil {
 				log.Fatalf("environment: %v", err)
+			}
+			modeRepo := service.NewConfigRepoAdapter(repository.NewConfigurationRepository(db))
+			if err := config.CheckModeMatch(cfg.Blockchain.NetworkType, modeRepo); err != nil {
+				log.Fatalf("mode enforcement: %v", err)
 			}
 			if err := envModule.Stamp(context.Background(), db); err != nil {
 				log.Fatalf("environment: %v", err)
@@ -106,7 +119,7 @@ func main() {
 	case "down":
 		log.Fatal("down: unsupported; migrations are forward-only and require a reviewed roll-forward plan")
 	default:
-		log.Fatalf("unknown action %q (try: up, seed, adopt-live)", action)
+		log.Fatalf("unknown action %q (try: up, seed, adopt-live, adopt-test)", action)
 	}
 }
 
