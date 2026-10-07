@@ -1,11 +1,8 @@
 "use client";
 
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { linksApi, type LinkInput, type LinkListParams, type PaymentLink } from "@/lib/api/links";
-import { feesApi, type FeePreviewRequest } from "@/lib/api/fees";
-import { isApiError } from "@/lib/api/errors";
 import { qk } from "@/lib/query/keys";
-import type { MethodFee } from "@/features/links/preview";
 import { usePlatformScope } from "./use-platform-scope";
 
 export function useLinksList(params: LinkListParams) {
@@ -14,7 +11,7 @@ export function useLinksList(params: LinkListParams) {
     queryKey: qk.links.list({ platformId: scope.platformId }, { ...params }),
     queryFn: () => linksApi.list(params),
     enabled: scope.ready,
-    placeholderData: (prev) => prev,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -24,6 +21,34 @@ export function useLink(id: string | undefined) {
     queryKey: qk.links.detail({ platformId: scope.platformId }, id ?? ""),
     queryFn: () => linksApi.get(id as string),
     enabled: Boolean(id) && scope.ready,
+  });
+}
+
+/** Methods and currencies the form may offer in this environment. */
+export function useLinkOptions() {
+  const scope = usePlatformScope();
+  return useQuery({
+    queryKey: qk.links.options({ platformId: scope.platformId }),
+    queryFn: () => linksApi.options(),
+    enabled: scope.ready,
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * The server's render model for `input` (null while the form cannot be sent). One request per settled
+ * body; the previous complete response stays on screen, flagged `isPlaceholderData`, until the new one lands.
+ */
+export function useLinkPreview(input: LinkInput | null, linkId: string | null) {
+  const scope = usePlatformScope();
+  const body = input ? JSON.stringify(input) : "";
+  return useQuery({
+    queryKey: qk.links.preview({ platformId: scope.platformId }, body, linkId ?? ""),
+    queryFn: () => linksApi.preview(input as LinkInput, linkId ?? undefined),
+    enabled: scope.ready && input !== null,
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+    retry: false,
   });
 }
 
@@ -54,40 +79,5 @@ export function useDeleteLink() {
   return useMutation({
     mutationFn: (id: string) => linksApi.remove(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.links.all({ platformId: scope.platformId }) }),
-  });
-}
-
-/**
- * One fee preview per method, in order. `plans` comes from `feeRequestFor`: a request to send,
- * or a state that needs no request. Refusals (404 no_fee_rule, 422 surcharge_forbidden,
- * fee_exceeds_amount) are states, not errors.
- */
-export function useMethodFees(plans: ({ request: FeePreviewRequest } | { state: MethodFee })[]): MethodFee[] {
-  const scope = usePlatformScope();
-  const results = useQueries({
-    queries: plans.map((p) => {
-      const request = "request" in p ? p.request : null;
-      return {
-        queryKey: qk.fees.preview({ platformId: scope.platformId }, { ...(request ?? {}) }),
-        queryFn: () => feesApi.preview(request as FeePreviewRequest),
-        enabled: Boolean(request) && scope.ready,
-        staleTime: 30_000,
-        retry: false,
-      };
-    }),
-  });
-  return plans.map((p, i): MethodFee => {
-    if ("state" in p) return p.state;
-    const r = results[i];
-    if (r.data) return { state: "ok", preview: r.data };
-    if (r.error) {
-      const e = r.error;
-      if (isApiError(e) && (e.status === 404 || e.status === 422)) {
-        const body = e.body as { code?: unknown } | undefined;
-        return { state: "refused", code: typeof body?.code === "string" ? body.code : "", message: e.message };
-      }
-      return { state: "error", message: e instanceof Error ? e.message : String(e) };
-    }
-    return { state: "loading" };
   });
 }

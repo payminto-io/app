@@ -32,10 +32,9 @@ export const qk = {
       [...base(s), "links", "list", filters ?? {}] as const,
     detail: (s: PlatformScope, id: string) =>
       [...base(s), "links", "detail", id] as const,
-  },
-  fees: {
-    preview: (s: PlatformScope, body: Record<string, unknown>) =>
-      [...base(s), "fees", "preview", body] as const,
+    preview: (s: PlatformScope, body: string, linkId: string) =>
+      [...base(s), "links", "preview", linkId, body] as const,
+    options: (s: PlatformScope) => [...base(s), "links", "options"] as const,
   },
   depositAddresses: {
     list: (s: PlatformScope, ref: string) =>

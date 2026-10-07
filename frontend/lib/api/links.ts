@@ -95,8 +95,30 @@ export interface LinkInput {
   questions: QuestionInput[];
 }
 
+/** Server pricing of one method for the saved link: connector, rule version and, when computable, the breakdown. */
+export interface MethodPreview {
+  method: PayMethod;
+  chain: string | null;
+  asset: string | null;
+  connector: string | null;
+  rule_id: number | null;
+  rule_version: number | null;
+  fee_bearer: FeeBearer;
+  fee_currency: string;
+  amount: string | null;
+  fee: string | null;
+  tax: string | null;
+  customer_total: string | null;
+  merchant_net: string | null;
+  /** Refusal code when the method cannot be priced (method_no_fee_rule, surcharge_needs_quote, ...). */
+  unavailable: string | null;
+}
+
 export interface PaymentLink extends LinkInput {
   id: string;
+  merchant_name: string | null;
+  /** Single-link responses only; null in lists. */
+  fee_preview: MethodPreview[] | null;
   status: LinkStatus;
   environment: "live" | "test";
   short_code: string | null;
@@ -131,6 +153,7 @@ export const IMMUTABLE_WHEN_PUBLISHED = [
   "currency",
   "methods",
   "line_items",
+  "fee_bearer",
 ] as const satisfies readonly (keyof LinkInput)[];
 
 /** The public render model checkout reads (`GET /api/v2/public/links/:short_code`). */
@@ -139,10 +162,9 @@ export interface RenderLineItem {
   quantity: number;
   unit_price: string;
   tax_rate: string;
-  /** Always set by the public endpoint; the builder preview leaves them null until the server computes them. */
-  subtotal: string | null;
-  tax: string | null;
-  total: string | null;
+  subtotal: string;
+  tax: string;
+  total: string;
 }
 
 export interface RenderField {
@@ -194,6 +216,28 @@ export interface RenderModel {
   branding: { logo_url: string | null; accent_color: string | null; language: string };
 }
 
+/** A method checkout leaves out, and the refusal that removed it. */
+export interface DroppedMethod {
+  method: PayMethod;
+  chain: string | null;
+  asset: string | null;
+  code: string;
+  message: string;
+}
+
+/** `POST /links/preview`: the public render model for an unsaved form. */
+export interface LinkPreview {
+  model: RenderModel;
+  dropped_methods: DroppedMethod[];
+}
+
+/** `GET /links/options`: what the form may offer in the process environment. */
+export interface LinkOptions {
+  environment: "live" | "test";
+  currencies: string[];
+  methods: { method: PayMethod; chain: string | null; asset: string | null; currencies: string[] }[];
+}
+
 const v2 = { baseUrl: API_V2_BASE_URL };
 
 function listQuery(p: LinkListParams): string {
@@ -218,4 +262,11 @@ export const linksApi = {
   pause: (id: string) => apiFetch<PaymentLink>(path(id, "/pause"), { ...v2, method: "POST" }),
   archive: (id: string) => apiFetch<PaymentLink>(path(id, "/archive"), { ...v2, method: "POST" }),
   duplicate: (id: string) => apiFetch<PaymentLink>(path(id, "/duplicate"), { ...v2, method: "POST" }),
+  preview: (input: LinkInput, linkId?: string) =>
+    apiFetch<LinkPreview>(`/links/preview${linkId ? `?link_id=${encodeURIComponent(linkId)}` : ""}`, {
+      ...v2,
+      method: "POST",
+      body: input,
+    }),
+  options: () => apiFetch<LinkOptions>("/links/options", v2),
 };

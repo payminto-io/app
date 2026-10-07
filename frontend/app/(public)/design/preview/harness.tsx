@@ -5,7 +5,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { authStore } from "@/lib/auth/store";
 import { API_BASE_URL, API_V2_BASE_URL } from "@/lib/constants";
 import { resolveFixture } from "./fixtures";
-import { resolveLinksV1, resolveLinksV2 } from "./links-fixtures";
+import { resolveLinksV2 } from "./links-fixtures";
 
 const PREFIX = "/design/preview";
 
@@ -34,7 +34,7 @@ function install() {
     if (mode === "error") {
       return new Response(JSON.stringify({ error: "Sample error: the service returned 503." }), { status: 503 });
     }
-    const linkReply = v2 ? resolveLinksV2(path, method, reqBody, mode === "empty") : resolveLinksV1(path, method, reqBody);
+    const linkReply = v2 ? resolveLinksV2(path, method, reqBody, mode === "empty") : undefined;
     if (linkReply) {
       return linkReply.status === 204
         ? new Response(null, { status: 204 })

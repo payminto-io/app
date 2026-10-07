@@ -1,18 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api/errors";
-import type { PaymentLink } from "@/lib/api/links";
+import type { MethodPreview, PaymentLink } from "@/lib/api/links";
 import {
   defaultForm,
   formFromLink,
   formToInput,
   formToPatch,
   hasContent,
+  effectiveUseLimit,
   localErrors,
+  methodKey,
   pricingFingerprint,
   type LinkForm,
 } from "./model";
 import { countByStep, errorAt, mapApiErrors, stepForField } from "./errors";
-import { buildRenderModel, feeRequestFor, type MethodFee } from "./preview";
+import { droppedByKey, savedPricing } from "./pricing";
+import { feeView } from "./components/steps";
 
 const form = (patch: Partial<LinkForm> = {}): LinkForm => ({ ...defaultForm(), ...patch });
 
@@ -20,6 +23,8 @@ function link(patch: Partial<PaymentLink> = {}): PaymentLink {
   return {
     ...formToInput(form({ title: "Workshop", currency: "USD", amount: "50.00", methods: [{ method: "card" }] })),
     id: "lnk_1",
+    merchant_name: "Acme",
+    fee_preview: null,
     status: "draft",
     environment: "test",
     short_code: null,
@@ -96,14 +101,23 @@ describe("form state", () => {
     expect(back).toEqual(input);
   });
 
-  it("flags only values JSON cannot carry", () => {
+  it("flags values JSON cannot carry and blanks that would otherwise be invented", () => {
     const errs = localErrors(
-      form({ amount: "ten", use_limit: "1.5", amount_mode: "fixed", line_items: [{ name: "", quantity: "x", unit_price: "1", tax_rate: "0" }] })
+      form({ amount: "ten", multi_use: true, use_limit: "1.5", amount_mode: "fixed", line_items: [{ name: "", quantity: "x", unit_price: "1", tax_rate: "0" }] })
     );
     expect(errs).toEqual({ amount: "Enter a number", use_limit: "Enter a whole number" });
     expect(localErrors(form({ amount_mode: "line_items", line_items: [{ name: "", quantity: "x", unit_price: "-1", tax_rate: "0" }] }))).toEqual({
       "line_items[0].quantity": "Enter a whole number",
       "line_items[0].unit_price": "Enter a number",
+    });
+    expect(localErrors(form({ amount_mode: "line_items", line_items: [{ name: "A", quantity: "", unit_price: "", tax_rate: "" }] }))).toEqual({
+      "line_items[0].quantity": "Enter a quantity",
+      "line_items[0].unit_price": "Enter a price",
+      "line_items[0].tax_rate": "Enter a rate, 0 for none",
+    });
+    expect(localErrors(form({ chain_tolerance_bps: "", quote_expiry_seconds: " " }))).toEqual({
+      chain_tolerance_bps: "Enter a value",
+      quote_expiry_seconds: "Enter a value",
     });
     expect(localErrors(form({ amount: "" }))).toEqual({});
   });
@@ -112,13 +126,16 @@ describe("form state", () => {
     const f = form({ title: "T", amount: "5", currency: "USD", methods: [{ method: "card" }] });
     expect(formToPatch(f, "draft")).toHaveProperty("amount", "5");
     const p = formToPatch(f, "active");
-    for (const k of ["amount_mode", "amount", "amount_min", "amount_max", "currency", "methods", "line_items"]) {
+    for (const k of ["amount_mode", "amount", "amount_min", "amount_max", "currency", "methods", "line_items", "fee_bearer"]) {
       expect(p).not.toHaveProperty(k);
     }
     expect(p).toHaveProperty("title", "T");
   });
 
   it("pricing fingerprint moves only with pricing fields", () => {
+    const b = form({ amount: "5", currency: "USD" });
+    expect(pricingFingerprint({ ...b, fee_bearer: "customer" })).not.toBe(pricingFingerprint(b));
+    expect(pricingFingerprint({ ...b, methods: [{ method: "card" }] })).not.toBe(pricingFingerprint(b));
     const a = form({ amount_mode: "line_items", line_items: [{ name: "A", quantity: "1", unit_price: "2", tax_rate: "0" }] });
     expect(pricingFingerprint({ ...a, title: "other" })).toBe(pricingFingerprint(a));
     expect(pricingFingerprint({ ...a, line_items: [{ ...a.line_items[0], quantity: "2" }] })).not.toBe(pricingFingerprint(a));
@@ -183,91 +200,63 @@ describe("API error mapping", () => {
   });
 });
 
-describe("preview mapping", () => {
-  const preview = (fee: string) => ({
+describe("server pricing matched by method", () => {
+  const mp = (patch: Partial<MethodPreview>): MethodPreview => ({
+    method: "card",
+    chain: null,
+    asset: null,
+    connector: "stripe",
     rule_id: 4,
-    version: 2,
-    currency: "USD",
-    fee_bearer: "customer" as const,
+    rule_version: 2,
+    fee_bearer: "merchant",
+    fee_currency: "USD",
     amount: "50.00",
-    fee,
-    tax: "0.27",
-    customer_total: "51.72",
-    merchant_net: "50.00",
+    fee: "1.75",
+    tax: "0.00",
+    customer_total: "50.00",
+    merchant_net: "48.25",
+    unavailable: null,
+    ...patch,
   });
 
-  it("asks the fee API with the amount the server would price on", () => {
-    const f = form({ currency: "usd", amount: "50.00", fee_bearer: "customer" });
-    expect(feeRequestFor(f, { method: "card" }, null)).toEqual({ request: { amount: "50.00", currency: "USD", method: "card", fee_bearer: "customer" } });
-    expect(feeRequestFor(form({ currency: "USD", amount_mode: "line_items" }), { method: "card" }, "12.36")).toMatchObject({ request: { amount: "12.36" } });
-    expect(feeRequestFor(form({ currency: "USD", amount_mode: "line_items" }), { method: "card" }, null)).toEqual({ state: { state: "no_amount" } });
-    expect(feeRequestFor(form({ currency: "USD", amount_mode: "customer", amount_min: "5" }), { method: "upi" }, null)).toMatchObject({ request: { amount: "5" } });
-    expect(feeRequestFor(form({ currency: "USD", amount_mode: "customer" }), { method: "upi" }, null)).toEqual({ state: { state: "no_amount" } });
-    expect(feeRequestFor(f, { method: "crypto", chain: "SOL", asset: "USDC" }, null)).toEqual({ state: { state: "at_pay_time" } });
-    expect(feeRequestFor(form({ currency: "USDC", amount: "5" }), { method: "crypto", chain: "SOL", asset: "usdc" }, null)).toMatchObject({ request: { currency: "USDC", method: "crypto" } });
+  it("keys methods by identity, not position", () => {
+    expect(methodKey({ method: "crypto", chain: "sol", asset: "usdc" })).toBe("crypto:USDC@SOL");
+    expect(methodKey({ method: "upi", chain: null, asset: null })).toBe("upi");
   });
 
-  it("carries a surcharge only for a customer-borne fee and drops methods the server would drop", () => {
-    const f = form({
-      title: "Workshop",
-      currency: "USD",
-      amount: "50.00",
-      fee_bearer: "customer",
-      methods: [{ method: "card" }, { method: "upi" }, { method: "crypto", chain: "SOL", asset: "USDC" }, { method: "bank" }],
+  it("uses the saved link's fee preview only while the form prices the same", () => {
+    const usdc = mp({ method: "crypto", chain: "SOL", asset: "USDC", fee_currency: "USDC", fee: null, rule_id: 7, rule_version: 1 });
+    const l = link({ methods: [{ method: "card" }, { method: "crypto", chain: "SOL", asset: "USDC" }], fee_preview: [mp({}), usdc] });
+    const f = formFromLink(l);
+    const priced = savedPricing(l, f);
+    expect(priced?.get("card")?.fee).toBe("1.75");
+    expect(priced?.get("crypto:USDC@SOL")?.rule_id).toBe(7);
+    // Reordering methods in the form changes no pairing; changing the amount drops the stale numbers.
+    expect(savedPricing(l, { ...f, methods: [...f.methods].reverse() })).toBeNull();
+    expect(savedPricing(l, { ...f, amount: "60.00" })).toBeNull();
+    expect(savedPricing(l, { ...f, fee_bearer: "customer" })).toBeNull();
+    expect(savedPricing(link({ fee_preview: null }), f)).toBeNull();
+  });
+
+  it("shows refusals from the checkout render first, then the saved pricing", () => {
+    const l = link({
+      methods: [{ method: "card" }, { method: "crypto", chain: "SOL", asset: "USDC" }],
+      fee_preview: [mp({}), mp({ method: "crypto", chain: "SOL", asset: "USDC", fee_currency: "USDC", fee: null, customer_total: null, merchant_net: null })],
     });
-    const fees: MethodFee[] = [
-      { state: "ok", preview: preview("1.45") },
-      { state: "refused", code: "surcharge_forbidden", message: "" },
-      { state: "at_pay_time" },
-      { state: "refused", code: "no_fee_rule", message: "" },
-    ];
-    const m = buildRenderModel(f, { link: null, serverTotal: null, fees, merchantName: null });
-    expect(m.methods).toEqual([
-      { method: "card", chain: null, asset: null, fee: "1.45", tax: "0.27", customer_total: "51.72" },
-      { method: "crypto", chain: "SOL", asset: "USDC", fee: null, tax: null, customer_total: null },
-    ]);
-    expect(m.amount).toBe("50.00");
-    expect(m.available).toBe(true);
-
-    const merchant = buildRenderModel({ ...f, fee_bearer: "merchant" }, { link: null, serverTotal: null, fees, merchantName: null });
-    expect(merchant.methods[0].fee).toBeNull();
+    const f = formFromLink(l);
+    const pricing = savedPricing(l, f);
+    const dropped = droppedByKey([{ method: "crypto", chain: "SOL", asset: "USDC", code: "surcharge_needs_quote", message: "needs a quote" }]);
+    expect(feeView({ method: "crypto", chain: "SOL", asset: "USDC" }, "USD", pricing, dropped)).toEqual({ kind: "refused", code: "surcharge_needs_quote", message: "needs a quote" });
+    expect(feeView({ method: "crypto", chain: "SOL", asset: "USDC" }, "USD", pricing, droppedByKey([]))).toEqual({ kind: "pay_time" });
+    expect(feeView({ method: "card" }, "USD", pricing, dropped)).toMatchObject({ kind: "priced" });
+    expect(feeView({ method: "card" }, "USD", null, dropped)).toEqual({ kind: "pending" });
+    const refused = savedPricing(link({ fee_preview: [mp({ unavailable: "method_no_fee_rule", fee: null })] }), formFromLink(link()));
+    expect(feeView({ method: "card" }, "USD", refused, droppedByKey([]))).toMatchObject({ kind: "refused", code: "method_no_fee_rule" });
   });
 
-  it("matches the public model's privacy rules and availability", () => {
-    const f = form({
-      title: "T",
-      currency: "USD",
-      amount: "1",
-      customer: { name: { mode: "hidden", prefill: "Ada" }, email: { mode: "required", prefill: "a@b.co" }, phone: { mode: "optional", prefill: "" } },
-      accent_color: "#12345",
-    });
-    const m = buildRenderModel(f, { link: null, serverTotal: null, fees: [], merchantName: "Acme" });
-    expect(m.customer_fields.name).toEqual({ mode: "hidden", prefill: null });
-    expect(m.customer_fields.email).toEqual({ mode: "required", prefill: "a@b.co" });
-    expect(m.customer_fields.phone.prefill).toBeNull();
-    expect(m.branding.accent_color).toBeNull();
-    expect(m.unavailable_reason).toBe("no_methods_available");
-    expect(Object.keys(m)).not.toContain("reference_id");
-    expect(Object.keys(m)).not.toContain("metadata");
-    expect(Object.keys(m)).not.toContain("success_url");
-
-    const withCard = { ...f, methods: [{ method: "card" as const }] };
-    const fee: MethodFee[] = [{ state: "loading" }];
-    expect(buildRenderModel(withCard, { link: link({ status: "paused" }), serverTotal: null, fees: fee, merchantName: null }).unavailable_reason).toBe("paused");
-    expect(
-      buildRenderModel(withCard, { link: link({ status: "active", uses_count: 1 }), serverTotal: null, fees: fee, merchantName: null }).unavailable_reason
-    ).toBe("use_limit_reached");
-    expect(
-      buildRenderModel({ ...withCard, expires_at: "2026-10-01T10:00" }, { link: null, serverTotal: null, fees: fee, merchantName: null, now: new Date("2026-10-07T00:00:00Z") })
-        .unavailable_reason
-    ).toBe("expired");
-  });
-
-  it("takes the line-item total from the server, never sums in the browser", () => {
-    const f = form({ currency: "USD", amount_mode: "line_items", line_items: [{ name: "A", quantity: "2", unit_price: "5", tax_rate: "10" }] });
-    const pending = buildRenderModel(f, { link: null, serverTotal: null, fees: [], merchantName: null });
-    expect(pending.amount).toBeNull();
-    expect(pending.line_items[0]).toEqual({ name: "A", quantity: 2, unit_price: "5", tax_rate: "10", subtotal: null, tax: null, total: null });
-    expect(buildRenderModel(f, { link: null, serverTotal: "11.00", fees: [], merchantName: null }).amount).toBe("11.00");
+  it("computes the use limit in one place", () => {
+    expect(effectiveUseLimit({ multi_use: false, use_limit: 9, expires_after_payments: null })).toBe(1);
+    expect(effectiveUseLimit({ multi_use: true, use_limit: 9, expires_after_payments: 4 })).toBe(4);
+    expect(effectiveUseLimit({ multi_use: true, use_limit: null, expires_after_payments: null })).toBeNull();
   });
 });

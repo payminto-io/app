@@ -10,24 +10,18 @@ import { PageHeader } from "@/components/page-header";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Pagination } from "@/components/pagination";
 import { CurrencyDisplay } from "@/components/currency-display";
-import { CopyField } from "@/components/copy-field";
 import { DateTime } from "@/components/date-time";
 import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/states";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LINKS_COPY } from "../copy";
-import { QrButton } from "./link-share";
+import { effectiveUseLimit } from "../model";
+import { ShortLink } from "./link-share";
 
 const PAGE_SIZE = 25;
 const TABS = ["all", "active", "draft", "paused", "archived"] as const;
 const C = LINKS_COPY.columns;
-
-function limitOf(l: PaymentLink): number | null {
-  if (!l.multi_use) return 1;
-  const caps = [l.use_limit, l.expires_after_payments].filter((v): v is number => v !== null);
-  return caps.length ? Math.min(...caps) : null;
-}
 
 function columns(basePath: string): DataTableColumn<PaymentLink>[] {
   return [
@@ -64,7 +58,7 @@ function columns(basePath: string): DataTableColumn<PaymentLink>[] {
       header: C.uses,
       align: "right",
       cell: (l) => {
-        const cap = limitOf(l);
+        const cap = effectiveUseLimit(l);
         return (
           <span className="num text-body-sm text-ink">
             {l.uses_count}
@@ -77,13 +71,7 @@ function columns(basePath: string): DataTableColumn<PaymentLink>[] {
       key: "url",
       stack: "detail",
       header: C.url,
-      cell: (l) =>
-        l.url ? (
-          <div className="flex min-w-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            <CopyField value={l.url} display={l.url.replace(/^https?:\/\//, "")} boxed={false} className="max-w-[26ch]" />
-            <QrButton url={l.url} title={l.title} />
-          </div>
-        ) : null,
+      cell: (l) => (l.url ? <ShortLink url={l.url} title={l.title} className="max-w-[30ch]" /> : null),
     },
     {
       key: "created",

@@ -231,11 +231,15 @@ export type LocalErrors = Record<string, string>;
  */
 export function localErrors(f: LinkForm): LocalErrors {
   const out: LocalErrors = {};
-  const dec = (path: string, v: string) => {
-    if (v.trim() !== "" && !isDecimal(v)) out[path] = "Enter a number";
+  const dec = (path: string, v: string, required?: string) => {
+    if (v.trim() === "") {
+      if (required) out[path] = required;
+    } else if (!isDecimal(v)) out[path] = LOCAL.number;
   };
-  const int = (path: string, v: string) => {
-    if (v.trim() !== "" && !INTEGER.test(v.trim())) out[path] = "Enter a whole number";
+  const int = (path: string, v: string, required?: string) => {
+    if (v.trim() === "") {
+      if (required) out[path] = required;
+    } else if (!INTEGER.test(v.trim())) out[path] = LOCAL.whole;
   };
   if (f.amount_mode === "fixed") dec("amount", f.amount);
   if (f.amount_mode === "customer") {
@@ -244,22 +248,34 @@ export function localErrors(f: LinkForm): LocalErrors {
   }
   if (f.amount_mode === "line_items") {
     f.line_items.forEach((li, i) => {
-      int(`line_items[${i}].quantity`, li.quantity);
-      dec(`line_items[${i}].unit_price`, li.unit_price);
-      dec(`line_items[${i}].tax_rate`, li.tax_rate);
+      int(`line_items[${i}].quantity`, li.quantity, LOCAL.quantity);
+      dec(`line_items[${i}].unit_price`, li.unit_price, LOCAL.price);
+      dec(`line_items[${i}].tax_rate`, li.tax_rate, LOCAL.rate);
     });
   }
-  int("use_limit", f.use_limit);
-  int("chain_tolerance_bps", f.chain_tolerance_bps);
-  int("quote_expiry_seconds", f.quote_expiry_seconds);
-  int("expires_after_payments", f.expires_after_payments);
-  if (f.expires_at && Number.isNaN(new Date(f.expires_at).getTime())) out.expires_at = "Enter a date and time";
+  if (f.multi_use) {
+    int("use_limit", f.use_limit);
+    int("expires_after_payments", f.expires_after_payments);
+  }
+  int("chain_tolerance_bps", f.chain_tolerance_bps, LOCAL.required);
+  int("quote_expiry_seconds", f.quote_expiry_seconds, LOCAL.required);
+  if (f.expires_at && Number.isNaN(new Date(f.expires_at).getTime())) out.expires_at = LOCAL.date;
   return out;
 }
 
+/** Messages for values the JSON body cannot carry; everything else is the server's to judge. */
+export const LOCAL = {
+  number: "Enter a number",
+  whole: "Enter a whole number",
+  quantity: "Enter a quantity",
+  price: "Enter a price",
+  rate: "Enter a rate, 0 for none",
+  required: "Enter a value",
+  date: "Enter a date and time",
+} as const;
+
 const decOrNull = (v: string) => (v.trim() === "" ? null : v.trim());
 const intOrNull = (v: string) => (v.trim() === "" ? null : Number.parseInt(v.trim(), 10));
-const intOr = (v: string, fallback: number) => intOrNull(v) ?? fallback;
 
 function fieldRule(f: FieldForm) {
   const prefill = f.prefill.trim();
@@ -302,8 +318,8 @@ export function formToInput(f: LinkForm): LinkInput {
     ),
     capture_mode: f.capture_mode,
     three_ds_policy: f.three_ds_policy,
-    chain_tolerance_bps: intOr(f.chain_tolerance_bps, 0),
-    quote_expiry_seconds: intOr(f.quote_expiry_seconds, 900),
+    chain_tolerance_bps: Number.parseInt(f.chain_tolerance_bps.trim(), 10),
+    quote_expiry_seconds: Number.parseInt(f.quote_expiry_seconds.trim(), 10),
     fee_bearer: f.fee_bearer,
     success_mode: f.success_mode,
     success_url: f.success_mode === "redirect" ? f.success_url.trim() : "",
@@ -330,9 +346,9 @@ export function formToInput(f: LinkForm): LinkInput {
       mode === "line_items"
         ? f.line_items.map((li) => ({
             name: li.name.trim(),
-            quantity: intOr(li.quantity, 0),
-            unit_price: li.unit_price.trim() === "" ? "0" : li.unit_price.trim(),
-            tax_rate: li.tax_rate.trim() === "" ? "0" : li.tax_rate.trim(),
+            quantity: Number.parseInt(li.quantity.trim(), 10),
+            unit_price: li.unit_price.trim(),
+            tax_rate: li.tax_rate.trim(),
           }))
         : [],
     questions: f.questions.map((q) => {
@@ -362,8 +378,20 @@ export function hasContent(f: LinkForm): boolean {
   return fingerprint(f) !== fingerprint(defaultForm());
 }
 
-/** The amount the line-item total depends on, so the preview knows when the server's total is stale. */
+/** Everything the server prices a method on; when it matches the saved link, the link's `fee_preview` applies. */
 export function pricingFingerprint(f: LinkForm): string {
   const i = formToInput(f);
-  return JSON.stringify([i.amount_mode, i.amount, i.currency, i.line_items]);
+  return JSON.stringify([i.amount_mode, i.amount, i.amount_min, i.currency, i.fee_bearer, i.methods, i.line_items]);
+}
+
+/** Stable identity of a method across lists: fees and refusals are matched by it, never by position. */
+export function methodKey(m: { method: string; chain?: string | null; asset?: string | null }): string {
+  return m.method === "crypto" ? `crypto:${(m.asset ?? "").toUpperCase()}@${(m.chain ?? "").toUpperCase()}` : m.method;
+}
+
+/** The most payments a link may take (backend `EffectiveUseLimit`); null is unlimited. */
+export function effectiveUseLimit(l: Pick<LinkInput, "multi_use" | "use_limit" | "expires_after_payments">): number | null {
+  if (!l.multi_use) return 1;
+  const caps = [l.use_limit, l.expires_after_payments].filter((v): v is number => v !== null);
+  return caps.length ? Math.min(...caps) : null;
 }

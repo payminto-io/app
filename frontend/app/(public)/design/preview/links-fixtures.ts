@@ -1,25 +1,145 @@
 /**
  * Sample payment-link fixtures for /design/preview only. Every value is invented for layout
- * review; the page labels it as sample. A tiny in-memory stand-in for the v2 routes and the
- * fee preview so the builder can be driven end to end without a backend. Not product logic.
+ * review; the page labels it as sample. A small in-memory stand-in for the v2 link routes
+ * (including preview and options) so the builder can be driven without a backend. Not product logic:
+ * the real rules live in backend/internal/links.
  */
-import { defaultForm, formToInput } from "@/features/links/model";
-import type { LinkInput, PaymentLink } from "@/lib/api/links";
+import { defaultForm, effectiveUseLimit, formToInput, methodKey } from "@/features/links/model";
+import type { DroppedMethod, LinkInput, LinkOptions, MethodPreview, MethodSpec, PaymentLink, RenderModel } from "@/lib/api/links";
 
 type Reply = { status: number; body: unknown };
 
 const NOW = Date.parse("2026-10-07T10:00:00Z");
 const iso = (days: number) => new Date(NOW + days * 86_400_000).toISOString();
 const BASE = "https://pay.example.com/l/";
+const MERCHANT = "Sample Studio";
+const cents = (v: string | number) => Math.round(Number(v) * 100);
+const fx = (c: number) => (c / 100).toFixed(2);
 
-function sumItems(items: LinkInput["line_items"]): string | null {
-  if (items.length === 0) return null;
-  let cents = 0;
-  for (const li of items) {
-    const sub = Math.round(li.quantity * Number(li.unit_price) * 100);
-    cents += sub + Math.round((sub * Number(li.tax_rate)) / 100);
+const OPTIONS: LinkOptions = {
+  environment: "test",
+  currencies: ["EUR", "INR", "USD"],
+  methods: [
+    { method: "card", chain: null, asset: null, currencies: ["EUR", "INR", "USD"] },
+    { method: "upi", chain: null, asset: null, currencies: ["INR"] },
+    { method: "bank", chain: null, asset: null, currencies: ["USD"] },
+    { method: "crypto", chain: "SOL", asset: "USDC", currencies: ["USD"] },
+  ],
+};
+
+function lines(items: LinkInput["line_items"]) {
+  const rows = items.map((li) => {
+    const sub = li.quantity * cents(li.unit_price);
+    const tax = Math.round((sub * Number(li.tax_rate)) / 100);
+    return { row: { ...li, subtotal: fx(sub), tax: fx(tax), total: fx(sub + tax) }, sub, tax };
+  });
+  const sub = rows.reduce((a, r) => a + r.sub, 0);
+  const tax = rows.reduce((a, r) => a + r.tax, 0);
+  return { rows: rows.map((r) => r.row), subtotal: fx(sub), tax: fx(tax), total: fx(sub + tax) };
+}
+
+const totalOf = (i: LinkInput) =>
+  i.amount_mode === "fixed" ? i.amount : i.amount_mode === "line_items" && i.line_items.length ? lines(i.line_items).total : null;
+
+/** Sample rules: card 2.9% + 0.30, UPI free and never surcharged, bank none, USDC 1% in USDC. */
+function price(i: LinkInput, m: MethodSpec): { code?: string; rule?: [number, number]; b?: { fee: string; tax: string; total: string; net: string } } {
+  const offered = OPTIONS.methods.find((o) => methodKey(o) === methodKey(m));
+  if (!offered || !offered.currencies.includes(i.currency)) return { code: "method_no_connector" };
+  if (m.method === "bank") return { code: "method_no_fee_rule" };
+  const feeCur = m.method === "crypto" ? m.asset : i.currency;
+  const rule: [number, number] = m.method === "card" ? [3, 2] : m.method === "upi" ? [5, 1] : [7, 1];
+  if (feeCur !== i.currency) return i.fee_bearer === "customer" ? { code: "surcharge_needs_quote" } : { rule };
+  if (m.method === "upi" && i.fee_bearer === "customer") return { code: "surcharge_forbidden" };
+  const total = totalOf(i);
+  const amount = total ?? i.amount_min;
+  if (!amount) return { rule };
+  const a = cents(amount);
+  const fee = m.method === "card" ? Math.round(a * 0.029) + 30 : 0;
+  const tax = i.currency === "INR" ? Math.round(fee * 0.18) : 0;
+  if (fee + tax > a) return total ? { code: "fee_exceeds_amount" } : { rule };
+  const customer = i.fee_bearer === "customer";
+  return { rule, b: { fee: fx(fee), tax: fx(tax), total: fx(customer ? a + fee + tax : a), net: fx(customer ? a : a - fee - tax) } };
+}
+
+function feePreview(l: PaymentLink): MethodPreview[] {
+  if (!l.currency) return [];
+  return l.methods.map((m) => {
+    const p = price(l, m);
+    return {
+      method: m.method,
+      chain: m.chain ?? null,
+      asset: m.asset ?? null,
+      connector: p.code ? null : "sample",
+      rule_id: p.rule?.[0] ?? null,
+      rule_version: p.rule?.[1] ?? null,
+      fee_bearer: l.fee_bearer,
+      fee_currency: m.method === "crypto" ? (m.asset ?? "") : l.currency,
+      amount: p.b ? (totalOf(l) ?? l.amount_min) : null,
+      fee: p.b?.fee ?? null,
+      tax: p.b?.tax ?? null,
+      customer_total: p.b?.total ?? null,
+      merchant_net: p.b?.net ?? null,
+      unavailable: p.code ?? null,
+    };
+  });
+}
+
+function render(i: LinkInput, l: Pick<PaymentLink, "status" | "uses_count" | "short_code" | "url"> | null): { model: RenderModel; dropped_methods: DroppedMethod[] } {
+  const total = totalOf(i);
+  const dropped: DroppedMethod[] = [];
+  const methods: RenderModel["methods"] = [];
+  for (const m of i.methods) {
+    const p = price(i, m);
+    if (p.code) {
+      dropped.push({ method: m.method, chain: m.chain ?? null, asset: m.asset ?? null, code: p.code, message: p.code.replace(/_/g, " ") });
+      continue;
+    }
+    const s = total && i.fee_bearer === "customer" ? p.b : undefined;
+    methods.push({ method: m.method, chain: m.chain ?? null, asset: m.asset ?? null, fee: s?.fee ?? null, tax: s?.tax ?? null, customer_total: s?.total ?? null });
   }
-  return (cents / 100).toFixed(2);
+  const limit = effectiveUseLimit(i);
+  let reason: RenderModel["unavailable_reason"] = null;
+  if (l?.status === "paused") reason = "paused";
+  else if (i.expires_at && Date.parse(i.expires_at) <= Date.now()) reason = "expired";
+  else if (limit !== null && (l?.uses_count ?? 0) >= limit) reason = "use_limit_reached";
+  else if (methods.length === 0) reason = "no_methods_available";
+  const items = i.amount_mode === "line_items" ? lines(i.line_items) : null;
+  const field = (f: LinkInput["customer_field_policy"]["name"]) => ({ mode: f.mode, prefill: f.mode === "hidden" ? null : (f.prefill ?? null) });
+  return {
+    dropped_methods: dropped,
+    model: {
+      short_code: l?.short_code ?? "",
+      url: l?.url ?? "",
+      available: reason === null,
+      unavailable_reason: reason,
+      merchant_name: MERCHANT,
+      title: i.title,
+      description: i.description || null,
+      amount_mode: i.amount_mode,
+      amount: total,
+      amount_min: i.amount_min,
+      amount_max: i.amount_max,
+      currency: i.currency,
+      line_items: items?.rows ?? [],
+      subtotal: items?.subtotal ?? null,
+      tax_total: items?.tax ?? null,
+      customer_fields: { name: field(i.customer_field_policy.name), email: field(i.customer_field_policy.email), phone: field(i.customer_field_policy.phone) },
+      billing_required: i.billing_required,
+      shipping_required: i.shipping_required,
+      questions: i.questions.map((q) => ({ ...q, options: q.options ?? [] })),
+      methods,
+      fee_bearer: i.fee_bearer,
+      chain_tolerance_bps: i.chain_tolerance_bps,
+      quote_expiry_seconds: i.quote_expiry_seconds,
+      success_mode: i.success_mode,
+      success_message: i.success_message || null,
+      failure_retry: i.failure_retry,
+      failure_message: i.failure_message || null,
+      receipt_email: i.receipt_email,
+      expires_at: i.expires_at,
+      branding: { logo_url: i.logo_url || null, accent_color: i.accent_color || null, language: i.language },
+    },
+  };
 }
 
 function make(id: string, input: Partial<LinkInput>, extra: Partial<PaymentLink>): PaymentLink {
@@ -28,11 +148,13 @@ function make(id: string, input: Partial<LinkInput>, extra: Partial<PaymentLink>
   return {
     ...full,
     id,
+    merchant_name: MERCHANT,
+    fee_preview: null,
     status: "draft",
     environment: "test",
     short_code: code,
     url: code ? BASE + code : null,
-    total: full.amount_mode === "fixed" ? full.amount : full.amount_mode === "line_items" ? sumItems(full.line_items) : null,
+    total: totalOf(full),
     uses_count: 0,
     revision: 1,
     published_at: null,
@@ -69,7 +191,7 @@ const SEED: PaymentLink[] = [
       amount_min: "50.00",
       amount_max: "500.00",
       currency: "USD",
-      methods: [{ method: "card" }, { method: "bank" }],
+      methods: [{ method: "card" }],
       multi_use: true,
       fee_bearer: "customer",
     },
@@ -86,7 +208,7 @@ const SEED: PaymentLink[] = [
         { name: "Conference pass", quantity: 1, unit_price: "4999.00", tax_rate: "18" },
         { name: "Workshop add-on", quantity: 2, unit_price: "1500.00", tax_rate: "18" },
       ],
-      methods: [{ method: "upi" }, { method: "card" }],
+      methods: [{ method: "card" }, { method: "upi" }],
       questions: [{ key: "tshirt", label: "T-shirt size", type: "select", options: ["S", "M", "L"], required: true, per_order: true }],
     },
     { created_at: iso(-1) }
@@ -107,10 +229,7 @@ let store: PaymentLink[] | null = null;
 const db = () => (store ??= SEED.map((l) => structuredClone(l)));
 let seq = 1;
 
-const err = (status: number, code: string, message: string, field?: string): Reply => ({
-  status,
-  body: { error: message, code, ...(field ? { field } : {}) },
-});
+const err = (status: number, code: string, message: string, field?: string): Reply => ({ status, body: { error: message, code, ...(field ? { field } : {}) } });
 
 function errs(list: { code: string; field?: string; message: string }[]): Reply {
   return { status: 422, body: { error: list[0].message, code: list[0].code, field: list[0].field, errors: list.length > 1 ? list : undefined } };
@@ -136,56 +255,13 @@ function publishChecks(l: PaymentLink): Reply | null {
   if (l.amount_mode === "line_items" && l.line_items.length === 0) list.push({ code: "line_items_required", field: "line_items", message: "add at least one line item" });
   if (l.methods.length === 0) list.push({ code: "methods_required", field: "methods", message: "enable at least one method" });
   l.methods.forEach((m, n) => {
-    if (m.method === "bank") list.push({ code: "method_no_fee_rule", field: `methods[${n}]`, message: `no active fee rule for bank in ${l.currency}` });
+    const code = price(l, m).code;
+    if (code) list.push({ code, field: `methods[${n}]`, message: code.replace(/_/g, " ") });
   });
   return list.length ? errs(list) : null;
 }
 
-function withTotal(l: PaymentLink): PaymentLink {
-  return { ...l, total: l.amount_mode === "fixed" ? l.amount : l.amount_mode === "line_items" ? sumItems(l.line_items) : null };
-}
-
-/** Sample fee rules: card 2.9% + 0.30, UPI free and never surcharged, bank none, crypto 1%. */
-function feePreview(b: { amount: string; currency: string; method: string; fee_bearer?: string }): Reply {
-  const amount = Number(b.amount);
-  if (b.method === "bank") return err(404, "no_fee_rule", "no active fee rule");
-  if (b.method === "upi" && b.fee_bearer === "customer") return err(422, "surcharge_forbidden", "upi does not allow a customer surcharge");
-  const rule = { card: { id: 3, v: 2, pct: 2.9, flat: 0.3 }, upi: { id: 5, v: 1, pct: 0, flat: 0 }, crypto: { id: 7, v: 1, pct: 1, flat: 0 } }[b.method as "card" | "upi" | "crypto"];
-  if (!rule) return err(404, "no_fee_rule", "no active fee rule");
-  const fee = Math.round((amount * rule.pct + rule.flat * 100)) / 100;
-  const tax = b.currency === "INR" ? Math.round(fee * 18) / 100 : 0;
-  const customer = b.fee_bearer === "customer";
-  const fx = (n: number) => n.toFixed(2);
-  return {
-    status: 200,
-    body: {
-      rule_id: rule.id,
-      version: rule.v,
-      currency: b.currency,
-      fee_bearer: customer ? "customer" : "merchant",
-      amount: fx(amount),
-      fee: fx(fee),
-      tax: fx(tax),
-      customer_total: fx(customer ? amount + fee + tax : amount),
-      merchant_net: fx(customer ? amount : amount - fee - tax),
-    },
-  };
-}
-
-const CURRENCIES = {
-  currencies: [
-    { id: 1, blockchainCode: "SOL", currencyCode: "USDC", standard: "SPL", address: "" },
-    { id: 2, blockchainCode: "BASE", currencyCode: "USDC", standard: "ERC20", address: "" },
-    { id: 3, blockchainCode: "ETH", currencyCode: "USDT", standard: "ERC20", address: "" },
-  ],
-};
-
-/** v1 paths this module answers; everything else falls through to fixtures.ts. */
-export function resolveLinksV1(path: string, method: string, body: string | undefined): Reply | undefined {
-  if (method === "POST" && path === "/fees/preview") return feePreview(JSON.parse(body ?? "{}"));
-  if (method === "GET" && path === "/public/blockchain-currencies") return { status: 200, body: CURRENCIES };
-  return undefined;
-}
+const detail = (l: PaymentLink): PaymentLink => ({ ...l, total: totalOf(l), fee_preview: feePreview(l) });
 
 export function resolveLinksV2(pathWithQuery: string, method: string, body: string | undefined, empty: boolean): Reply | undefined {
   const [path, query = ""] = pathWithQuery.split("?");
@@ -195,15 +271,23 @@ export function resolveLinksV2(pathWithQuery: string, method: string, body: stri
     if (empty) return { status: 200, body: { links: [], total: 0 } };
     const status = q.get("status");
     const list = rows.filter((l) => !status || l.status === status).sort((a, b) => b.created_at.localeCompare(a.created_at));
-    return { status: 200, body: { links: list, total: list.length } };
+    return { status: 200, body: { links: list.map((l) => ({ ...l, fee_preview: null })), total: list.length } };
+  }
+  if (path === "/links/options" && method === "GET") return { status: 200, body: empty ? { ...OPTIONS, currencies: [], methods: [] } : OPTIONS };
+  if (path === "/links/preview" && method === "POST") {
+    const input = { ...formToInput(defaultForm()), ...JSON.parse(body ?? "{}") } as LinkInput;
+    const bad = saveChecks(input);
+    if (bad) return bad;
+    const link = rows.find((l) => l.id === q.get("link_id")) ?? null;
+    return { status: 200, body: render(input, link) };
   }
   if (path === "/links" && method === "POST") {
     const input = { ...formToInput(defaultForm()), ...JSON.parse(body ?? "{}") } as LinkInput;
     const bad = saveChecks(input);
     if (bad) return bad;
-    const l = withTotal(make(`sample_lnk_new${String(seq++).padStart(9, "0")}`, input, { created_at: new Date().toISOString() }));
+    const l = make(`sample_lnk_new${String(seq++).padStart(9, "0")}`, input, { created_at: new Date().toISOString() });
     rows.push(l);
-    return { status: 201, body: l };
+    return { status: 201, body: detail(l) };
   }
   const m = path.match(/^\/links\/([^/]+)(\/[a-z]+)?$/);
   if (!m) return undefined;
@@ -213,12 +297,12 @@ export function resolveLinksV2(pathWithQuery: string, method: string, body: stri
   const action = m[2];
   const put = (next: PaymentLink, status = 200): Reply => {
     rows[idx] = next;
-    return { status, body: next };
+    return { status, body: detail(next) };
   };
-  if (!action && method === "GET") return { status: 200, body: l };
+  if (!action && method === "GET") return { status: 200, body: detail(l) };
   if (!action && method === "PATCH") {
     if (l.status === "archived") return err(409, "link_not_editable", "an archived link cannot be edited");
-    const next = withTotal({ ...l, ...JSON.parse(body ?? "{}"), revision: l.revision + 1, updated_at: new Date().toISOString() });
+    const next = { ...l, ...JSON.parse(body ?? "{}"), revision: l.revision + 1, updated_at: new Date().toISOString() };
     return saveChecks(next) ?? put(next);
   }
   if (!action && method === "DELETE") {
@@ -235,9 +319,9 @@ export function resolveLinksV2(pathWithQuery: string, method: string, body: stri
   if (action === "/pause" && method === "POST") return put({ ...l, status: "paused" });
   if (action === "/archive" && method === "POST") return put({ ...l, status: "archived" });
   if (action === "/duplicate" && method === "POST") {
-    const copy = withTotal({ ...structuredClone(l), id: `sample_lnk_dup${String(seq++).padStart(9, "0")}`, status: "draft", short_code: null, url: null, uses_count: 0, published_at: null, created_at: new Date().toISOString() });
+    const copy: PaymentLink = { ...structuredClone(l), id: `sample_lnk_dup${String(seq++).padStart(9, "0")}`, status: "draft", short_code: null, url: null, uses_count: 0, published_at: null, created_at: new Date().toISOString() };
     rows.push(copy);
-    return { status: 201, body: copy };
+    return { status: 201, body: detail(copy) };
   }
   return undefined;
 }

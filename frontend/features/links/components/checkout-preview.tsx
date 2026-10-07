@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Monitor, Smartphone } from "lucide-react";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
+import { Check } from "lucide-react";
 import type { RenderMethod, RenderModel } from "@/lib/api/links";
 import { CurrencyDisplay } from "@/components/currency-display";
-import { cn } from "@/lib/utils";
 import { formatDecimal } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import { LINKS_COPY, methodLabel } from "../copy";
+import { Segmented } from "./controls";
 
 const C = LINKS_COPY.checkout;
+
+export type PreviewState = "loading" | "ready" | "updating" | "paused" | "failed";
 
 /** Readable text on a merchant's accent: ink or white, whichever contrasts more. */
 function onAccent(hex: string): string {
@@ -21,47 +24,55 @@ function onAccent(hex: string): string {
   return l > 0.4 ? "#15181D" : "#FFFFFF";
 }
 
-function Money({ amount, currency, size = "md" }: { amount: string; currency: string; size?: "sm" | "md" | "lg" | "display" }) {
-  return <CurrencyDisplay amount={amount} currency={currency || " "} size={size} />;
-}
-
-function MockInput({ label, optional, wide = true }: { label: string; optional?: boolean; wide?: boolean }) {
-  return (
-    <div className={cn("space-y-1", wide && "col-span-2")}>
-      <p className="text-label text-ink-soft">
-        {label}
-        {optional ? <span className="text-ink-faint"> ({C.optional.toLowerCase()})</span> : null}
-      </p>
-      <div className="h-9 rounded-sm border border-line-strong bg-surface" />
-    </div>
-  );
-}
-
 /**
- * The hosted checkout, drawn from a render model (docs/API_SPECIFICATION.md 4.44).
- * It shows only what the model carries, so a preview cannot promise more than checkout does.
+ * The hosted checkout drawn from the server's render model (`POST /links/preview`), and nothing else.
+ * While a new model is on its way the last complete one stays, dimmed, so numbers never mix.
  */
-export function CheckoutPreview({ model, className }: { model: RenderModel; className?: string }) {
+export function CheckoutPreview({
+  model,
+  state,
+  className,
+}: {
+  model: RenderModel | null;
+  state: PreviewState;
+  className?: string;
+}) {
   const [device, setDevice] = useState<"desktop" | "phone">("desktop");
   const [tab, setTab] = useState<"pay" | "done">("pay");
   const [picked, setPicked] = useState(0);
-  const method: RenderMethod | undefined = model.methods[Math.min(picked, model.methods.length - 1)];
-  const accent = model.branding.accent_color;
+  const base = useId();
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const tabs = ["pay", "done"] as const;
   const phone = device === "phone";
 
+  const onTabKey = (e: KeyboardEvent, i: number) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const next = (i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length;
+    setTab(tabs[next]);
+    tabRefs.current[next]?.focus();
+  };
+
   return (
-    <div className={cn("overflow-hidden rounded-lg border border-line bg-surface-sunken", className)}>
+    <section aria-label={C.region} className={cn("overflow-hidden rounded-lg border border-line bg-surface-sunken", className)}>
       <div className="flex items-center justify-between gap-2 border-b border-line bg-surface px-3 py-2">
-        <div role="tablist" aria-label={LINKS_COPY.builder.preview} className="flex items-center gap-1">
-          {(["pay", "done"] as const).map((t) => (
+        <div role="tablist" aria-label={C.region} className="flex items-center gap-1">
+          {tabs.map((t, i) => (
             <button
               key={t}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
+              id={`${base}-tab-${t}`}
               role="tab"
               type="button"
               aria-selected={tab === t}
+              aria-controls={`${base}-panel`}
+              tabIndex={tab === t ? 0 : -1}
               onClick={() => setTab(t)}
+              onKeyDown={(e) => onTabKey(e, i)}
               className={cn(
-                "tap h-7 rounded-xs px-2.5 text-label font-medium transition-colors duration-120 outline-none focus-visible:outline-2 focus-visible:outline-tide",
+                "tap h-8 rounded-xs px-2.5 text-label font-medium transition-colors duration-120 outline-none focus-visible:outline-2 focus-visible:outline-tide",
                 tab === t ? "bg-tide-tint text-ink" : "text-ink-soft hover:text-ink"
               )}
             >
@@ -69,49 +80,57 @@ export function CheckoutPreview({ model, className }: { model: RenderModel; clas
             </button>
           ))}
         </div>
-        <div role="radiogroup" aria-label="Device" className="hidden items-center gap-0.5 sm:flex">
-          {(["desktop", "phone"] as const).map((d) => {
-            const Icon = d === "desktop" ? Monitor : Smartphone;
-            return (
-              <button
-                key={d}
-                type="button"
-                role="radio"
-                aria-checked={device === d}
-                aria-label={C.device[d]}
-                onClick={() => setDevice(d)}
-                className={cn(
-                  "tap flex size-7 items-center justify-center rounded-xs transition-colors duration-120 outline-none focus-visible:outline-2 focus-visible:outline-tide",
-                  device === d ? "bg-tide-tint text-ink" : "text-ink-faint hover:text-ink"
-                )}
-              >
-                <Icon className="size-4" aria-hidden />
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-3">
+          {state === "updating" || state === "loading" ? (
+            <span className="text-caption text-ink-soft" aria-hidden>
+              {C.updating}
+            </span>
+          ) : null}
+          <Segmented
+            label={C.device.label}
+            value={device}
+            className="hidden sm:inline-flex"
+            options={[
+              { value: "desktop", label: C.device.desktop },
+              { value: "phone", label: C.device.phone },
+            ]}
+            onChange={setDevice}
+          />
         </div>
       </div>
 
-      <div className={cn("p-3 sm:p-5", phone && "flex justify-center")}>
-        <div
-          aria-label="Checkout preview"
-          className={cn(
-            "overflow-hidden rounded-md border border-line bg-surface shadow-1",
-            phone ? "w-[340px] max-w-full" : "w-full"
-          )}
-        >
-          {tab === "done" ? (
-            <DonePane model={model} />
+      <div
+        id={`${base}-panel`}
+        role="tabpanel"
+        aria-labelledby={`${base}-tab-${tab}`}
+        aria-busy={state === "updating" || state === "loading"}
+        className={cn("p-3 sm:p-5", phone && "flex justify-center")}
+      >
+        <div className={cn("overflow-hidden rounded-md border border-line bg-surface shadow-1", phone ? "w-[340px] max-w-full" : "w-full")}>
+          {state === "paused" || state === "failed" || !model ? (
+            <p className="px-6 py-12 text-center text-body-sm text-ink-soft">
+              {state === "failed" ? C.failed : state === "paused" ? C.paused : C.updating}
+            </p>
           ) : (
-            <div className={cn("grid", !phone && "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]")}>
-              <SummaryPane model={model} method={method} phone={phone} />
-              <PayPane model={model} picked={picked} onPick={setPicked} method={method} accent={accent} />
+            <div className={cn("transition-opacity duration-120", state === "updating" && "opacity-50")}>
+              {tab === "done" ? (
+                <DonePane model={model} />
+              ) : (
+                <div className={cn("grid", !phone && "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]")}>
+                  <SummaryPane model={model} method={model.methods[Math.min(picked, model.methods.length - 1)]} phone={phone} />
+                  <PayPane model={model} picked={Math.min(picked, model.methods.length - 1)} onPick={setPicked} />
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
+}
+
+function Money({ amount, currency, size = "md" }: { amount: string; currency: string; size?: "sm" | "md" | "lg" | "display" }) {
+  return <CurrencyDisplay amount={amount} currency={currency} size={size} />;
 }
 
 function Merchant({ model }: { model: RenderModel }) {
@@ -129,55 +148,89 @@ function Merchant({ model }: { model: RenderModel }) {
   );
 }
 
+function Line({ label, amount, currency, strong }: { label: string; amount: string | null; currency: string; strong?: boolean }) {
+  if (!amount) return null;
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className={strong ? "font-semibold text-ink" : "text-ink-soft"}>{label}</dt>
+      <dd>
+        <Money amount={amount} currency={currency} size={strong ? "md" : "sm"} />
+      </dd>
+    </div>
+  );
+}
+
+function rangeText(model: RenderModel): string {
+  const f = (v: string | null) => (v ? `${formatDecimal(v, model.currency)} ${model.currency}` : null);
+  const min = f(model.amount_min);
+  const max = f(model.amount_max);
+  if (min && max) return `${min} ${C.to} ${max}`;
+  if (min) return `${C.from} ${min}`;
+  if (max) return `${C.upTo} ${max}`;
+  return "";
+}
+
 function SummaryPane({ model, method, phone }: { model: RenderModel; method?: RenderMethod; phone: boolean }) {
   const cur = model.currency;
   const surcharge = method?.customer_total ? method : null;
+  const items = model.amount_mode === "line_items";
   const due = surcharge?.customer_total ?? model.amount;
+  const hero = model.amount_mode === "fixed" && model.amount && !surcharge;
   return (
     <div className={cn("space-y-4 border-b border-line p-5", !phone && "sm:border-r sm:border-b-0")}>
       <Merchant model={model} />
       <div className="space-y-1">
-        <p className={cn("text-body-sm text-ink-soft", !model.title && "text-ink-faint")}>{model.title || C.untitled}</p>
-        {model.amount_mode === "customer" ? (
-          <p className="text-caption text-ink-soft">{C.range(model.amount_min, model.amount_max, cur)}</p>
-        ) : model.amount ? (
+        <p className={cn("text-body-sm", model.title ? "text-ink-soft" : "text-ink-faint")}>{model.title || C.untitled}</p>
+        {!cur ? (
+          <p className="text-body-sm text-ink-faint">{C.addCurrency}</p>
+        ) : hero && model.amount ? (
           <Money amount={model.amount} currency={cur} size={formatDecimal(model.amount, cur).length > 6 ? "lg" : "display"} />
-        ) : model.amount_mode === "line_items" ? (
-          <p className="text-body-sm text-ink-faint">{C.serverTotalPending}</p>
+        ) : model.amount_mode === "customer" ? (
+          <p className="num text-body-sm text-ink-soft">{rangeText(model)}</p>
         ) : null}
       </div>
       {model.description ? <p className="text-body-sm whitespace-pre-line text-ink-soft">{model.description}</p> : null}
 
-      {model.line_items.length > 0 ? (
+      {items && model.line_items.length > 0 ? (
         <ul className="divide-y divide-line border-t border-line">
           {model.line_items.map((li, i) => (
             <li key={i} className="flex items-baseline justify-between gap-3 py-2">
               <span className="min-w-0">
                 <span className="block truncate text-body-sm text-ink">{li.name || C.untitled}</span>
-                <span className="num text-caption text-ink-soft">
-                  {li.quantity} x {formatDecimal(li.unit_price, cur)} {cur}
-                  {Number(li.tax_rate) > 0 ? `, tax ${li.tax_rate}%` : ""}
-                </span>
+                {cur ? (
+                  <span className="num text-caption text-ink-soft">
+                    {li.quantity} x {formatDecimal(li.unit_price, cur)} {cur}
+                  </span>
+                ) : null}
               </span>
-              {li.total ? <Money amount={li.total} currency={cur} size="sm" /> : null}
+              {cur ? <Money amount={li.subtotal} currency={cur} size="sm" /> : null}
             </li>
           ))}
         </ul>
       ) : null}
 
-      {surcharge && model.amount ? (
-        <dl className="space-y-1.5 text-body-sm">
-          <Line label={model.amount_mode === "line_items" ? "Subtotal" : "Amount"} amount={model.amount} currency={cur} />
-          <Line label={C.fee} amount={surcharge.fee} currency={cur} />
-          {surcharge.tax && Number(surcharge.tax) > 0 ? <Line label={C.feeTax} amount={surcharge.tax} currency={cur} /> : null}
+      {cur && (items || surcharge) ? (
+        <dl className="space-y-1.5 border-t border-line pt-3 text-body-sm">
+          {items ? (
+            <>
+              <Line label={C.subtotal} amount={model.subtotal} currency={cur} />
+              {model.tax_total && Number(model.tax_total) > 0 ? <Line label={C.tax} amount={model.tax_total} currency={cur} /> : null}
+            </>
+          ) : (
+            <Line label={C.amount} amount={model.amount} currency={cur} />
+          )}
+          {surcharge ? (
+            <>
+              <Line label={C.fee} amount={surcharge.fee} currency={cur} />
+              {surcharge.tax && Number(surcharge.tax) > 0 ? <Line label={C.feeTax} amount={surcharge.tax} currency={cur} /> : null}
+            </>
+          ) : null}
+          <div className="border-t border-line pt-2">
+            <Line label={C.totalDue} amount={due} currency={cur} strong />
+          </div>
         </dl>
       ) : null}
-      {due && (surcharge || model.line_items.length > 0) ? (
-        <div className="flex items-baseline justify-between border-t border-line pt-3">
-          <span className="text-body-sm font-semibold text-ink">{C.totalDue}</span>
-          <Money amount={due} currency={cur} />
-        </div>
-      ) : null}
+
       {model.expires_at ? (
         <p className="num text-caption text-ink-soft">
           {C.ends} {new Date(model.expires_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
@@ -187,55 +240,39 @@ function SummaryPane({ model, method, phone }: { model: RenderModel; method?: Re
   );
 }
 
-function Line({ label, amount, currency }: { label: string; amount: string | null; currency: string }) {
-  if (!amount) return null;
+function MockLabel({ text, optional }: { text: string; optional?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-ink-soft">{label}</dt>
-      <dd>
-        <Money amount={amount} currency={currency} size="sm" />
-      </dd>
-    </div>
+    <p className="text-label text-ink-soft">
+      {text}
+      {optional ? <span className="text-ink-faint"> ({C.optional})</span> : null}
+    </p>
   );
 }
 
-function PayPane({
-  model,
-  picked,
-  onPick,
-  method,
-  accent,
-}: {
-  model: RenderModel;
-  picked: number;
-  onPick: (i: number) => void;
-  method?: RenderMethod;
-  accent: string | null;
-}) {
+function PayPane({ model, picked, onPick }: { model: RenderModel; picked: number; onPick: (i: number) => void }) {
   const f = model.customer_fields;
   const contact = (["email", "name", "phone"] as const).filter((k) => f[k].mode !== "hidden");
-  const label = { name: "Name", email: "Email", phone: "Phone" } as const;
+  const method = model.methods[picked];
   const due = method?.customer_total ?? model.amount;
+  const accent = model.branding.accent_color;
   return (
     <div className="space-y-4 p-5">
-      {model.amount_mode === "customer" ? <MockInput label={C.customerAmount} /> : null}
+      {model.amount_mode === "customer" ? (
+        <div className="space-y-1">
+          <MockLabel text={C.customerAmount} />
+          <div className="h-9 rounded-sm border border-line-strong bg-surface" />
+        </div>
+      ) : null}
 
       {contact.length > 0 ? (
         <div className="space-y-2">
           <p className="text-label font-medium text-ink">{C.contact}</p>
-          <div className="grid grid-cols-2 gap-2">
-            {contact.map((k) => (
-              <div key={k} className="col-span-2 space-y-1">
-                <p className="text-label text-ink-soft">
-                  {label[k]}
-                  {f[k].mode === "optional" ? <span className="text-ink-faint"> ({C.optional.toLowerCase()})</span> : null}
-                </p>
-                <div className="flex h-9 items-center rounded-sm border border-line-strong bg-surface px-3 text-body-sm text-ink">
-                  {f[k].prefill ?? ""}
-                </div>
-              </div>
-            ))}
-          </div>
+          {contact.map((k) => (
+            <div key={k} className="space-y-1">
+              <MockLabel text={C.contactLabels[k]} optional={f[k].mode === "optional"} />
+              <div className="flex h-9 items-center rounded-sm border border-line-strong bg-surface px-3 text-body-sm text-ink">{f[k].prefill ?? ""}</div>
+            </div>
+          ))}
         </div>
       ) : null}
 
@@ -251,11 +288,8 @@ function PayPane({
             </div>
           ) : (
             <>
-              <p className="text-label text-ink-soft">
-                {q.label}
-                {!q.required ? <span className="text-ink-faint"> ({C.optional.toLowerCase()})</span> : null}
-              </p>
-              <div className="flex h-9 items-center justify-between rounded-sm border border-line-strong bg-surface px-3 text-body-sm text-ink-faint">
+              <MockLabel text={q.label} optional={!q.required} />
+              <div className="flex h-9 items-center rounded-sm border border-line-strong bg-surface px-3 text-body-sm text-ink-faint">
                 {q.type === "select" ? (q.options[0] ?? "") : ""}
               </div>
             </>
@@ -281,10 +315,7 @@ function PayPane({
                   i === picked ? "border-ink text-ink" : "border-line-strong text-ink-soft hover:text-ink"
                 )}
               >
-                <span
-                  aria-hidden
-                  className={cn("size-3.5 shrink-0 rounded-full border", i === picked ? "border-[5px] border-ink" : "border-line-strong")}
-                />
+                <span aria-hidden className={cn("size-3.5 shrink-0 rounded-full border", i === picked ? "border-[5px] border-ink" : "border-line-strong")} />
                 <span className="min-w-0">
                   <span className="block truncate">{m.method === "crypto" ? m.asset : methodLabel(m)}</span>
                   {m.method === "crypto" && m.chain ? <span className="block truncate text-caption text-ink-soft">{m.chain}</span> : null}
@@ -301,10 +332,10 @@ function PayPane({
           style={accent ? { background: accent, color: onAccent(accent) } : undefined}
         >
           {C.pay}
-          {due ? ` ${formatDecimal(due, model.currency)} ${model.currency}` : ""}
+          {due && model.currency ? ` ${formatDecimal(due, model.currency)} ${model.currency}` : ""}
         </div>
       ) : (
-        <p role="status" className="rounded-sm border border-wait/30 bg-wait-tint px-3 py-2.5 text-body-sm text-ink">
+        <p className="rounded-sm border border-wait/30 bg-wait-tint px-3 py-2.5 text-body-sm text-ink">
           {model.unavailable_reason ? C.unavailable[model.unavailable_reason] : null}
         </p>
       )}
