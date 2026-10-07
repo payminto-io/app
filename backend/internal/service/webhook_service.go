@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"net/http"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 type WebhookService struct {
 	webhookRepo     repository.WebhookRepository
 	deliveryLogRepo repository.WebhookDeliveryLogRepository
+	environment     environment.Environment
 }
 
 // NewWebhookService constructs a WebhookService backed by the given repositories.
@@ -40,20 +42,29 @@ func VerifyWebhookSignature(payload, signature, secret string) bool {
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
-// WebhookPayload is the JSON body posted to merchant webhook endpoints.
+// WebhookPayload is the JSON body posted to merchant webhook endpoints. Environment is signed with
+// the rest so a merchant pointing both environments at one endpoint can tell test events from live.
 type WebhookPayload struct {
-	Event     string `json:"event"`
-	Timestamp string `json:"timestamp"`
-	Data      any    `json:"data"`
+	Event       string `json:"event"`
+	Environment string `json:"environment"`
+	Timestamp   string `json:"timestamp"`
+	Data        any    `json:"data"`
 }
+
+// SetEnvironment sets the environment every delivered payload names; Deliver fails closed until it is set.
+func (s *WebhookService) SetEnvironment(env environment.Environment) { s.environment = env }
 
 // Deliver posts event data to the webhook URL, signs the request with HMAC-SHA256,
 // and logs the delivery attempt regardless of success.
 func (s *WebhookService) Deliver(webhook *models.Webhook, event string, data any) error {
+	if !s.environment.Valid() {
+		return environment.ErrUnconfigured
+	}
 	payload := WebhookPayload{
-		Event:     event,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Data:      data,
+		Event:       event,
+		Environment: string(s.environment),
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Data:        data,
 	}
 
 	body, err := json.Marshal(payload)

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"golang.org/x/crypto/bcrypt"
@@ -25,6 +27,24 @@ type AuthService struct {
 	platformSvc  *ExternalPlatformService
 	eventEmitter *EventEmitterService
 	jwtSecret    string
+	// environment is the process environment; a key from the other one is refused (ticket 13).
+	environment environment.Environment
+}
+
+// ErrAPIKeyEnvironmentMismatch wraps environment.ErrMismatch for keys that belong to the other environment.
+var ErrAPIKeyEnvironmentMismatch = errors.New("API key belongs to the other environment")
+
+// apiKeyEnvironmentError satisfies errors.Is for both the service and the environment sentinel.
+type apiKeyEnvironmentError struct {
+	process, key environment.Environment
+}
+
+func (e *apiKeyEnvironmentError) Error() string {
+	return fmt.Sprintf("API key is a %s key but this server is %s", e.key, e.process)
+}
+
+func (e *apiKeyEnvironmentError) Is(target error) bool {
+	return target == ErrAPIKeyEnvironmentMismatch || target == environment.ErrMismatch
 }
 
 // NewAuthService constructs an AuthService with the given member/API key repositories and JWT secret.
@@ -54,13 +74,117 @@ func (s *AuthService) SetEventEmitter(svc *EventEmitterService) {
 	s.eventEmitter = svc
 }
 
-// GenerateAPIKey generates a cryptographically random 32-byte API key prefixed with "pm_".
+// SetEnvironment sets the process environment keys and sessions are validated and issued against.
+func (s *AuthService) SetEnvironment(env environment.Environment) { s.environment = env }
+
+// Environment is the process environment; an unset one is an error so nothing silently runs as test.
+func (s *AuthService) Environment() (environment.Environment, error) {
+	if !s.environment.Valid() {
+		return "", environment.ErrUnconfigured
+	}
+	return s.environment, nil
+}
+
+// ErrSessionEnvironmentMismatch wraps environment.ErrMismatch for a session minted by the other environment.
+var ErrSessionEnvironmentMismatch = errors.New("session belongs to the other environment")
+
+type sessionEnvironmentError struct {
+	process, session environment.Environment
+}
+
+func (e *sessionEnvironmentError) Error() string {
+	return fmt.Sprintf("session was issued by the %s environment but this server is %s", e.session, e.process)
+}
+
+func (e *sessionEnvironmentError) Is(target error) bool {
+	return target == ErrSessionEnvironmentMismatch || target == environment.ErrMismatch
+}
+
+// signingKeyFor derives the per-environment HS256 key from the shared secret (ticket 13, C1).
+func signingKeyFor(secret string, env environment.Environment) ([]byte, error) {
+	if strings.TrimSpace(secret) == "" {
+		return nil, errors.New("JWT secret is empty")
+	}
+	return environment.DeriveKey([]byte(secret), env, "jwt-access")
+}
+
+// signSessionClaims issues an HS256 token bound to env by audience and key.
+func signSessionClaims(secret string, env environment.Environment, claims JWTClaims) (string, error) {
+	key, err := signingKeyFor(secret, env)
+	if err != nil {
+		return "", err
+	}
+	claims.Audience = jwt.ClaimStrings{env.Audience()}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(key)
+}
+
+// parseSessionClaims verifies a token for env: the audience is checked before the signature so a
+// token from the other environment is reported as a mismatch rather than a generic failure.
+func parseSessionClaims(secret string, env environment.Environment, tokenString string) (*JWTClaims, error) {
+	unverified := &JWTClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tokenString, unverified); err != nil {
+		return nil, err
+	}
+	for _, aud := range unverified.Audience {
+		if tokenEnv, ok := environment.AudienceEnvironment(aud); ok && tokenEnv != env {
+			return nil, &sessionEnvironmentError{process: env, session: tokenEnv}
+		}
+	}
+	key, err := signingKeyFor(secret, env)
+	if err != nil {
+		return nil, err
+	}
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return key, nil
+	}, jwt.WithAudience(env.Audience()))
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*JWTClaims)
+	if !ok || !token.Valid {
+		return nil, errors.New("invalid token")
+	}
+	return claims, nil
+}
+
+// GenerateAPIKey issues a test secret key; callers that know the process environment use GenerateAPIKeyFor.
 func GenerateAPIKey() (string, error) {
+	return GenerateAPIKeyFor(environment.Test)
+}
+
+// GenerateAPIKeyFor generates a random 32-byte secret key with the visible prefix of env ("sk_live_...").
+func GenerateAPIKeyFor(env environment.Environment) (string, error) {
+	if !env.Valid() {
+		return "", fmt.Errorf("%w: %q", environment.ErrInvalid, env)
+	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("crypto/rand: %w", err)
 	}
-	return "pm_" + hex.EncodeToString(b), nil
+	return env.KeyPrefix(environment.SecretKey) + hex.EncodeToString(b), nil
+}
+
+// APIKeyPrefix is the part of a raw key safe to show in a list ("sk_live_ab12").
+func APIKeyPrefix(rawKey string) string {
+	const shown = 12
+	if len(rawKey) <= shown {
+		return rawKey
+	}
+	return rawKey[:shown]
+}
+
+// NewAPIKeyRow builds the stored row for a freshly generated key in env.
+func NewAPIKeyRow(rawKey string, env environment.Environment, platformID uint) *models.APIKey {
+	return &models.APIKey{
+		Key:                HashAPIKey(rawKey),
+		Status:             "active",
+		ExternalPlatformID: platformID,
+		Environment:        env,
+		Prefix:             APIKeyPrefix(rawKey),
+	}
 }
 
 // HashAPIKey returns the SHA-256 hex digest of the raw API key. This hash is stored in the DB.
@@ -96,6 +220,10 @@ func (s *AuthService) GenerateJWT(member *models.Member, platformID uint) (strin
 	if member.Email != nil {
 		email = *member.Email
 	}
+	env, err := s.Environment()
+	if err != nil {
+		return "", err
+	}
 	claims := JWTClaims{
 		MemberID:           member.ID,
 		Email:              email,
@@ -106,27 +234,28 @@ func (s *AuthService) GenerateJWT(member *models.Member, platformID uint) (strin
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.jwtSecret))
+	return signSessionClaims(s.jwtSecret, env, claims)
 }
 
-// ValidateJWT parses and validates a JWT string, returning the embedded JWTClaims on success.
+// ValidateJWT verifies a session token for this process environment and returns its claims.
 func (s *AuthService) ValidateJWT(tokenString string) (*JWTClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(t *jwt.Token) (any, error) {
-		return []byte(s.jwtSecret), nil
-	})
+	env, err := s.Environment()
 	if err != nil {
 		return nil, err
 	}
-	claims, ok := token.Claims.(*JWTClaims)
-	if !ok || !token.Valid {
-		return nil, errors.New("invalid token")
-	}
-	return claims, nil
+	return parseSessionClaims(s.jwtSecret, env, tokenString)
 }
 
 // ValidateAPIKey looks up and validates a raw API key, returning the active APIKey record.
+// A key whose prefix or row names the other environment is refused before anything else.
 func (s *AuthService) ValidateAPIKey(key string) (*models.APIKey, error) {
+	process, err := s.Environment()
+	if err != nil {
+		return nil, err
+	}
+	if keyEnv, _, ok := environment.KeyEnvironment(key); ok && keyEnv != process {
+		return nil, &apiKeyEnvironmentError{process: process, key: keyEnv}
+	}
 	hash := HashAPIKey(key)
 	apiKey, err := s.apiKeyRepo.GetByKey(hash)
 	if err != nil {
@@ -140,6 +269,13 @@ func (s *AuthService) ValidateAPIKey(key string) (*models.APIKey, error) {
 	}
 	if apiKey.ExpireAt != nil && apiKey.ExpireAt.Before(time.Now()) {
 		return nil, errors.New("API key expired")
+	}
+	rowEnv := apiKey.Environment
+	if rowEnv == "" {
+		rowEnv = environment.Test
+	}
+	if rowEnv != process {
+		return nil, &apiKeyEnvironmentError{process: process, key: rowEnv}
 	}
 	return apiKey, nil
 }

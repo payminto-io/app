@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/payminto/payminto/backend/internal/environment"
 	"sync"
 	"testing"
 
@@ -54,6 +55,7 @@ func newWithdrawalService(db *gorm.DB) *WithdrawalService {
 	otpRepo := repository.NewOTPRepository(db)
 	eeRepo := repository.NewEEEventRepository(db)
 	otpSvc := NewOTPService(otpRepo)
+	otpSvc.SetEnvironment(environment.Test)
 	emitterSvc := NewEventEmitterService(eeRepo)
 	return NewWithdrawalService(withdrawalRepo, blockchainCcyRepo, otpSvc, emitterSvc)
 }

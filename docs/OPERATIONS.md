@@ -96,6 +96,51 @@ function must `SET ROLE ledger_owner` first. Every environment also refuses to b
 when the ledger tables, triggers or functions are missing, and validate mode additionally requires
 migration `2026100701` recorded as applied.
 
+### Environments
+
+One process serves one environment, `GATEWAY_ENVIRONMENT=test|live` (default `test`), and each
+environment has its own database. The database is the authority: every boot of the server,
+`cmd/migrate up` and `cmd/devseed` reads the name Postgres reports through `current_database()`
+and the one-row `gateway_environment` stamp, and refuses when either disagrees with the process.
+Live refuses a database named `*_test` or equal to `POSTGRES_TEST_DATABASE`. Test accepts a
+non-`*_test` name only on a loopback host (while the stamp says test or the database is new) or
+when `GATEWAY_TEST_DATABASE_NAME` names exactly that database (for a remote staging database such
+as `payminto_staging`).
+
+The stamp is written as the last boot step and only onto an empty database. A process never
+decides what existing data is: an unstamped database that already holds ledger accounts, API keys
+or payments refuses to boot and names the adoption command to run.
+
+#### Adopting an existing database
+
+A database that served before environments existed carries no stamp, and the upgrade's migration
+labels every row it holds `test`. Choose once, from a process configured for the environment the
+database is going to serve; both commands require the full boot gate of that environment and the
+name Postgres reports, typed out:
+
+```bash
+# an existing production database
+GATEWAY_ENVIRONMENT=live SERVER=production ... go run ./cmd/migrate adopt-live --confirm-adopt-live=<database name>
+# an existing testnet or staging database that stays test money
+GATEWAY_ENVIRONMENT=test ... go run ./cmd/migrate adopt-test --confirm-adopt-test=<database name>
+```
+
+`adopt-live` accepts an unstamped database or one stamped `test` that was never adopted. In one
+transaction it calls `ledger_adopt_environment('live')`, a `SECURITY DEFINER` function owned by the
+owner of the ledger tables (`ledger_owner`) that pauses the append-only triggers for exactly that
+relabel and refuses once any live row exists; relabels legacy API keys (no visible prefix) as live,
+leaving `sk_test_` keys as test keys; and writes the `live` stamp with `adopted_from = test` in the
+same transaction. Only the migrator role holds `EXECUTE` on the function. `adopt-test` relabels
+nothing and writes the `test` stamp. Neither has a reverse.
+
+If migration `2026100705` logged `environment: ... cannot give ledger_adopt_environment to ...`,
+the migrator could not hand the function to the ledger owner and `adopt-live` refuses until a role
+that may does so:
+
+```sql
+ALTER FUNCTION ledger_adopt_environment(text) OWNER TO ledger_owner;
+GRANT EXECUTE ON FUNCTION ledger_adopt_environment(text) TO <migrator role>;
+```
 ### Fee rules
 
 Migration `2026100702` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`, which backs the

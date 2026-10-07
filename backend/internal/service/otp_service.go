@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"math/big"
 	"time"
 
@@ -41,11 +42,23 @@ const (
 // invalidated after 5 failed attempts.
 type OTPService struct {
 	otpRepo repository.OTPRepository
+	// environment is folded into every code hash so a code issued by test never verifies on live.
+	environment environment.Environment
 }
 
 // NewOTPService constructs an OTPService.
 func NewOTPService(otpRepo repository.OTPRepository) *OTPService {
 	return &OTPService{otpRepo: otpRepo}
+}
+
+// SetEnvironment sets the process environment; Generate and Verify fail closed until it is set.
+func (s *OTPService) SetEnvironment(env environment.Environment) { s.environment = env }
+
+func (s *OTPService) env() (environment.Environment, error) {
+	if !s.environment.Valid() {
+		return "", environment.ErrUnconfigured
+	}
+	return s.environment, nil
 }
 
 // Generate creates a new OTP row with a hashed 6-digit code for the given member
@@ -62,7 +75,11 @@ func (s *OTPService) Generate(memberID uint, purpose string) (string, error) {
 		return "", fmt.Errorf("generate OTP code: %w", err)
 	}
 
-	codeHash := hashOTP(code)
+	env, err := s.env()
+	if err != nil {
+		return "", err
+	}
+	codeHash := hashOTP(env, code)
 	now := time.Now()
 	otp := &models.OTP{
 		MemberID:    memberID,
@@ -83,6 +100,10 @@ func (s *OTPService) Generate(memberID uint, purpose string) (string, error) {
 // concurrent callers from bypassing the max-attempts limit. Returns sentinel
 // errors ErrOTPExpired, ErrOTPInvalid, ErrOTPMaxAttempts, or ErrOTPAlreadyUsed.
 func (s *OTPService) Verify(memberID uint, purpose, code string) error {
+	env, err := s.env()
+	if err != nil {
+		return err
+	}
 	otp, err := s.otpRepo.GetLatestByMemberAndPurpose(memberID, purpose)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -114,7 +135,7 @@ func (s *OTPService) Verify(memberID uint, purpose, code string) error {
 	}
 
 	// Constant-time comparison on the hash.
-	inputHash := hashOTP(code)
+	inputHash := hashOTP(env, code)
 	if !constantTimeEqualOTP(inputHash, otp.CodeHash) {
 		return ErrOTPInvalid
 	}
@@ -141,9 +162,9 @@ func generateOTPCode() (string, error) {
 	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
-// hashOTP returns the SHA-256 hex digest of the OTP code.
-func hashOTP(code string) string {
-	sum := sha256.Sum256([]byte(code))
+// hashOTP returns the SHA-256 hex digest of the OTP code bound to its environment.
+func hashOTP(env environment.Environment, code string) string {
+	sum := sha256.Sum256([]byte("payminto/otp/" + string(env) + "/" + code))
 	return hex.EncodeToString(sum[:])
 }
 
