@@ -7,6 +7,7 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {GatewayAttestations} from "../../src/cre/GatewayAttestations.sol";
 import {IReceiver} from "../../src/cre/IReceiver.sol";
 import {ReportEncoder} from "./ReportEncoder.sol";
+import {WorkflowName} from "../../src/cre/WorkflowName.sol";
 
 contract GatewayAttestationsTest is Test {
     GatewayAttestations internal c;
@@ -20,8 +21,8 @@ contract GatewayAttestationsTest is Test {
     bytes32 internal constant WF_SOLVENCY = keccak256("wf-solvency");
     bytes32 internal constant WF_DEPOSIT = keccak256("wf-deposit");
     bytes32 internal constant WF_CONVERSION = keccak256("wf-conversion");
-    // Keystone truncates the name hash to 10 bytes; computed once so no precompile call sits between a cheatcode
-    // and the call it targets.
+    // Keystone's truncated name hash (WorkflowName), computed once in setUp so no sha256 precompile call sits
+    // between a cheatcode and the call it targets.
     bytes10 internal NAME_SOLVENCY;
     bytes10 internal NAME_DEPOSIT;
     bytes10 internal NAME_CONVERSION;
@@ -30,9 +31,9 @@ contract GatewayAttestationsTest is Test {
     uint64 internal constant T0 = 1_800_000_000;
 
     function setUp() public {
-        NAME_SOLVENCY = bytes10(sha256("solvency"));
-        NAME_DEPOSIT = bytes10(sha256("deposit-finality"));
-        NAME_CONVERSION = bytes10(sha256("conversion-reference"));
+        NAME_SOLVENCY = WorkflowName.keystone("solvency");
+        NAME_DEPOSIT = WorkflowName.keystone("deposit-finality");
+        NAME_CONVERSION = WorkflowName.keystone("conversion-reference");
         vm.warp(T0);
         c = new GatewayAttestations(forwarder, owner);
         vm.startPrank(owner);
@@ -103,6 +104,8 @@ contract GatewayAttestationsTest is Test {
         c.setWorkflow(1, bytes32(0), workflowOwner, NAME_SOLVENCY);
         vm.expectRevert(GatewayAttestations.ZeroAddress.selector);
         c.setWorkflow(1, WF_SOLVENCY, address(0), NAME_SOLVENCY);
+        vm.expectRevert(GatewayAttestations.ZeroWorkflowName.selector);
+        c.setWorkflow(1, WF_SOLVENCY, workflowOwner, bytes10(0));
         vm.stopPrank();
 
         vm.prank(stranger);
@@ -151,13 +154,24 @@ contract GatewayAttestationsTest is Test {
         c.setForwarder(stranger);
     }
 
-    function test_renounceOwnership_cancelsPending() public {
+    function test_renounceOwnership_reverts() public {
         vm.prank(owner);
-        c.transferOwnership(stranger);
-        vm.prank(owner);
+        vm.expectRevert(GatewayAttestations.RenounceDisabled.selector);
         c.renounceOwnership();
-        assertEq(c.owner(), address(0));
-        assertEq(c.pendingOwner(), address(0));
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger));
+        c.renounceOwnership();
+        assertEq(c.owner(), owner);
+    }
+
+    function test_docsNameBytes_acceptedThroughOnReport() public {
+        // The literal bytes from the Chainlink docs example ("my_workflow"), bound and delivered as-is.
+        bytes10 docsName = bytes10(0x62373666336165316465);
+        assertEq(WorkflowName.keystone("my_workflow"), docsName);
+        vm.prank(owner);
+        c.setWorkflow(1, WF_SOLVENCY, workflowOwner, docsName);
+        deliver(ReportEncoder.metadata(WF_SOLVENCY, docsName, workflowOwner, REPORT_ID), solvencyReport(T0, 1));
+        assertEq(c.latestObservedAt(GATEWAY, 1), T0);
     }
 
     // ---- forwarder and workflow binding guards -----------------------------------------------------------
@@ -316,6 +330,20 @@ contract GatewayAttestationsTest is Test {
         deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), report);
     }
 
+    function test_onReport_rejectsAbsurdItemCountWithNamedError() public {
+        bytes memory report = abi.encodePacked(
+            bytes32(uint256(1)),
+            bytes32(uint256(1)),
+            GATEWAY,
+            bytes32(uint256(T0)),
+            bytes32(uint256(160)),
+            bytes32(uint256(1) << 251),
+            new bytes(5 * 32)
+        );
+        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.MalformedReport.selector, report.length));
+        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), report);
+    }
+
     function test_onReport_rejectsOutOfRangeFieldInsideItem() public {
         // decimals word > uint8: abi.decode's own validation rejects it.
         bytes memory report = abi.encodePacked(
@@ -357,44 +385,114 @@ contract GatewayAttestationsTest is Test {
         deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), solvencyReport(T0 + c.MAX_FUTURE_DRIFT(), 1));
     }
 
-    function test_onReport_rejectsReplay() public {
-        bytes memory m = meta(WF_SOLVENCY, NAME_SOLVENCY);
+    function test_onReport_rejectsReplay_everyKind() public {
         bytes memory report = solvencyReport(T0, 2);
-        deliver(m, report);
-        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.StaleReport.selector, GATEWAY, 1, T0, T0));
-        deliver(m, report);
+        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), report);
+        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.DuplicateReport.selector, keccak256(report)));
+        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), report);
+
+        report = ReportEncoder.deposits(GATEWAY, T0, ReportEncoder.depositBatch(2));
+        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), report);
+        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.DuplicateReport.selector, keccak256(report)));
+        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), report);
+
+        report = ReportEncoder.conversions(GATEWAY, T0, ReportEncoder.conversionBatch(2));
+        deliver(meta(WF_CONVERSION, NAME_CONVERSION), report);
+        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.DuplicateReport.selector, keccak256(report)));
+        deliver(meta(WF_CONVERSION, NAME_CONVERSION), report);
+        assertTrue(c.reportSeen(keccak256(report)));
     }
 
-    function test_onReport_rejectsOlderThanLatest() public {
-        bytes memory m = meta(WF_SOLVENCY, NAME_SOLVENCY);
-        deliver(m, solvencyReport(T0, 1));
-        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.StaleReport.selector, GATEWAY, 1, T0 - 1, T0));
-        deliver(m, solvencyReport(T0 - 1, 1));
-        assertEq(c.lastObservedAt(GATEWAY, 1), T0);
+    function test_onReport_replayRejectedEvenWithDifferentMetadata() public {
+        bytes memory report = ReportEncoder.deposits(GATEWAY, T0, ReportEncoder.depositBatch(1));
+        deliver(ReportEncoder.metadata(WF_DEPOSIT, NAME_DEPOSIT, workflowOwner, 0x0001), report);
+        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.DuplicateReport.selector, keccak256(report)));
+        deliver(ReportEncoder.metadata(WF_DEPOSIT, NAME_DEPOSIT, workflowOwner, 0x0002), report);
     }
 
-    function test_onReport_replayIsPerGatewayAndKind() public {
+    function test_eventOnlyKinds_acceptOutOfOrderGenuineReports() public {
+        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), ReportEncoder.deposits(GATEWAY, T0, ReportEncoder.depositBatch(2)));
+        GatewayAttestations.DepositItem[] memory late = ReportEncoder.depositBatch(1);
+        vm.expectEmit(true, true, true, true, address(c));
+        emit GatewayAttestations.DepositAttested(
+            GATEWAY,
+            late[0].depositId,
+            late[0].verdict,
+            late[0].chainId,
+            late[0].txRef,
+            late[0].token,
+            late[0].amount,
+            late[0].destination,
+            late[0].slotOrBlock,
+            T0 - 60
+        );
+        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), ReportEncoder.deposits(GATEWAY, T0 - 60, late));
+        assertEq(c.latestObservedAt(GATEWAY, 2), T0, "latest is the max, not the last delivered");
+
+        deliver(
+            meta(WF_CONVERSION, NAME_CONVERSION),
+            ReportEncoder.conversions(GATEWAY, T0, ReportEncoder.conversionBatch(1))
+        );
+        deliver(
+            meta(WF_CONVERSION, NAME_CONVERSION),
+            ReportEncoder.conversions(GATEWAY, T0 - 900, ReportEncoder.conversionBatch(3))
+        );
+        assertEq(c.latestObservedAt(GATEWAY, 3), T0);
+    }
+
+    function test_solvency_olderSnapshotIsIgnoredPerAsset() public {
+        GatewayAttestations.SolvencyItem[] memory items = ReportEncoder.solvencyBatch(2, keccak256("new"));
+        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), ReportEncoder.solvency(GATEWAY, T0, items));
+
+        // A late report: asset 0 older (ignored), asset 2 unseen (stored), asset 1 equal time (ignored).
+        GatewayAttestations.SolvencyItem[] memory late = ReportEncoder.solvencyBatch(3, keccak256("old"));
+        late[0].liabilities = 1;
+        late[1].liabilities = 2;
+        bytes memory report = ReportEncoder.solvency(GATEWAY, T0 - 3600, late);
+        // report-level: asset 1 is only at T0, so with T0 - 3600 both known assets are ignored
+        vm.expectEmit(true, true, false, true, address(c));
+        emit GatewayAttestations.SolvencyIgnored(GATEWAY, late[0].asset, T0 - 3600, T0);
+        vm.expectEmit(true, true, false, true, address(c));
+        emit GatewayAttestations.SolvencyIgnored(GATEWAY, late[1].asset, T0 - 3600, T0);
+        vm.expectEmit(true, true, false, true, address(c));
+        emit GatewayAttestations.SolvencyAttested(
+            GATEWAY, late[2].asset, late[2].checkpointHash, late[2].liabilities, late[2].reserves, 6, T0 - 3600
+        );
+        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), report);
+
+        assertEq(c.getLatestSolvency(GATEWAY, items[0].asset).liabilities, items[0].liabilities, "not overwritten");
+        assertEq(c.getLatestSolvency(GATEWAY, items[0].asset).observedAt, T0);
+        assertEq(c.getLatestSolvency(GATEWAY, items[1].asset).liabilities, items[1].liabilities, "not overwritten");
+        assertEq(c.getLatestSolvency(GATEWAY, late[2].asset).observedAt, T0 - 3600, "new asset stored");
+        assertEq(c.latestObservedAt(GATEWAY, 1), T0);
+    }
+
+    function test_latestObservedAt_isPerGatewayAndKind() public {
         deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), solvencyReport(T0, 1));
-        // same time, other kind: fine
-        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), ReportEncoder.deposits(GATEWAY, T0, ReportEncoder.depositBatch(1)));
-        // same time, other gateway: fine
+        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), ReportEncoder.deposits(GATEWAY, T0 - 1, ReportEncoder.depositBatch(1)));
         bytes32 other = keccak256("https://other.example.com");
         deliver(
             meta(WF_SOLVENCY, NAME_SOLVENCY),
-            ReportEncoder.solvency(other, T0, ReportEncoder.solvencyBatch(1, keccak256("ckpt")))
+            ReportEncoder.solvency(other, T0 - 2, ReportEncoder.solvencyBatch(1, keccak256("ckpt")))
         );
-        assertEq(c.lastObservedAt(GATEWAY, 1), T0);
-        assertEq(c.lastObservedAt(GATEWAY, 2), T0);
-        assertEq(c.lastObservedAt(other, 1), T0);
+        assertEq(c.latestObservedAt(GATEWAY, 1), T0);
+        assertEq(c.latestObservedAt(GATEWAY, 2), T0 - 1);
+        assertEq(c.latestObservedAt(other, 1), T0 - 2);
+        assertEq(c.latestObservedAt(other, 2), 0);
     }
 
-    function test_onReport_rejectsDuplicateAssetWithinBatch() public {
+    function test_solvency_duplicateAssetWithinBatchKeepsFirst() public {
         GatewayAttestations.SolvencyItem[] memory items = ReportEncoder.solvencyBatch(2, keccak256("ckpt"));
         items[1].asset = items[0].asset;
-        vm.expectRevert(
-            abi.encodeWithSelector(GatewayAttestations.StaleSolvency.selector, GATEWAY, items[0].asset, T0, T0)
+        items[1].liabilities = 999;
+        vm.expectEmit(true, true, false, true, address(c));
+        emit GatewayAttestations.SolvencyAttested(
+            GATEWAY, items[0].asset, items[0].checkpointHash, items[0].liabilities, items[0].reserves, 6, T0
         );
+        vm.expectEmit(true, true, false, true, address(c));
+        emit GatewayAttestations.SolvencyIgnored(GATEWAY, items[0].asset, T0, T0);
         deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), ReportEncoder.solvency(GATEWAY, T0, items));
+        assertEq(c.getLatestSolvency(GATEWAY, items[0].asset).liabilities, items[0].liabilities);
     }
 
     // ---- happy paths and round trips -----------------------------------------------------------------
@@ -423,7 +521,7 @@ contract GatewayAttestationsTest is Test {
             assertEq(s.decimals, items[i].decimals);
             assertEq(s.observedAt, T0);
         }
-        assertEq(c.lastObservedAt(GATEWAY, 1), T0);
+        assertEq(c.latestObservedAt(GATEWAY, 1), T0);
     }
 
     function test_solvency_laterReportReplacesLatest() public {
@@ -464,7 +562,7 @@ contract GatewayAttestationsTest is Test {
             GATEWAY, 2, WF_DEPOSIT, workflowOwner, NAME_DEPOSIT, REPORT_ID, T0, 3, keccak256(report)
         );
         deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), report);
-        assertEq(c.lastObservedAt(GATEWAY, 2), T0);
+        assertEq(c.latestObservedAt(GATEWAY, 2), T0);
     }
 
     function test_conversion_roundTrip() public {
@@ -489,7 +587,7 @@ contract GatewayAttestationsTest is Test {
             GATEWAY, 3, WF_CONVERSION, workflowOwner, NAME_CONVERSION, REPORT_ID, T0, 2, keccak256(report)
         );
         deliver(meta(WF_CONVERSION, NAME_CONVERSION), report);
-        assertEq(c.lastObservedAt(GATEWAY, 3), T0);
+        assertEq(c.latestObservedAt(GATEWAY, 3), T0);
     }
 
     function test_rejectedReport_leavesNoState() public {
@@ -497,7 +595,8 @@ contract GatewayAttestationsTest is Test {
         vm.prank(stranger);
         vm.expectRevert();
         c.onReport(meta(WF_SOLVENCY, NAME_SOLVENCY), report);
-        assertEq(c.lastObservedAt(GATEWAY, 1), 0);
+        assertEq(c.latestObservedAt(GATEWAY, 1), 0);
+        assertFalse(c.reportSeen(keccak256(report)));
         assertEq(c.getLatestSolvency(GATEWAY, keccak256(abi.encodePacked("asset", uint256(0)))).observedAt, 0);
     }
 
@@ -528,7 +627,7 @@ contract GatewayAttestationsTest is Test {
         assertEq(s.reserves, reserves);
         assertEq(s.decimals, decimals);
         assertEq(s.observedAt, observedAt);
-        assertEq(c.lastObservedAt(gatewayId, 1), observedAt);
+        assertEq(c.latestObservedAt(gatewayId, 1), observedAt);
     }
 
     function testFuzz_deposit_decode(GatewayAttestations.DepositItem memory item, uint64 observedAt) public {
@@ -591,7 +690,7 @@ contract GatewayAttestationsTest is Test {
         vm.assume(junk.length < 192 || junk.length % 32 != 0);
         vm.expectRevert();
         deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), junk);
-        assertEq(c.lastObservedAt(GATEWAY, 1), 0);
+        assertEq(c.latestObservedAt(GATEWAY, 1), 0);
     }
 
     function testFuzz_wrongVersion_neverAccepted(uint8 version) public {
@@ -608,17 +707,32 @@ contract GatewayAttestationsTest is Test {
         c.onReport(meta(WF_SOLVENCY, NAME_SOLVENCY), solvencyReport(T0, 1));
     }
 
-    function testFuzz_monotonic_observedAt(uint64 a, uint64 b) public {
+    function testFuzz_solvency_newestSnapshotWins(uint64 a, uint64 b) public {
         a = uint64(bound(a, 1, T0));
         b = uint64(bound(b, 1, T0));
-        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), solvencyReport(a, 1));
-        if (b > a) {
-            deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), solvencyReport(b, 1));
-            assertEq(c.lastObservedAt(GATEWAY, 1), b);
-        } else {
-            vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.StaleReport.selector, GATEWAY, 1, b, a));
-            deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), solvencyReport(b, 1));
-            assertEq(c.lastObservedAt(GATEWAY, 1), a);
-        }
+        bytes memory first = ReportEncoder.solvency(GATEWAY, a, ReportEncoder.solvencyBatch(1, keccak256("a")));
+        bytes memory second = ReportEncoder.solvency(GATEWAY, b, ReportEncoder.solvencyBatch(1, keccak256("b")));
+        bytes32 asset = keccak256(abi.encodePacked("asset", uint256(0)));
+        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), first);
+        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), second);
+        GatewayAttestations.Solvency memory s = c.getLatestSolvency(GATEWAY, asset);
+        assertEq(s.observedAt, a > b ? a : b);
+        assertEq(s.checkpointHash, b > a ? keccak256("b") : keccak256("a"));
+        assertEq(c.latestObservedAt(GATEWAY, 1), a > b ? a : b);
+        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.DuplicateReport.selector, keccak256(first)));
+        deliver(meta(WF_SOLVENCY, NAME_SOLVENCY), first);
+    }
+
+    function testFuzz_eventOnly_anyOrderOnceEach(uint64 a, uint64 b) public {
+        a = uint64(bound(a, 1, T0));
+        b = uint64(bound(b, 1, T0));
+        vm.assume(a != b);
+        bytes memory first = ReportEncoder.deposits(GATEWAY, a, ReportEncoder.depositBatch(1));
+        bytes memory second = ReportEncoder.deposits(GATEWAY, b, ReportEncoder.depositBatch(1));
+        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), first);
+        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), second);
+        assertEq(c.latestObservedAt(GATEWAY, 2), a > b ? a : b);
+        vm.expectRevert(abi.encodeWithSelector(GatewayAttestations.DuplicateReport.selector, keccak256(second)));
+        deliver(meta(WF_DEPOSIT, NAME_DEPOSIT), second);
     }
 }

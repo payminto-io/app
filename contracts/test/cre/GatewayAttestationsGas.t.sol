@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {GatewayAttestations} from "../../src/cre/GatewayAttestations.sol";
 import {ReportEncoder} from "./ReportEncoder.sol";
+import {WorkflowName} from "../../src/cre/WorkflowName.sol";
 
 /// Gas for the batch sizes SPEC section 5 names: 20-asset solvency, 12-item deposit, 10-item conversion.
 /// Figures are written to snapshots/GatewayAttestations.json by vm.snapshotGasLastCall.
@@ -20,7 +21,7 @@ contract GatewayAttestationsGasTest is Test {
     uint256 internal constant BUDGET = 2_500_000;
 
     function setUp() public {
-        NAME = bytes10(sha256("name"));
+        NAME = WorkflowName.keystone("name");
         vm.warp(T0);
         c = new GatewayAttestations(forwarder, owner);
         vm.startPrank(owner);
@@ -34,23 +35,30 @@ contract GatewayAttestationsGasTest is Test {
         return ReportEncoder.metadata(id, NAME, workflowOwner, 0x0001);
     }
 
-    function test_gas_solvency20_cold() public {
+    function test_gas_solvency20_firstWrite() public {
         bytes memory report = ReportEncoder.solvency(GATEWAY, T0, ReportEncoder.solvencyBatch(20, keccak256("k")));
         vm.prank(forwarder);
         c.onReport(_meta(keccak256("s")), report);
-        uint256 used = vm.snapshotGasLastCall("GatewayAttestations", "onReport_solvency_20_cold");
+        uint256 used = vm.snapshotGasLastCall("GatewayAttestations", "onReport_solvency_20_firstWrite");
         assertLt(used, BUDGET);
     }
 
-    function test_gas_solvency20_warm() public {
+    /// Hourly steady state: every slot already holds a value, but the access list is cold as in a new transaction.
+    function test_gas_solvency20_rewrite_coldAccess() public {
         bytes memory report = ReportEncoder.solvency(GATEWAY, T0, ReportEncoder.solvencyBatch(20, keccak256("k")));
         vm.prank(forwarder);
         c.onReport(_meta(keccak256("s")), report);
-        report = ReportEncoder.solvency(GATEWAY, T0 + 3600, ReportEncoder.solvencyBatch(20, keccak256("k2")));
+        GatewayAttestations.SolvencyItem[] memory items = ReportEncoder.solvencyBatch(20, keccak256("k2"));
+        for (uint256 i = 0; i < items.length; ++i) {
+            items[i].liabilities += 1;
+            items[i].reserves += 1;
+        }
+        report = ReportEncoder.solvency(GATEWAY, T0 + 3600, items);
         vm.warp(T0 + 3600);
+        vm.cool(address(c));
         vm.prank(forwarder);
         c.onReport(_meta(keccak256("s")), report);
-        uint256 used = vm.snapshotGasLastCall("GatewayAttestations", "onReport_solvency_20_warm");
+        uint256 used = vm.snapshotGasLastCall("GatewayAttestations", "onReport_solvency_20_rewrite_coldAccess");
         assertLt(used, BUDGET / 2);
     }
 

@@ -9,9 +9,10 @@ import {IReceiver} from "./IReceiver.sol";
 /// @title GatewayAttestations
 /// @notice Chainlink CRE consumer that records the gateway's attestations (docs/cre/SPEC.md section 5).
 /// The contract holds no funds, has no upgrade path and no business thresholds. It accepts a report only from
-/// the configured Keystone forwarder, only for the workflow bound to the report's kind, only once per
-/// observation time, and it rejects anything that does not decode to exactly one versioned batch.
-/// Latest state is kept per (gatewayId, kind) and per (gatewayId, asset) for solvency; history is the events.
+/// the configured Keystone forwarder, only for the workflow bound to the report's kind, only once per distinct
+/// report (keccak256 seen-set), and it rejects anything that does not decode to exactly one versioned batch.
+/// Solvency keeps the newest snapshot per (gatewayId, asset) and ignores older items with an event; deposit and
+/// conversion kinds are events only, accepted in any order. Replay rules: docs/cre/SPEC.md section 5.
 contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
     uint8 public constant REPORT_VERSION = 1;
     uint8 public constant KIND_SOLVENCY = 1;
@@ -85,7 +86,9 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
 
     address public forwarder;
     mapping(uint8 kind => Workflow) public workflows;
-    mapping(bytes32 gatewayId => mapping(uint8 kind => uint64)) public lastObservedAt;
+    mapping(bytes32 reportHash => bool) public reportSeen;
+    /// @dev Highest observedAt accepted per (gatewayId, kind); informational for staleness reads, never a gate.
+    mapping(bytes32 gatewayId => mapping(uint8 kind => uint64)) public latestObservedAt;
     mapping(bytes32 gatewayId => mapping(bytes32 asset => Solvency)) public latestSolvency;
 
     event ForwarderSet(address indexed previous, address indexed current);
@@ -113,6 +116,7 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
         uint8 decimals,
         uint64 observedAt
     );
+    event SolvencyIgnored(bytes32 indexed gatewayId, bytes32 indexed asset, uint64 observedAt, uint64 latestObservedAt);
     event DepositAttested(
         bytes32 indexed gatewayId,
         bytes32 indexed depositId,
@@ -147,8 +151,9 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
     error MalformedReport(uint256 length);
     error EmptyReport();
     error ObservedAtInFuture(uint64 observedAt, uint256 blockTimestamp);
-    error StaleReport(bytes32 gatewayId, uint8 kind, uint64 observedAt, uint64 lastObservedAt);
-    error StaleSolvency(bytes32 gatewayId, bytes32 asset, uint64 observedAt, uint64 lastObservedAt);
+    error DuplicateReport(bytes32 reportHash);
+    error ZeroWorkflowName();
+    error RenounceDisabled();
     error InvalidVerdict(uint8 verdict);
 
     modifier onlyForwarder() {
@@ -182,6 +187,7 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
         if (!_isKnownKind(kind)) revert UnknownKind(kind);
         if (workflowId == bytes32(0)) revert WorkflowNotBound(kind);
         if (workflowOwner == address(0)) revert ZeroAddress();
+        if (workflowName == bytes10(0)) revert ZeroWorkflowName();
         workflows[kind] = Workflow({id: workflowId, owner: workflowOwner, name: workflowName});
         emit WorkflowBound(kind, workflowId, workflowOwner, workflowName);
     }
@@ -192,13 +198,19 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
         emit WorkflowUnbound(kind);
     }
 
+    /// @notice Forwarder rotation needs an owner for the life of the contract, so ownership cannot be renounced.
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceDisabled();
+    }
+
     // ---- IReceiver -----------------------------------------------------------------------------------------
 
     function onReport(bytes calldata metadata, bytes calldata report) external override onlyForwarder {
         Metadata memory m = _decodeMetadata(metadata);
         (uint8 kind, bytes32 gatewayId, uint64 observedAt, uint256 itemCount) = _decodeHeader(report);
         _requireBoundWorkflow(kind, m);
-        _advance(gatewayId, kind, observedAt);
+        bytes32 reportHash = keccak256(report);
+        _admit(gatewayId, kind, observedAt, reportHash);
 
         if (kind == KIND_SOLVENCY) {
             _recordSolvency(report, gatewayId, observedAt);
@@ -217,7 +229,7 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
             m.reportId,
             observedAt,
             itemCount,
-            keccak256(report)
+            reportHash
         );
     }
 
@@ -253,12 +265,12 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
         }
     }
 
-    /// @dev Replay and ordering guard: one strictly increasing DON time per (gatewayId, kind).
-    function _advance(bytes32 gatewayId, uint8 kind, uint64 observedAt) private {
+    /// @dev Replay guard: each distinct report is accepted once; order between genuine reports is not enforced.
+    function _admit(bytes32 gatewayId, uint8 kind, uint64 observedAt, bytes32 reportHash) private {
         if (observedAt > block.timestamp + MAX_FUTURE_DRIFT) revert ObservedAtInFuture(observedAt, block.timestamp);
-        uint64 previous = lastObservedAt[gatewayId][kind];
-        if (observedAt <= previous) revert StaleReport(gatewayId, kind, observedAt, previous);
-        lastObservedAt[gatewayId][kind] = observedAt;
+        if (reportSeen[reportHash]) revert DuplicateReport(reportHash);
+        reportSeen[reportHash] = true;
+        if (observedAt > latestObservedAt[gatewayId][kind]) latestObservedAt[gatewayId][kind] = observedAt;
     }
 
     /// @dev Checks the version, the kind, the canonical array offset and the exact byte length before any
@@ -282,6 +294,7 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
         if (uint256(bytes32(report[128:160])) != ITEMS_OFFSET) revert MalformedReport(report.length);
         itemCount = uint256(bytes32(report[160:192]));
         if (itemCount == 0) revert EmptyReport();
+        if (itemCount > (report.length - HEADER_WORDS * 32) / 32) revert MalformedReport(report.length);
         uint256 expected = HEADER_WORDS * 32 + itemCount * _itemWords(kind) * 32;
         if (report.length != expected) revert MalformedReport(report.length);
     }
@@ -291,8 +304,11 @@ contract GatewayAttestations is IReceiver, IERC165, Ownable2Step {
         for (uint256 i = 0; i < items.length; ++i) {
             SolvencyItem memory item = items[i];
             Solvency storage latest = latestSolvency[gatewayId][item.asset];
+            // Newest snapshot wins per asset; an older or equal one (a late delivery, or a duplicate asset in
+            // the batch) is recorded as ignored and never overwrites.
             if (observedAt <= latest.observedAt) {
-                revert StaleSolvency(gatewayId, item.asset, observedAt, latest.observedAt);
+                emit SolvencyIgnored(gatewayId, item.asset, observedAt, latest.observedAt);
+                continue;
             }
             latest.checkpointHash = item.checkpointHash;
             latest.liabilities = item.liabilities;
