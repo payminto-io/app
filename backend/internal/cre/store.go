@@ -44,6 +44,8 @@ type attestationRow struct {
 	Item          []byte `gorm:"type:jsonb"`
 	ExecutionID   string `gorm:"type:varchar(128)"`
 	ItemIndex     int16  `gorm:"type:smallint"`
+	OnChain       string `gorm:"type:varchar(16)"`
+	FactCheck     string `gorm:"type:varchar(16)"`
 }
 
 func (attestationRow) TableName() string { return "cre_attestations" }
@@ -119,7 +121,7 @@ func toRow(a Attestation) (attestationRow, error) {
 		ID: a.ID, Kind: string(a.Kind), SubjectType: a.SubjectType, SubjectID: a.SubjectID, PayloadHash: a.PayloadHash, Payload: a.Payload,
 		Chain: a.Chain, TxHash: a.TxHash, BlockNumber: int64(a.BlockNumber), WorkflowID: a.WorkflowID[:], WorkflowOwner: a.WorkflowOwner[:], ReportID: a.ReportID[:],
 		ObservedAt: a.ObservedAt, RecordedAt: a.RecordedAt, Status: string(a.Status), Provider: a.Provider, Simulated: a.Simulated, Reason: a.Reason, Item: item,
-		ItemIndex: int16(a.ItemIndex),
+		ItemIndex: int16(a.ItemIndex), OnChain: string(a.OnChain), FactCheck: string(a.FactCheck),
 	}, nil
 }
 
@@ -128,6 +130,7 @@ func fromRow(r attestationRow) Attestation {
 		ID: r.ID, Kind: Kind(r.Kind), SubjectType: r.SubjectType, SubjectID: r.SubjectID, PayloadHash: r.PayloadHash, Payload: r.Payload,
 		Chain: r.Chain, TxHash: r.TxHash, BlockNumber: uint64(r.BlockNumber), ObservedAt: r.ObservedAt.UTC(), RecordedAt: r.RecordedAt.UTC(),
 		Status: Status(r.Status), Provider: r.Provider, Simulated: r.Simulated, Reason: r.Reason, ItemIndex: int(r.ItemIndex),
+		OnChain: OnChain(r.OnChain), FactCheck: Status(r.FactCheck),
 	}
 	copy(a.WorkflowID[:], r.WorkflowID)
 	copy(a.WorkflowOwner[:], r.WorkflowOwner)

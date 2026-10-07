@@ -89,6 +89,24 @@ const (
 	StatusIgnored Status = "ignored"
 )
 
+// OnChain is what the consumer contract did with one item, read from its own per-item event.
+type OnChain string
+
+const (
+	// OnChainStored: SolvencyAttested, the item is the contract's latest snapshot for its asset.
+	OnChainStored OnChain = "stored"
+	// OnChainIgnored: SolvencyIgnored, the contract kept another snapshot for that asset.
+	OnChainIgnored OnChain = "ignored"
+	// OnChainEmitted: deposit and conversion items, which the contract emits and never stores.
+	OnChainEmitted OnChain = "emitted"
+)
+
+// ItemOutcome is one per-item event of an accepted report, in item order; Key is the event's asset topic.
+type ItemOutcome struct {
+	Key    [32]byte
+	Stored bool
+}
+
 // Provider names; they match config.CREProvider*.
 const (
 	ProviderNone      = "none"
@@ -124,6 +142,10 @@ type Attestation struct {
 	Simulated     bool
 	// Reason explains a failed or stale status; empty when attested.
 	Reason string
+	// OnChain is the contract's own verdict on the item; FactCheck is the gateway's comparison with what it
+	// served (attested, mismatch or failed). Status is derived: ignored on chain wins, else FactCheck.
+	OnChain   OnChain
+	FactCheck Status
 	// Item is the decoded payload item for this subject; ItemIndex is its position in the report.
 	Item      any
 	ItemIndex int
@@ -156,8 +178,9 @@ type RawAttestation struct {
 	// ExecutionID is the provider's run id when known.
 	ExecutionID string
 	Simulated   bool
-	// Ignored lists item keys (asset for solvency) the contract recorded as superseded.
-	Ignored [][32]byte
+	// Outcomes is one entry per solvency item, in item order, from SolvencyAttested and SolvencyIgnored.
+	// Chainlink always supplies it; the mock provider supplies it by playing the contract.
+	Outcomes []ItemOutcome
 }
 
 // Cursor is a provider-specific position; a provider returns the next one from Poll.

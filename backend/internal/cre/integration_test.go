@@ -75,6 +75,7 @@ func TestIntegration_SchemaConvergesAndStoreRoundTrips(t *testing.T) {
 		ID: "7c1b4d0e-7a1f-4a4b-9e7a-1f2e3d4c5b6a", Kind: cre.KindDepositFinality, SubjectType: cre.SubjectDeposit, SubjectID: "dep-1",
 		PayloadHash: cre.PayloadHash([]byte("payload")), Payload: []byte("payload"), Chain: "test-chain", TxHash: []byte{1, 2}, BlockNumber: 7,
 		WorkflowID: cre.SubjectKey("wf"), ReportID: [2]byte{0, 1}, ObservedAt: now.Add(-time.Minute), RecordedAt: now, Status: cre.StatusAttested, Provider: cre.ProviderMock,
+		OnChain: cre.OnChainEmitted, FactCheck: cre.StatusAttested,
 		Item: cre.DepositItem{DepositID: cre.SubjectKey("dep-1"), Amount: big.NewInt(42), Verdict: cre.VerdictConfirmed},
 	}
 	inserted, err := store.SaveAttestations(ctx, []cre.Attestation{row})
@@ -98,6 +99,9 @@ func TestIntegration_SchemaConvergesAndStoreRoundTrips(t *testing.T) {
 		t.Fatalf("get: ok %v err %v", ok, err)
 	}
 	item, _ := back.Item.(map[string]any)
+	if back.OnChain != cre.OnChainEmitted || back.FactCheck != cre.StatusAttested {
+		t.Fatalf("contract outcome and fact check not persisted: %q %q", back.OnChain, back.FactCheck)
+	}
 	if back.Status != cre.StatusAttested || back.BlockNumber != 7 || back.WorkflowID != row.WorkflowID || item["amount_minor"] != "42" || !back.ObservedAt.Equal(row.ObservedAt) {
 		t.Fatalf("round trip = %+v", back)
 	}

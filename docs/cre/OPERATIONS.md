@@ -89,7 +89,12 @@ Every record, mock or chainlink, passes `verify.go` and mirrors the audited cont
 A record is `simulated` when its workflow identity is the CRE simulator's fixed identity or `CRE_FORWARDER_SIMULATED=true`; the dashboard labels it and the public page answers `independently_signed: false`. Live refuses both the flag and those identities at boot, and the verifier refuses such a report in live.
 A report refused for a definitive reason (forged, malformed, another gateway's) is kept as a `failed` row, keyed by transaction and log index, so an operator can see it; the poll cursor then passes it. Such rows never count for replay.
 A refusal caused by this gateway's own configuration (a `CRE_WORKFLOW_ID_*`, `CRE_WORKFLOW_OWNER*` or `CRE_WORKFLOW_NAME_*` that disagrees with the contract's binding, or a gateway clock more than five minutes behind the DON) is raised as an error-level anomaly and the cursor stops at that block: fix the key or the clock and the report is recorded on the next poll, exactly once.
-Within one solvency batch a duplicate asset follows the contract: the first item stands, later duplicates are `ignored`.
+Each row carries two separate verdicts.
+`on_chain` is the contract's own, read from its per-item event: `stored` (`SolvencyAttested`), `ignored` (`SolvencyIgnored`) or `emitted` (deposit and conversion items).
+`fact_check` is the gateway's comparison with what it served: `attested`, `mismatch` or `failed`.
+`status` is `ignored` whenever `on_chain` is, and `fact_check` otherwise, so an item the contract did not store is never shown as attested and a stored item whose figures differ is shown as `mismatch`.
+Within one solvency batch a duplicate asset follows the contract: it stores the first occurrence (when newer than its latest snapshot) whatever its figures, and ignores later duplicates.
+Contract events that do not cover every report item in order are refused as forged.
 The poll cursor is keyed by chain, consumer contract and workflow (`cre_cursors.scope`), so changing `CRE_CHAIN` or `CRE_CONSUMER_ADDRESS` starts a fresh cursor at `CRE_START_BLOCK`.
 
 ### The checkpoint watermark

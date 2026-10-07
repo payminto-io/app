@@ -92,6 +92,37 @@ func TestMockReportsVerifyAndAreScriptable(t *testing.T) {
 	}
 }
 
+// The mock plays the consumer contract: a second solvency run in the same second is not newer, so the
+// contract would ignore every item, and the mock says so.
+func TestMockPlaysTheContractForSolvencyOutcomes(t *testing.T) {
+	gw := cre.GatewayID("https://pay.example.test")
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	p, err := New(gw, WithReserves(reserves{{Asset: "USDC.SOLANA", Amount: big.NewInt(1)}}), WithClock(func() time.Time { return now }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	in := conformance.Inputs(gw)(cre.KindSolvency)
+	for i := 0; i < 2; i++ {
+		if _, err := p.Trigger(ctx, cre.KindSolvency, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now = now.Add(time.Second)
+	if _, err := p.Trigger(ctx, cre.KindSolvency, in); err != nil {
+		t.Fatal(err)
+	}
+	raws, _, _ := p.Poll(ctx, cre.KindSolvency, cre.Cursor{})
+	if len(raws) != 3 {
+		t.Fatalf("raws = %d", len(raws))
+	}
+	for i, stored := range []bool{true, false, true} {
+		if len(raws[i].Outcomes) != 1 || raws[i].Outcomes[0].Stored != stored || raws[i].Outcomes[0].Key != cre.LabelKey("USDC.SOLANA") {
+			t.Fatalf("run %d outcomes = %+v, want stored=%v", i+1, raws[i].Outcomes, stored)
+		}
+	}
+}
+
 // Without a reserve source the mock refuses a solvency run instead of attesting reserves it never observed.
 func TestMockRefusesSolvencyWithoutReserves(t *testing.T) {
 	gw := cre.GatewayID("https://pay.example.test")

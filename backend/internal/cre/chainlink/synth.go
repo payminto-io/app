@@ -10,9 +10,9 @@ import (
 )
 
 // LogsForReport produces the logs GatewayAttestations emits for one accepted report, in the contract's order:
-// one item event per item (SolvencyIgnored for assets in ignored), then ReportAccepted last. Tests and the
+// one item event per item (SolvencyIgnored for the item indexes in ignoredItems), then ReportAccepted last. Tests and the
 // local demo chain use it; nothing in the read path does.
-func LogsForReport(consumer common.Address, meta cre.Metadata, report []byte, txHash common.Hash, block uint64, firstIndex uint, ignored ...[32]byte) ([]Log, error) {
+func LogsForReport(consumer common.Address, meta cre.Metadata, report []byte, txHash common.Hash, block uint64, firstIndex uint, ignoredItems ...int) ([]Log, error) {
 	contract, err := cre.ContractABI()
 	if err != nil {
 		return nil, err
@@ -21,9 +21,9 @@ func LogsForReport(consumer common.Address, meta cre.Metadata, report []byte, tx
 	if err != nil {
 		return nil, err
 	}
-	skip := map[[32]byte]bool{}
-	for _, k := range ignored {
-		skip[k] = true
+	skip := map[int]bool{}
+	for _, i := range ignoredItems {
+		skip[i] = true
 	}
 	var kindTopic common.Hash
 	kindTopic[31] = decoded.Kind.Code()
@@ -35,8 +35,8 @@ func LogsForReport(consumer common.Address, meta cre.Metadata, report []byte, tx
 	switch items := decoded.Items.(type) {
 	case []cre.SolvencyItem:
 		count = len(items)
-		for _, it := range items {
-			if skip[it.Asset] {
+		for i, it := range items {
+			if skip[i] {
 				data, err := contract.Events[EventSolvencyIgnored].Inputs.NonIndexed().Pack(observed, observed+1)
 				if err != nil {
 					return nil, err

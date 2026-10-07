@@ -92,8 +92,10 @@ func TestReaderAgainstRealForwarderDeliveries(t *testing.T) {
 			t.Fatalf("delivery %d evidence = %+v", i+1, raw.Evidence)
 		}
 	}
-	if len(raws[0].Ignored) != 0 || len(raws[1].Ignored) != 2 {
-		t.Fatalf("ignored: %d and %d, want 0 and 2", len(raws[0].Ignored), len(raws[1].Ignored))
+	for i, stored := range []bool{true, false} {
+		if len(raws[i].Outcomes) != 2 || raws[i].Outcomes[0].Stored != stored || raws[i].Outcomes[1].Stored != stored {
+			t.Fatalf("delivery %d outcomes = %+v, want both stored=%v", i+1, raws[i].Outcomes, stored)
+		}
 	}
 
 	// The verifier, configured like a deployer would, attests delivery 1 and records delivery 2 as superseded.
@@ -109,7 +111,7 @@ func TestReaderAgainstRealForwarderDeliveries(t *testing.T) {
 		Now:      func() time.Time { return time.Unix(1_800_000_100, 0) },
 	}
 	rows, err := v.Verify(context.Background(), raws[0])
-	if err != nil || len(rows) != 2 || rows[0].Status != cre.StatusAttested || rows[1].Status != cre.StatusAttested || rows[0].SubjectID != "cp-fixture" {
+	if err != nil || len(rows) != 2 || rows[0].Status != cre.StatusAttested || rows[1].Status != cre.StatusAttested || rows[0].OnChain != cre.OnChainStored || rows[0].SubjectID != "cp-fixture" {
 		t.Fatalf("delivery 1 rows = %+v err %v", rows, err)
 	}
 	rows, err = v.Verify(context.Background(), raws[1])

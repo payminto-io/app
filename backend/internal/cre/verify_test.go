@@ -326,7 +326,7 @@ func TestVerify_SolvencyAndConversionFactsMustMatchWhatWasServed(t *testing.T) {
 		{CheckpointHash: SubjectKey("not-published"), Asset: LabelKey("ETH"), Liabilities: big.NewInt(7), Reserves: big.NewInt(1), Decimals: 18},
 	}})
 	raw := f.onChain(KindSolvency, sol)
-	raw.Ignored = [][32]byte{LabelKey("SOL")} // SOL occurs once: its only item is the superseded one
+	raw.Outcomes = outcomesFor(t, sol, true, false, true, true, true, true) // SOL's only item is the superseded one
 	rows, err := f.verifier(ProviderChainlink).Verify(context.Background(), raw)
 	if err != nil || len(rows) != 6 {
 		t.Fatalf("rows = %+v err %v", rows, err)
@@ -414,31 +414,117 @@ func TestVerify_SimulatorIdentityIsSimulatedAndRefusedInLive(t *testing.T) {
 	}
 }
 
-// M1: a duplicate asset inside one batch follows the contract: the first item stands, later duplicates are ignored;
-// when the contract ignored every occurrence (stale), all are ignored.
+// outcomesFor builds the per-item contract events for a solvency report: stored[i] is SolvencyAttested for item i.
+func outcomesFor(t *testing.T, report []byte, stored ...bool) []ItemOutcome {
+	t.Helper()
+	decoded, err := DecodeReport(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := decoded.Items.([]SolvencyItem)
+	if len(stored) != len(items) {
+		t.Fatalf("%d outcomes for %d items", len(stored), len(items))
+	}
+	out := make([]ItemOutcome, len(items))
+	for i, it := range items {
+		out[i] = ItemOutcome{Key: it.Asset, Stored: stored[i]}
+	}
+	return out
+}
+
+// R1: a duplicate asset inside one batch follows the contract's own events: the contract stores the first
+// occurrence whatever the gateway thinks of its figures and ignores later duplicates. The fact check is a
+// separate field, and an item the contract ignored is never attested.
 func TestVerify_DuplicateAssetInOneBatchMatchesTheContract(t *testing.T) {
 	f := newFixture(t)
 	cp := Checkpoint{ID: "cp-1", TakenAt: f.now.Add(-time.Minute), MaxJournalID: 9, Assets: []AssetTotal{{Asset: "USDC", Liabilities: big.NewInt(100), Decimals: 6}}}
 	cp.Hash = CheckpointHash(cp)
 	_ = f.subjects.RememberSubjects(context.Background(), []Subject{CheckpointSubject(cp)})
 	item := SolvencyItem{CheckpointHash: cp.Hash, Asset: LabelKey("USDC"), Liabilities: big.NewInt(100), Reserves: big.NewInt(1), Decimals: 6}
-	report, _ := EncodeReport(Report{Kind: KindSolvency, GatewayID: f.gateway, ObservedAt: f.now, Items: []SolvencyItem{item, item}})
+	wrong := item
+	wrong.Liabilities = big.NewInt(101)
+	unknown := item
+	unknown.CheckpointHash = SubjectKey("never-served")
 
-	raw := f.onChain(KindSolvency, report)
-	raw.Ignored = [][32]byte{LabelKey("USDC")} // one SolvencyIgnored: the duplicate
-	rows, err := f.verifier(ProviderChainlink).Verify(context.Background(), raw)
-	if err != nil || rows[0].Status != StatusAttested || rows[1].Status != StatusIgnored {
-		t.Fatalf("one marker: %s/%s err %v", rows[0].Status, rows[1].Status, err)
+	type want struct {
+		status    Status
+		onChain   OnChain
+		factCheck Status
 	}
-	f.seen = map[string]bool{}
-	raw.Ignored = [][32]byte{LabelKey("USDC"), LabelKey("USDC")} // stale report: both ignored
-	rows, err = f.verifier(ProviderChainlink).Verify(context.Background(), raw)
-	if err != nil || rows[0].Status != StatusIgnored || rows[1].Status != StatusIgnored {
-		t.Fatalf("two markers: %s/%s err %v", rows[0].Status, rows[1].Status, err)
+	cases := []struct {
+		name   string
+		items  []SolvencyItem
+		stored []bool
+		want   []want
+	}{
+		{"duplicate after an attested first", []SolvencyItem{item, item}, []bool{true, false},
+			[]want{{StatusAttested, OnChainStored, StatusAttested}, {StatusIgnored, OnChainIgnored, StatusAttested}}},
+		{"stale report: both ignored", []SolvencyItem{item, item}, []bool{false, false},
+			[]want{{StatusIgnored, OnChainIgnored, StatusAttested}, {StatusIgnored, OnChainIgnored, StatusAttested}}},
+		// The reviewer's probes: mismatch/attested and failed/attested must not occur.
+		{"first occurrence mismatches", []SolvencyItem{wrong, item}, []bool{true, false},
+			[]want{{StatusMismatch, OnChainStored, StatusMismatch}, {StatusIgnored, OnChainIgnored, StatusAttested}}},
+		{"first occurrence has an unknown checkpoint", []SolvencyItem{unknown, item}, []bool{true, false},
+			[]want{{StatusFailed, OnChainStored, StatusFailed}, {StatusIgnored, OnChainIgnored, StatusAttested}}},
 	}
-	raw.Ignored = nil
-	rows, _ = f.verifier(ProviderChainlink).Verify(context.Background(), raw)
-	if rows[0].Status != StatusAttested || rows[1].Status != StatusAttested {
-		t.Fatalf("no markers: %s/%s", rows[0].Status, rows[1].Status)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			report, _ := EncodeReport(Report{Kind: KindSolvency, GatewayID: f.gateway, ObservedAt: f.now, Items: tc.items})
+			raw := f.onChain(KindSolvency, report)
+			raw.Outcomes = outcomesFor(t, report, tc.stored...)
+			rows, err := f.verifier(ProviderChainlink).Verify(context.Background(), raw)
+			if err != nil || len(rows) != len(tc.want) {
+				t.Fatalf("rows = %+v err %v", rows, err)
+			}
+			for i, w := range tc.want {
+				r := rows[i]
+				if r.Status != w.status || r.OnChain != w.onChain || r.FactCheck != w.factCheck {
+					t.Errorf("row %d = %s/%s/%s (%s), want %s/%s/%s", i, r.Status, r.OnChain, r.FactCheck, r.Reason, w.status, w.onChain, w.factCheck)
+				}
+				if r.OnChain == OnChainIgnored && r.Status == StatusAttested {
+					t.Errorf("row %d: an item the contract ignored is shown as attested", i)
+				}
+			}
+		})
+	}
+}
+
+// The contract emits one SolvencyAttested or SolvencyIgnored per item; evidence that does not cover every item
+// in order is refused, never filled in from the gateway's own opinion of the items.
+func TestVerify_SolvencyOutcomesMustCoverEveryItem(t *testing.T) {
+	f := newFixture(t)
+	cp := Checkpoint{ID: "cp-1", TakenAt: f.now.Add(-time.Minute), MaxJournalID: 9, Assets: []AssetTotal{{Asset: "USDC", Liabilities: big.NewInt(100), Decimals: 6}, {Asset: "SOL", Liabilities: big.NewInt(7), Decimals: 9}}}
+	cp.Hash = CheckpointHash(cp)
+	_ = f.subjects.RememberSubjects(context.Background(), []Subject{CheckpointSubject(cp)})
+	report, _ := EncodeReport(Report{Kind: KindSolvency, GatewayID: f.gateway, ObservedAt: f.now, Items: []SolvencyItem{
+		{CheckpointHash: cp.Hash, Asset: LabelKey("USDC"), Liabilities: big.NewInt(100), Reserves: big.NewInt(1), Decimals: 6},
+		{CheckpointHash: cp.Hash, Asset: LabelKey("SOL"), Liabilities: big.NewInt(7), Reserves: big.NewInt(1), Decimals: 9},
+	}})
+	for name, outcomes := range map[string][]ItemOutcome{
+		"none":      nil,
+		"one short": {{Key: LabelKey("USDC"), Stored: true}},
+		"reordered": {{Key: LabelKey("SOL"), Stored: true}, {Key: LabelKey("USDC"), Stored: true}},
+	} {
+		raw := f.onChain(KindSolvency, report)
+		raw.Outcomes = outcomes
+		if _, err := f.verifier(ProviderChainlink).Verify(context.Background(), raw); !errors.Is(err, ErrForged) {
+			t.Errorf("%s: err = %v, want ErrForged", name, err)
+		}
+	}
+}
+
+// Without a contract (the mock push route) the verifier applies the contract's in-batch rule itself.
+func TestVerify_MockWithoutOutcomesAppliesTheInBatchRule(t *testing.T) {
+	f := newFixture(t)
+	cp := Checkpoint{ID: "cp-1", TakenAt: f.now.Add(-time.Minute), MaxJournalID: 9, Assets: []AssetTotal{{Asset: "USDC", Liabilities: big.NewInt(100), Decimals: 6}}}
+	cp.Hash = CheckpointHash(cp)
+	_ = f.subjects.RememberSubjects(context.Background(), []Subject{CheckpointSubject(cp)})
+	item := SolvencyItem{CheckpointHash: cp.Hash, Asset: LabelKey("USDC"), Liabilities: big.NewInt(101), Reserves: big.NewInt(1), Decimals: 6}
+	good := item
+	good.Liabilities = big.NewInt(100)
+	report, _ := EncodeReport(Report{Kind: KindSolvency, GatewayID: f.gateway, ObservedAt: f.now, Items: []SolvencyItem{item, good}})
+	rows, err := f.verifier(ProviderMock).Verify(context.Background(), f.signed(t, KindSolvency, report))
+	if err != nil || rows[0].Status != StatusMismatch || rows[0].OnChain != OnChainStored || rows[1].Status != StatusIgnored || rows[1].OnChain != OnChainIgnored {
+		t.Fatalf("rows = %+v err %v", rows, err)
 	}
 }

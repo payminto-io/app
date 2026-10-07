@@ -352,6 +352,7 @@ func attestationJSON(a cre.Attestation) gin.H {
 		"workflow_id": "0x" + common.Bytes2Hex(a.WorkflowID[:]), "workflow_owner": common.BytesToAddress(a.WorkflowOwner[:]).Hex(),
 		"report_id": "0x" + common.Bytes2Hex(a.ReportID[:]), "payload_hash": "0x" + common.Bytes2Hex(a.PayloadHash),
 		"observed_at": timeOrNil(a.ObservedAt), "recorded_at": timeOrNil(a.RecordedAt), "reason": a.Reason, "item": cre.ItemJSON(a.Item),
+		"on_chain": string(a.OnChain), "fact_check": string(a.FactCheck),
 	}
 }
 

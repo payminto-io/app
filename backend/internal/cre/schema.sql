@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS cre_attestations (
 CREATE INDEX IF NOT EXISTS cre_attestations_kind_subject_idx ON cre_attestations (kind, subject_id);
 CREATE INDEX IF NOT EXISTS cre_attestations_status_recorded_idx ON cre_attestations (status, recorded_at);
 CREATE INDEX IF NOT EXISTS cre_attestations_kind_recorded_idx ON cre_attestations (kind, recorded_at DESC);
+-- The contract's own per-item verdict and the gateway's fact comparison, kept apart; status is derived from both.
+-- Empty on refusal rows, which carry no item verdict.
+ALTER TABLE cre_attestations ADD COLUMN IF NOT EXISTS on_chain varchar(16) NOT NULL DEFAULT ''
+    CHECK (on_chain IN ('', 'stored', 'ignored', 'emitted'));
+ALTER TABLE cre_attestations ADD COLUMN IF NOT EXISTS fact_check varchar(16) NOT NULL DEFAULT ''
+    CHECK (fact_check IN ('', 'attested', 'mismatch', 'failed'));
 
 -- What the gateway asked each workflow about; an attestation for anything else is refused (SPEC section 6).
 CREATE TABLE IF NOT EXISTS cre_subjects (

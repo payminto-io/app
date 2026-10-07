@@ -233,7 +233,7 @@ func TestCRERoutes_SubmitVerifiesReplaysAndForgeries(t *testing.T) {
 	}
 
 	w, got := do(r, http.MethodGet, "/api/v1/cre/attestations/"+ids[0].(string), "")
-	if w.Code != 200 || got["status"] != "attested" || got["provider"] != "mock" || got["simulated"] != true || got["subject_id"] != "dep-1" {
+	if w.Code != 200 || got["status"] != "attested" || got["provider"] != "mock" || got["simulated"] != true || got["subject_id"] != "dep-1" || got["on_chain"] != "emitted" || got["fact_check"] != "attested" {
 		t.Fatalf("get = %d %v", w.Code, got)
 	}
 	w, pub := do(r, http.MethodGet, "/api/v1/public/attestations/"+ids[0].(string), "")

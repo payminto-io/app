@@ -34,6 +34,10 @@ export interface AttestationRecord {
   recorded_at: string | null;
   reason: string;
   item: Record<string, unknown>;
+  /** The consumer contract's own verdict on the item, read from its event; "" on a refusal row. */
+  on_chain?: "stored" | "ignored" | "emitted" | "" | string;
+  /** The gateway's comparison with what it served; `status` is "ignored" whenever on_chain is. */
+  fact_check?: "attested" | "mismatch" | "failed" | "" | string;
 }
 
 export interface WorkflowStatus {

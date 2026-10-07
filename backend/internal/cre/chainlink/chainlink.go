@@ -433,7 +433,7 @@ func (p *Provider) Poll(ctx context.Context, kind cre.Kind, cursor cre.Cursor) (
 		return nil, cursor, nil
 	}
 	topics := [][]common.Hash{
-		{contract.Events[EventReportAccepted].ID, contract.Events[EventSolvencyIgnored].ID},
+		{contract.Events[EventReportAccepted].ID, contract.Events[EventSolvency].ID, contract.Events[EventSolvencyIgnored].ID},
 		{common.BytesToHash(p.cfg.GatewayID[:])},
 	}
 	var logs []Log
@@ -477,7 +477,9 @@ func (p *Provider) assemble(ctx context.Context, contract abi.ABI, logs []Log, k
 	type txGroup struct {
 		accepted *Log
 		meta     acceptedEvent
-		ignored  [][32]byte
+		// pending collects per-item solvency events until the ReportAccepted that closes them.
+		pending  []cre.ItemOutcome
+		outcomes []cre.ItemOutcome
 	}
 	groups := map[common.Hash]*txGroup{}
 	var order []common.Hash
@@ -496,6 +498,8 @@ func (p *Provider) assemble(ctx context.Context, contract abi.ABI, logs []Log, k
 		}
 		switch l.Topics[0] {
 		case contract.Events[EventReportAccepted].ID:
+			pending := g.pending
+			g.pending = nil
 			if len(l.Topics) != 4 || l.Topics[2] != kindTopic {
 				continue
 			}
@@ -503,10 +507,10 @@ func (p *Provider) assemble(ctx context.Context, contract abi.ABI, logs []Log, k
 			if err := contract.UnpackIntoInterface(&ev, EventReportAccepted, l.Data); err != nil {
 				continue
 			}
-			g.accepted, g.meta = &logs[i], ev
-		case contract.Events[EventSolvencyIgnored].ID:
-			if len(l.Topics) == 3 && kind == cre.KindSolvency {
-				g.ignored = append(g.ignored, l.Topics[2])
+			g.accepted, g.meta, g.outcomes = &logs[i], ev, pending
+		case contract.Events[EventSolvency].ID, contract.Events[EventSolvencyIgnored].ID:
+			if len(l.Topics) == 3 {
+				g.pending = append(g.pending, cre.ItemOutcome{Key: l.Topics[2], Stored: l.Topics[0] == contract.Events[EventSolvency].ID})
 			}
 		}
 	}
@@ -524,7 +528,7 @@ func (p *Provider) assemble(ctx context.Context, contract abi.ABI, logs []Log, k
 		var emitter [20]byte
 		copy(emitter[:], l.Address.Bytes())
 		raw := cre.RawAttestation{
-			Kind: kind, Ignored: g.ignored,
+			Kind: kind, Outcomes: g.outcomes,
 			Evidence: cre.Evidence{Emitter: emitter, TxHash: l.TxHash.Bytes(), BlockNumber: l.BlockNumber, LogIndex: l.Index, HeadBlock: bound, Final: l.BlockNumber <= bound, ReportHash: g.meta.ReportHash},
 		}
 		receiver, metadata, report, err := DecodeForwarderCall(input)

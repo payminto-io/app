@@ -123,13 +123,13 @@ func (f *fakeChain) FilterLogs(_ context.Context, address common.Address, from, 
 }
 
 // emit records one forwarder delivery: the logs the contract emits and the calldata the forwarder received.
-func (f *fakeChain) emit(t *testing.T, consumer common.Address, meta cre.Metadata, report []byte, ignored ...[32]byte) common.Hash {
+func (f *fakeChain) emit(t *testing.T, consumer common.Address, meta cre.Metadata, report []byte, ignoredItems ...int) common.Hash {
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.head++
 	tx := crypto.Keccak256Hash(report, []byte{byte(f.head)})
-	logs, err := LogsForReport(consumer, meta, report, tx, f.head, 0, ignored...)
+	logs, err := LogsForReport(consumer, meta, report, tx, f.head, 0, ignoredItems...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,19 +322,26 @@ func solvencyReport(h *harness, observed time.Time, assets ...string) ([]byte, c
 	return report, cre.Metadata{WorkflowID: h.wfIDs[cre.KindSolvency], Owner: h.owner, WorkflowName: cre.KeystoneName("solvency"), ReportID: [2]byte{0, 1}}
 }
 
-// An item the contract superseded (SolvencyIgnored) comes back as an ignored key while the report still verifies whole.
+// Every per-item solvency event comes back in item order (SolvencyAttested stored, SolvencyIgnored not), including a
+// duplicate asset whose first occurrence the contract stored.
 func TestPollCarriesIgnoredSolvencyItems(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	_, cursor, _ := h.provider.Poll(ctx, cre.KindSolvency, cre.Cursor{})
-	report, meta := solvencyReport(h, time.Now(), "USDC", "SOL")
-	h.chain.emit(t, h.consumer, meta, report, cre.LabelKey("SOL"))
+	report, meta := solvencyReport(h, time.Now(), "USDC", "SOL", "USDC")
+	h.chain.emit(t, h.consumer, meta, report, 2)
 	raws, _, err := h.provider.Poll(ctx, cre.KindSolvency, cursor)
 	if err != nil || len(raws) != 1 {
 		t.Fatalf("raws = %+v err %v", raws, err)
 	}
-	if len(raws[0].Ignored) != 1 || raws[0].Ignored[0] != cre.LabelKey("SOL") || string(raws[0].Report) != string(report) {
-		t.Fatalf("ignored = %x", raws[0].Ignored)
+	want := []cre.ItemOutcome{{Key: cre.LabelKey("USDC"), Stored: true}, {Key: cre.LabelKey("SOL"), Stored: true}, {Key: cre.LabelKey("USDC"), Stored: false}}
+	if len(raws[0].Outcomes) != len(want) || string(raws[0].Report) != string(report) {
+		t.Fatalf("outcomes = %+v", raws[0].Outcomes)
+	}
+	for i := range want {
+		if raws[0].Outcomes[i] != want[i] {
+			t.Fatalf("outcome %d = %+v, want %+v", i, raws[0].Outcomes[i], want[i])
+		}
 	}
 	if raws[0].Evidence.ReportHash != [32]byte(cre.PayloadHash(report)) {
 		t.Fatal("report hash")

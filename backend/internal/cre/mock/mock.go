@@ -40,6 +40,8 @@ type Provider struct {
 	failures map[cre.Kind]error
 	verdicts map[string]uint8
 	health   cre.Health
+	// latest plays GatewayAttestations' per-asset solvency storage, so outcomes follow the contract's rule.
+	latest map[[32]byte]time.Time
 }
 
 var _ cre.Attester = (*Provider)(nil)
@@ -66,6 +68,7 @@ func New(gatewayID [32]byte, opts ...Option) (*Provider, error) {
 		gatewayID: gatewayID, reserves: nil, now: func() time.Time { return time.Now().UTC() },
 		names: map[cre.Kind]string{cre.KindSolvency: "solvency", cre.KindDepositFinality: "deposit-finality", cre.KindConversionReference: "conversion-reference"},
 		queue: map[cre.Kind][]queued{}, failures: map[cre.Kind]error{}, verdicts: map[string]uint8{},
+		latest: map[[32]byte]time.Time{},
 	}
 	for _, o := range opts {
 		o(p)
@@ -165,9 +168,16 @@ func (p *Provider) Trigger(ctx context.Context, kind cre.Kind, input []byte) (st
 		return "", err
 	}
 	execID := fmt.Sprintf("mock-%s-%d", kind, p.seq)
-	p.queue[kind] = append(p.queue[kind], queued{seq: p.seq, ready: p.now().Add(p.delay), raw: cre.RawAttestation{
-		Kind: kind, Metadata: metadata, Report: payload, Evidence: cre.Evidence{Signature: sig}, ExecutionID: execID,
-	}})
+	raw := cre.RawAttestation{Kind: kind, Metadata: metadata, Report: payload, Evidence: cre.Evidence{Signature: sig}, ExecutionID: execID}
+	if items, ok := report.Items.([]cre.SolvencyItem); ok {
+		raw.Outcomes = cre.SimulateSolvencyOutcomes(items, func(asset [32]byte) bool { return !report.ObservedAt.After(p.latest[asset]) })
+		for i, o := range raw.Outcomes {
+			if o.Stored {
+				p.latest[items[i].Asset] = report.ObservedAt
+			}
+		}
+	}
+	p.queue[kind] = append(p.queue[kind], queued{seq: p.seq, ready: p.now().Add(p.delay), raw: raw})
 	return execID, nil
 }
 

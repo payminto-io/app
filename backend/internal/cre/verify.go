@@ -194,47 +194,40 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 		WorkflowID: meta.WorkflowID, WorkflowOwner: meta.Owner, ReportID: meta.ReportID,
 		ObservedAt: report.ObservedAt, RecordedAt: now, Provider: v.Provider, Simulated: raw.Simulated,
 	}
-	// SolvencyIgnored markers are consumed per asset from the last occurrence backwards, exactly as the contract
-	// stores the first item for an asset and ignores later duplicates (and ignores all of them when stale).
-	markers := map[[32]byte]int{}
-	for _, k := range raw.Ignored {
-		markers[k]++
-	}
-	occurrences := map[[32]byte]int{}
-	if items, ok := report.Items.([]SolvencyItem); ok {
-		for _, it := range items {
-			occurrences[it.Asset]++
-		}
-	}
-	seenAsset := map[[32]byte]int{}
-	ignoredItem := func(asset [32]byte) bool {
-		k := seenAsset[asset]
-		seenAsset[asset]++
-		return k >= occurrences[asset]-markers[asset]
+	onChain, err := v.solvencyOutcomes(report, raw)
+	if err != nil {
+		return nil, err
 	}
 	var out []Attestation
-	// check returns (status, reason) for a found subject; attested means every served fact matches.
-	add := func(key, itemKey [32]byte, item any, check func(Subject) (Status, string)) error {
+	// check returns the fact comparison for a found subject; attested means every served fact matches.
+	add := func(key [32]byte, item any, check func(Subject) (Status, string)) error {
 		row := base
 		row.ID = uuid.NewString()
 		row.Item = item
 		row.ItemIndex = len(out)
+		row.OnChain = OnChainEmitted
+		if onChain != nil {
+			row.OnChain = onChain[row.ItemIndex]
+		}
 		subject, found, err := v.Subjects.LookupSubject(ctx, report.Kind, key)
 		if err != nil {
 			return err
 		}
-		switch {
-		case !found:
-			row.SubjectID = "0x" + common.Bytes2Hex(key[:])
-			row.Status = StatusFailed
-			row.Reason = ErrUnknownSubject.Error()
-		default:
+		if found {
 			row.SubjectID = subject.ID
-			row.Status, row.Reason = check(subject)
-			if row.Status == StatusAttested && report.Kind == KindSolvency && ignoredItem(itemKey) {
-				row.Status = StatusIgnored
-				row.Reason = "superseded on chain: a newer snapshot for this asset was already stored"
+			row.FactCheck, row.Reason = check(subject)
+		} else {
+			row.SubjectID = "0x" + common.Bytes2Hex(key[:])
+			row.FactCheck, row.Reason = StatusFailed, ErrUnknownSubject.Error()
+		}
+		row.Status = row.FactCheck
+		if row.OnChain == OnChainIgnored {
+			row.Status = StatusIgnored
+			reason := "superseded on chain: the contract kept another snapshot for this asset (SolvencyIgnored)"
+			if row.FactCheck != StatusAttested {
+				reason += "; fact check " + string(row.FactCheck) + ": " + row.Reason
 			}
+			row.Reason = reason
 		}
 		out = append(out, row)
 		return nil
@@ -243,26 +236,69 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 	case []SolvencyItem:
 		for _, it := range items {
 			it := it
-			if err := add(it.CheckpointHash, it.Asset, it, func(s Subject) (Status, string) { return checkSolvency(s, it) }); err != nil {
+			if err := add(it.CheckpointHash, it, func(s Subject) (Status, string) { return checkSolvency(s, it) }); err != nil {
 				return nil, err
 			}
 		}
 	case []DepositItem:
 		for _, it := range items {
 			it := it
-			if err := add(it.DepositID, it.DepositID, it, func(s Subject) (Status, string) { return checkDeposit(s, it) }); err != nil {
+			if err := add(it.DepositID, it, func(s Subject) (Status, string) { return checkDeposit(s, it) }); err != nil {
 				return nil, err
 			}
 		}
 	case []ConversionItem:
 		for _, it := range items {
 			it := it
-			if err := add(it.ConversionID, it.ConversionID, it, func(s Subject) (Status, string) { return checkConversion(s, it) }); err != nil {
+			if err := add(it.ConversionID, it, func(s Subject) (Status, string) { return checkConversion(s, it) }); err != nil {
 				return nil, err
 			}
 		}
 	}
 	return out, nil
+}
+
+// solvencyOutcomes is the contract's verdict per solvency item, nil for other kinds. It comes from the contract's
+// own events (raw.Outcomes), never from the gateway's fact check: the contract stores the first occurrence of an
+// asset when it is newer than its stored snapshot and ignores later duplicates, whatever their figures.
+func (v *Verifier) solvencyOutcomes(report Report, raw RawAttestation) ([]OnChain, error) {
+	items, ok := report.Items.([]SolvencyItem)
+	if !ok {
+		return nil, nil
+	}
+	outcomes := raw.Outcomes
+	if outcomes == nil && v.Provider == ProviderMock {
+		// No contract behind a pushed mock report: apply the contract's in-batch rule.
+		outcomes = SimulateSolvencyOutcomes(items, nil)
+	}
+	if len(outcomes) != len(items) {
+		return nil, fmt.Errorf("%w: %d contract item events for %d report items", ErrForged, len(outcomes), len(items))
+	}
+	out := make([]OnChain, len(items))
+	for i, it := range items {
+		if outcomes[i].Key != it.Asset {
+			return nil, fmt.Errorf("%w: contract item event %d names asset %s, report item is %s", ErrForged, i, LabelFromKey(outcomes[i].Key), LabelFromKey(it.Asset))
+		}
+		out[i] = OnChainIgnored
+		if outcomes[i].Stored {
+			out[i] = OnChainStored
+		}
+	}
+	return out, nil
+}
+
+// SimulateSolvencyOutcomes applies GatewayAttestations._recordSolvency to one batch: an item is stored when its
+// asset has no snapshot at or after this batch, which also makes every later duplicate in the batch ignored.
+// stale reports the assets whose stored snapshot is already as new as this batch.
+func SimulateSolvencyOutcomes(items []SolvencyItem, stale func(asset [32]byte) bool) []ItemOutcome {
+	written := map[[32]byte]bool{}
+	out := make([]ItemOutcome, len(items))
+	for i, it := range items {
+		stored := !written[it.Asset] && (stale == nil || !stale(it.Asset))
+		written[it.Asset] = true
+		out[i] = ItemOutcome{Key: it.Asset, Stored: stored}
+	}
+	return out
 }
 
 // checkSolvency: the attested liabilities and decimals must equal what the checkpoint served for that asset;
