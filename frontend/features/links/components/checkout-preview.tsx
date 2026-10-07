@@ -134,14 +134,14 @@ function SummaryPane({ model, method, phone }: { model: RenderModel; method?: Re
   const surcharge = method?.customer_total ? method : null;
   const due = surcharge?.customer_total ?? model.amount;
   return (
-    <div className={cn("space-y-4 p-5", !phone && "sm:border-r sm:border-line", phone && "border-b border-line")}>
+    <div className={cn("space-y-4 border-b border-line p-5", !phone && "sm:border-r sm:border-b-0")}>
       <Merchant model={model} />
       <div className="space-y-1">
         <p className={cn("text-body-sm text-ink-soft", !model.title && "text-ink-faint")}>{model.title || C.untitled}</p>
         {model.amount_mode === "customer" ? (
           <p className="text-caption text-ink-soft">{C.range(model.amount_min, model.amount_max, cur)}</p>
         ) : model.amount ? (
-          <Money amount={model.amount} currency={cur} size="display" />
+          <Money amount={model.amount} currency={cur} size={formatDecimal(model.amount, cur).length > 6 ? "lg" : "display"} />
         ) : model.amount_mode === "line_items" ? (
           <p className="text-body-sm text-ink-faint">{C.serverTotalPending}</p>
         ) : null}
@@ -149,13 +149,13 @@ function SummaryPane({ model, method, phone }: { model: RenderModel; method?: Re
       {model.description ? <p className="text-body-sm whitespace-pre-line text-ink-soft">{model.description}</p> : null}
 
       {model.line_items.length > 0 ? (
-        <ul className="divide-y divide-line border-y border-line">
+        <ul className="divide-y divide-line border-t border-line">
           {model.line_items.map((li, i) => (
             <li key={i} className="flex items-baseline justify-between gap-3 py-2">
               <span className="min-w-0">
                 <span className="block truncate text-body-sm text-ink">{li.name || C.untitled}</span>
                 <span className="num text-caption text-ink-soft">
-                  {li.quantity} x {li.unit_price} {cur}
+                  {li.quantity} x {formatDecimal(li.unit_price, cur)} {cur}
                   {Number(li.tax_rate) > 0 ? `, tax ${li.tax_rate}%` : ""}
                 </span>
               </span>
@@ -285,7 +285,10 @@ function PayPane({
                   aria-hidden
                   className={cn("size-3.5 shrink-0 rounded-full border", i === picked ? "border-[5px] border-ink" : "border-line-strong")}
                 />
-                <span className="min-w-0 truncate">{methodLabel(m)}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{m.method === "crypto" ? m.asset : methodLabel(m)}</span>
+                  {m.method === "crypto" && m.chain ? <span className="block truncate text-caption text-ink-soft">{m.chain}</span> : null}
+                </span>
               </button>
             ))}
           </div>

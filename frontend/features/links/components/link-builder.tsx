@@ -329,7 +329,6 @@ export function LinkBuilder({ link: initial, basePath = "/dashboard/links" }: { 
             {status ? <StatusBadge status={status} /> : null}
           </span>
         }
-        className="mb-0"
       >
         {saveLabel ? (
           <span role="status" aria-live="polite" className={cn("hidden text-label sm:inline", saveLabel === B.notSaved ? "text-bad" : "text-ink-soft")}>
@@ -422,7 +421,7 @@ export function LinkBuilder({ link: initial, basePath = "/dashboard/links" }: { 
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,34rem)_minmax(0,1fr)]">
         <fieldset disabled={readOnly} className={cn("min-w-0 space-y-3", view === "preview" && "max-lg:hidden")}>
-          <legend className="sr-only">{B.newTitle}</legend>
+          <legend className="sr-only">{B.settings}</legend>
           <div className="flex justify-end">
             <Button type="button" variant="ghost" size="xs" onClick={() => setOpen(allOpen ? new Set() : new Set(STEP_ORDER))}>
               {allOpen ? "Collapse all" : "Expand all"}

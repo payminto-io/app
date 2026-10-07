@@ -93,12 +93,12 @@ const SEED: PaymentLink[] = [
   ),
   make(
     "sample_lnk_00springsale",
-    { title: "Spring sale deposit", amount: "25.00", currency: "EUR", methods: [{ method: "card" }] },
+    { title: "Spring sale deposit", amount: "25.00", currency: "EUR", methods: [{ method: "card" }], multi_use: true, use_limit: 100 },
     { status: "paused", uses_count: 7, published_at: iso(-30), created_at: iso(-31) }
   ),
   make(
     "sample_lnk_0000webinar",
-    { title: "Webinar replay", amount: "9.00", currency: "USD", methods: [{ method: "card" }] },
+    { title: "Webinar replay", amount: "9.00", currency: "USD", methods: [{ method: "card" }], multi_use: true },
     { status: "archived", uses_count: 41, published_at: iso(-60), created_at: iso(-61) }
   ),
 ];

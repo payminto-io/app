@@ -34,6 +34,7 @@ export function QrButton({ url, title, size = "icon-sm", children }: { url: stri
         type="button"
         variant="outline"
         size={size}
+        className="tap"
         aria-label={children ? undefined : LINKS_COPY.detail.qr}
         onClick={(e) => {
           e.stopPropagation();

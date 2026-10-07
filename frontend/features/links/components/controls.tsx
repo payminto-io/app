@@ -51,6 +51,7 @@ export function Segmented<T extends string>({
               "relative inline-flex flex-1 cursor-pointer items-center justify-center rounded-xs px-2.5 text-label font-medium whitespace-nowrap transition-colors duration-120",
               "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-1 has-[:focus-visible]:outline-tide",
               size === "sm" ? "h-7" : "h-8",
+              "pointer-coarse:h-11 pointer-coarse:px-3.5",
               checked ? "bg-ink text-ink-inverse" : "text-ink-soft hover:text-ink",
               disabled && "cursor-not-allowed",
               disabled && checked && "bg-ink-faint text-ink-inverse",
@@ -156,7 +157,7 @@ export function NativeSelect({
       <select
         {...props}
         className={cn(
-          "h-9 w-full appearance-none rounded-sm border border-line-strong bg-surface pr-8 pl-3 text-body text-ink transition-[border-color] duration-120 outline-none hover:border-ink-faint",
+          "h-9 pointer-coarse:h-11 w-full appearance-none rounded-sm border border-line-strong bg-surface pr-8 pl-3 text-body text-ink transition-[border-color] duration-120 outline-none hover:border-ink-faint",
           "focus-visible:border-tide focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tide",
           "disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-faint aria-invalid:border-bad"
         )}
@@ -208,7 +209,7 @@ export function Step({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-body font-semibold text-ink">{title}</span>
-            {!open ? <span className="block truncate text-body-sm text-ink-soft">{summary}</span> : null}
+            {!open ? <span className="block truncate text-body-sm font-normal text-ink-soft">{summary}</span> : null}
           </span>
           {errors > 0 ? (
             <span className="num shrink-0 rounded-xs bg-bad-tint px-1.5 text-label font-medium text-bad">

@@ -631,7 +631,7 @@ export function LifecycleStep({ form, edit, err }: StepProps) {
               aria-label={`${F.accent} picker`}
               value={accentOk ? form.accent_color : "#15181d"}
               onChange={(e) => edit("accent_color", set("accent_color", e.target.value.toUpperCase()))}
-              className="h-9 w-10 shrink-0 cursor-pointer rounded-sm border border-line-strong bg-surface p-1"
+              className="h-9 pointer-coarse:h-11 w-10 pointer-coarse:w-11 shrink-0 cursor-pointer rounded-sm border border-line-strong bg-surface p-1"
             />
             <Input id="lf-accent" className="font-mono uppercase" placeholder="#0B7285" maxLength={7} value={form.accent_color} aria-invalid={Boolean(err("accent_color")) || undefined} onChange={(e) => edit("accent_color", set("accent_color", e.target.value))} />
           </div>

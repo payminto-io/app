@@ -16,6 +16,7 @@ export const LINKS_COPY = {
 
   builder: {
     newTitle: "New payment link",
+    settings: "Link settings",
     preview: "Preview",
     edit: "Edit",
     saving: "Saving",
