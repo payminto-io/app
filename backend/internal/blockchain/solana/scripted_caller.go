@@ -110,3 +110,10 @@ func FirstParamString(params []any) string {
 	s, _ := params[0].(string)
 	return s
 }
+
+// Handler returns the registered handler for method so a test can wrap it.
+func (s *ScriptedCaller) Handler(method string) func(params []any) (any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.handlers[method]
+}

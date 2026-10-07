@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -166,6 +167,16 @@ func (f *solanaFixture) script(byAddress map[string][]string) {
 	})
 	f.rpc.On("getTransaction", func(p []any) (any, error) {
 		return txs[solana.FirstParamString(p)], nil
+	})
+	// Every tick reports a different balance so the token account is always polled; tests of the
+	// cadence override this with scriptAccounts.
+	f.rpc.On("getMultipleAccounts", func(p []any) (any, error) {
+		addrs, _ := p[0].([]string)
+		out := make([]any, len(addrs))
+		for i := range addrs {
+			out[i] = map[string]any{"lamports": 1, "owner": solana.TokenProgram.String(), "data": map[string]any{"parsed": map[string]any{"type": "account", "info": map[string]any{"tokenAmount": map[string]any{"amount": strconv.Itoa(f.rpc.Count("getMultipleAccounts")), "decimals": 6}}}}}
+		}
+		return solana.ContextValue(1, out), nil
 	})
 }
 
@@ -339,8 +350,7 @@ func TestSolanaDeposit_USDTToUSDCPaymentIsAnomalyNeverCredited(t *testing.T) {
 	// Re-polling the same signature does not duplicate the anomaly.
 	f.svc.now = func() time.Time { return f.now.Add(time.Minute) }
 	acct, _ := f.accounts.GetByTokenAccount(fxUSDCATA)
-	must(t, f.accounts.UpdateCursors(acct.ID, "", "", 0, f.now))
-	f.db.Model(&models.SolanaDepositAccount{}).Where("id = ?", acct.ID).Update("owner_cursor", "")
+	must(t, f.accounts.Update(acct.ID, map[string]any{"owner_cursor": "", "owner_poll_after": nil}))
 	if _, err := f.svc.PollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -405,6 +415,7 @@ func TestSolanaDeposit_DroppedBeforeFinalizationIsReversed(t *testing.T) {
 	}
 	f.svc.now = func() time.Time { return f.now.Add(time.Hour) }
 	f.db.Model(&models.Deposit{}).Where("payment_request_id = ?", pr.ID).Update("created_at", f.now.Add(-time.Hour))
+	f.finalizedSlot(250000200)
 	f.mustConfirm(ctx)
 	if got := f.depositsFor(pr)[0]; got.Status != models.DepositStatusFailed {
 		t.Fatalf("deposit = %+v, want failed", got)
