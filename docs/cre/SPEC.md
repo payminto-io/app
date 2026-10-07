@@ -77,7 +77,9 @@ backend/internal/cre/
 backend/internal/modules/cre.go          func WireCRE(deps Deps) (*CREModule, error)
 backend/internal/api/routes_cre.go       func RegisterCRERoutes(rg *gin.RouterGroup, m *modules.CREModule)
 backend/internal/database/migrations/<date>NN_cre_attestations.up.sql
-contracts/src/GatewayAttestations.sol    consumer contract, Foundry tests
+contracts/src/cre/GatewayAttestations.sol  consumer contract; tests in contracts/test/cre, deploy script in contracts/script
+backend/internal/cre/abi/GatewayAttestations.json  exported ABI (forge inspect), consumed by chainlink/ and verify.go
+frontend/lib/cre/abi.ts                  the same ABI as a typed const for the public verification page
 cre/
   project.yaml                           targets: local-simulation, staging, production
   secrets.yaml                           secret names only
@@ -148,8 +150,10 @@ Common to all three.
 Language TypeScript, `@chainlink/cre-sdk`.
 Every handler is deterministic in DON mode; all external reads happen through the HTTP capability with an explicit aggregation; time is `runtime.now()`; integers are `bigint` and decimal strings.
 Each workflow writes to `GatewayAttestations` on one EVM chain (Base mainnet for live, Base Sepolia for test; configurable) through `runtime.report()` and `EVMClient.writeReport()`.
-Each report payload begins with `(uint8 kind, bytes32 gatewayId, uint64 observedAt)` so one contract and one verifier handle all three.
+Each report is one batch: `abi.encode(uint8 version, uint8 kind, bytes32 gatewayId, uint64 observedAt, Item[] items)` with `version = 1`, so one contract and one verifier handle all three.
 `gatewayId` is `keccak256` of the deployer's configured public base URL, so a public verifier can tell which gateway a record belongs to.
+`observedAt` is DON time in seconds; the consumer rejects it more than five minutes ahead of the block and requires it to be strictly greater than the last accepted `observedAt` for the same `(gatewayId, kind)`, which is the replay and ordering guard (ticket 22, `contracts/src/cre/GatewayAttestations.sol`).
+The consumer accepts a report only from the configured forwarder and only when the Keystone metadata `(workflowId, workflowName, workflowOwner)` equals the binding the contract owner set for that `kind`; the per-report `ReportAccepted` event carries that metadata, the report id, the item count and `keccak256(report)` for the verifier.
 
 ### 5.1 `solvency`
 
@@ -160,9 +164,9 @@ Inputs:
 2. Custody reserves per asset: for EVM assets, `balanceOf(custodyAddress)` via EVM read at `LAST_FINALIZED_BLOCK_NUMBER`; for Solana SPL assets, `getTokenAccountBalance` through HTTP against the two or more RPC URLs in config, identical aggregation on `(mint, owner, amount, slot_bucket)` where `slot_bucket` is slot rounded down to the configured window; for a custodian with an API (BitGo), Confidential HTTP with the key from the Vault DON, median aggregation on amount. The list of reserve addresses is in the workflow config, not fetched from the gateway, so a compromised gateway cannot point the attestation at someone else's wallet.
 3. Nothing else.
 
-Output per asset, ABI-encoded: `(uint8 kind=1, bytes32 gatewayId, uint64 observedAt, bytes32 checkpointHash, bytes32 asset, uint256 liabilities, uint256 reserves, uint8 decimals)`; several assets are packed as an array in one report (well under 50 KB).
+Output, `kind = 1`, items of `(bytes32 checkpointHash, bytes32 asset, uint256 liabilities, uint256 reserves, uint8 decimals)`; several assets are packed as one array in one report (well under 50 KB).
 Consensus: identical on every field.
-Consumer: `GatewayAttestations.onReport` emits `SolvencyAttested(gatewayId, checkpointHash, asset, liabilities, reserves, observedAt)` and stores the latest per `(gatewayId, asset)`.
+Consumer: `GatewayAttestations.onReport` emits `SolvencyAttested(gatewayId, asset, checkpointHash, liabilities, reserves, decimals, observedAt)` per item and stores the latest per `(gatewayId, asset)`; an asset whose stored `observedAt` is not older than the report's is rejected, which also rejects a duplicate asset inside one batch.
 Chains: attestation chain only; reserves may live on any chain.
 Fail mode: **fail open.** A missing attestation makes the badge `stale` after two intervals; nothing else changes.
 
@@ -176,9 +180,9 @@ Inputs:
 2. For each EVM deposit: the receipt and the `Transfer` log via EVM read at finalized; for each Solana deposit: `getSignatureStatuses` and `getTransaction` (jsonParsed, `finalized`) against the configured RPC URLs through HTTP, identical aggregation on `(signature, slot, mint, amount, destination, err==null)`.
    The limit of 12 keeps the execution under the 15-HTTP-call quota with headroom for the pending read.
 
-Output: array of `(uint8 kind=2, bytes32 gatewayId, uint64 observedAt, bytes32 depositId, bytes32 chainId, bytes32 txRef, bytes32 token, uint256 amount, bytes32 destination, uint64 slotOrBlock, uint8 verdict)` where verdict is 1 confirmed, 2 not found, 3 mismatch.
+Output, `kind = 2`, items of `(bytes32 depositId, bytes32 chainId, bytes32 txRef, bytes32 token, uint256 amount, bytes32 destination, uint64 slotOrBlock, uint8 verdict)` where verdict is 1 confirmed, 2 not found, 3 mismatch; any other verdict is rejected.
 Consensus: identical.
-Consumer: emits `DepositAttested(gatewayId, depositId, verdict, amount, observedAt)`.
+Consumer: emits `DepositAttested(gatewayId, depositId, verdict, chainId, txRef, token, amount, destination, slotOrBlock, observedAt)` per item; nothing per deposit is stored, the event is the record.
 Fail mode: **fail open by default, fail closed by policy.** With no `require_attestation_above` line nothing waits. With the line set, settlement of funds from a deposit above the threshold stays in `awaiting_attestation` until `verdict=1` arrives; `verdict=2` or `3` freezes the deposit and raises `cre.attestation.failed.v1` to the ops queue; a CRE outage longer than `3 x interval` surfaces in the dashboard and an owner-role user can release a specific deposit with a hash-chained audit entry (ticket 11's approval machinery), never by flipping the policy.
 
 ### 5.3 `conversion-reference`
@@ -189,8 +193,9 @@ Inputs:
 1. `GET {gateway}/api/v1/cre/conversions?since=<cursor>&limit=10`: executed trades `{ conversion_id, executed_at, base, quote, executed_rate_decimal, amount_minor }`. Identical aggregation.
 2. For each pair: the Chainlink Data Feed proxy on the attestation chain (`latestRoundData`, finalized), or the Data Stream report for FX pairs when configured; staleness checked against the feed heartbeat; `decimals()` read, never assumed.
 
-Output: array of `(uint8 kind=3, bytes32 gatewayId, uint64 observedAt, bytes32 conversionId, bytes32 pair, int256 referenceRate, uint8 referenceDecimals, int256 deviationBps, address feed, uint80 roundId)`.
+Output, `kind = 3`, items of `(bytes32 conversionId, bytes32 pair, int256 referenceRate, uint8 referenceDecimals, int256 deviationBps, address feed, uint80 roundId)`.
 Consensus: identical (the feed read is deterministic at a finalized block).
+Consumer: emits `ConversionReferenceAttested(gatewayId, conversionId, pair, referenceRate, referenceDecimals, deviationBps, feed, roundId, observedAt)` per item.
 Fail mode: **fail open.** Trades without a reference show no reference; the ledger trade is unchanged.
 
 ## 6. Trust model
@@ -205,7 +210,7 @@ How the gateway verifies an attestation before using it (`verify.go`):
 
 1. The attestation is read from the consumer contract's events through the gateway's own `CRE_CHAIN_RPC_URL`, never from a callback. A compromised CRE account or a spoofed HTTP response cannot produce a record.
 2. The log's emitting address equals `CRE_CONSUMER_ADDRESS`.
-3. The contract itself accepted the report only from `CRE_FORWARDER_ADDRESS` and only from `CRE_WORKFLOW_OWNER` (`setExpectedAuthor`); the gateway additionally decodes the 64-byte metadata from the event and checks `workflowId` against the configured id for that kind and `owner` against `CRE_WORKFLOW_OWNER`.
+3. The contract itself accepted the report only from `CRE_FORWARDER_ADDRESS` and only for the `(workflowId, workflowOwner, workflowName)` bound to that kind by `setWorkflow`; the gateway additionally reads them from the `ReportAccepted` event and checks `workflowId` against the configured id for that kind and `owner` against `CRE_WORKFLOW_OWNER`.
 4. `gatewayId` in the payload equals this deployment's `gatewayId`.
 5. For `solvency`, `checkpointHash` matches a checkpoint the ledger actually published; for `deposit-finality`, `depositId` is a deposit the gateway asked about and the attested `(token, amount, destination)` equals what the gateway credited, otherwise the record is stored with `status=failed` and the mismatch is raised; for `conversion-reference`, `conversionId` exists.
 6. The block holding the event is at least `CRE_VERIFY_CONFIRMATIONS` behind head (default: the chain's finality).
@@ -213,7 +218,7 @@ How the gateway verifies an attestation before using it (`verify.go`):
 Only after all six does the record become `attested` and the event fire.
 The `mock` provider goes through the same verifier with a mock forwarder and a local dev chain or recorded logs, so the verifier is exercised in CI.
 
-Threats considered: compromised gateway host (cannot forge attestations because the workflow config, not the gateway, names the reserve addresses, and the signer set is the DON's); compromised RPC used by the gateway (the deposit workflow uses the DON's RPCs, and the verifier's read of the consumer contract can be pointed at a second RPC); compromised CRE account (can trigger, pause or update workflows; cannot change the consumer contract's forwarder or expected author, which are owned by the deployer's multisig; an updated workflow gets a new workflow id, which the gateway rejects until an owner-role user accepts it in settings with an audit entry); CRE outage (section 5 fail modes per kind).
+Threats considered: compromised gateway host (cannot forge attestations because the workflow config, not the gateway, names the reserve addresses, and the signer set is the DON's); compromised RPC used by the gateway (the deposit workflow uses the DON's RPCs, and the verifier's read of the consumer contract can be pointed at a second RPC); compromised CRE account (can trigger, pause or update workflows; cannot change the consumer contract's forwarder or workflow bindings, which only the contract owner, the deployer's multisig under a two-step transfer, can set; an updated workflow gets a new workflow id, which the contract rejects until the owner rebinds it and the gateway rejects until an owner-role user accepts it in settings with an audit entry); CRE outage (section 5 fail modes per kind).
 
 ## 7. Data flow
 

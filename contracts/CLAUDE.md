@@ -1,8 +1,11 @@
-# Payminto Smart Contracts — CLAUDE.md
+# Gateway Smart Contracts - CLAUDE.md
 
 ## What This Is
 
-The Payminto contracts are the on-chain component of the SmartSweep system — a set of Solidity contracts that enable deterministic deposit address generation and automated sweeping of funds to an immutable cold wallet. Three contracts work together: `AddressFactory` creates per-payment deposit addresses via CREATE2, `DepositProxy` is the minimal proxy that receives funds, and `SmartSweep` batches those funds into the merchant's cold storage. The project is built with Foundry (forge/cast/anvil).
+Two independent groups of Solidity contracts, built with Foundry (forge/cast/anvil):
+
+- **SmartSweep** (inherited from Payminto): deterministic deposit address generation and automated sweeping of funds to an immutable cold wallet. `AddressFactory` creates per-payment deposit addresses via CREATE2, `DepositProxy` is the minimal proxy that receives funds, and `SmartSweep` batches those funds into the merchant's cold storage.
+- **GatewayAttestations** (`src/cre/`): the Chainlink CRE consumer contract that records solvency, deposit-finality and conversion-reference attestations delivered by the Keystone forwarder. Spec: `docs/cre/SPEC.md` section 5. It holds no funds and has no upgrade path.
 
 ## Tech Stack
 
@@ -12,8 +15,11 @@ The Payminto contracts are the on-chain component of the SmartSweep system — a
 | Language | Solidity ^0.8.24 |
 | Optimizer | 200 runs |
 | Fuzz runs | 256 per test |
-| OZ contracts | `lib/openzeppelin-contracts/` |
+| OZ contracts | `lib/openzeppelin-contracts/` v5.6.1, shallow submodule |
+| forge-std | `lib/forge-std/` v1.17.0, submodule, pinned in `foundry.lock` |
 | Remapping | `@openzeppelin/=lib/openzeppelin-contracts/` |
+
+After a fresh clone run `git submodule update --init --depth 1 contracts/lib/forge-std contracts/lib/openzeppelin-contracts` (or `forge install`) before `forge build`.
 
 ## Directory Layout
 
@@ -22,15 +28,26 @@ contracts/
 ├── src/
 │   ├── SmartSweep.sol        # Core: sweeps ETH/ERC20 to cold wallet, pause-able
 │   ├── AddressFactory.sol    # CREATE2 factory: deploy DepositProxy per payment
-│   └── DepositProxy.sol      # Minimal proxy: receives ETH, factory-controlled execute()
+│   ├── DepositProxy.sol      # Minimal proxy: receives ETH, factory-controlled execute()
+│   └── cre/
+│       ├── IReceiver.sol             # Chainlink CRE receiver interface (copied, not a package)
+│       └── GatewayAttestations.sol   # CRE consumer: forwarder + workflow binding + replay guards
 ├── test/
-│   ├── SmartSweep.t.sol      # 18 tests incl. fuzz; covers sweep, pause, access control
+│   ├── SmartSweep.t.sol      # covers sweep, pause, access control, fuzz
 │   ├── AddressFactory.t.sol  # CREATE2 determinism, address prediction
-│   └── Gas.t.sol             # Gas cost snapshots for deploy + sweep
+│   ├── Gas.t.sol             # Gas cost snapshots for deploy + sweep
+│   └── cre/
+│       ├── ReportEncoder.sol                  # test-side mirror of the workflow report encoding
+│       ├── GatewayAttestations.t.sol          # every guard, round trips, fuzz decoding
+│       ├── GatewayAttestations.invariant.t.sol # state only moves through valid forwarder reports
+│       └── GatewayAttestationsGas.t.sol       # 20-asset solvency, 12-deposit, 10-conversion batches
 ├── script/
-│   └── (Deploy.s.sol — not yet implemented)
+│   └── DeployGatewayAttestations.s.sol   # env-parameterised; dry run unless --broadcast
+├── snapshots/
+│   └── GatewayAttestations.json          # written by vm.snapshotGasLastCall in the gas tests
 ├── lib/
-│   └── openzeppelin-contracts/   # OZ v5, installed via forge install
+│   ├── forge-std/                # submodule, v1.17.0
+│   └── openzeppelin-contracts/   # submodule, v5.6.1
 ├── out/                          # Compiled artifacts (forge build output)
 ├── cache/                        # Forge build cache
 ├── foundry.toml                  # Project config
@@ -77,6 +94,21 @@ An ultra-minimal contract that:
 - Allows the factory owner to call `execute()` to forward funds out
 - Has no logic of its own — it is a pure fund receiver
 
+### GatewayAttestations.sol (`src/cre/`)
+
+Report encoding, shared with the CRE workflows and the Go verifier (`docs/cre/SPEC.md` section 5):
+
+```
+abi.encode(uint8 version = 1, uint8 kind, bytes32 gatewayId, uint64 observedAt, Item[] items)
+kind 1 solvency:             (bytes32 checkpointHash, bytes32 asset, uint256 liabilities, uint256 reserves, uint8 decimals)
+kind 2 deposit finality:     (bytes32 depositId, bytes32 chainId, bytes32 txRef, bytes32 token, uint256 amount, bytes32 destination, uint64 slotOrBlock, uint8 verdict)
+kind 3 conversion reference: (bytes32 conversionId, bytes32 pair, int256 referenceRate, uint8 referenceDecimals, int256 deviationBps, address feed, uint80 roundId)
+```
+
+Guards, in order: `msg.sender == forwarder`; metadata is exactly 64 bytes `(workflowId, workflowName, workflowOwner, reportId)`; version, kind, canonical array offset and exact byte length; the metadata equals the `setWorkflow` binding for that kind; `observedAt` at most five minutes ahead of the block and strictly greater than the last accepted one for `(gatewayId, kind)`; for solvency, strictly greater per `(gatewayId, asset)` too. Any failure reverts with a named error and nothing is stored.
+
+Storage is the latest solvency per `(gatewayId, asset)` and `lastObservedAt` per `(gatewayId, kind)`; everything else is events. Ownership is OpenZeppelin `Ownable2Step`; the owner sets the forwarder and the per-kind workflow binding, nothing else. The ABI is exported with `forge inspect src/cre/GatewayAttestations.sol:GatewayAttestations abi --json` to `backend/internal/cre/abi/GatewayAttestations.json`, `frontend/lib/cre/abi.ts` and `cre/contracts/evm/src/GatewayAttestations.abi`; regenerate all three after any change.
+
 ## Common Commands
 
 ```bash
@@ -104,8 +136,8 @@ forge fmt --check
 # Get gas report
 forge test --gas-report
 
-# Deploy (when Deploy.s.sol is implemented)
-forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast --verify
+# Deploy GatewayAttestations: dry run (no --broadcast), reads CRE_* env vars, see the script header
+CRE_FORWARDER_ADDRESS=0x... forge script script/DeployGatewayAttestations.s.sol --rpc-url $RPC_URL --sender $DEPLOYER
 
 # Check a specific address on-chain
 cast call $CONTRACT_ADDRESS "coldWallet()(address)" --rpc-url $RPC_URL
