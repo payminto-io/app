@@ -43,9 +43,57 @@ const volume = Array.from({ length: 14 }, (_, i) => {
   };
 });
 
+const fam = (id: number, name: string, code: string, path: string) => ({
+  id, name, code, family: code, path, supportsHDWallet: true, supportsSCWallet: false,
+});
+const wallets = [
+  { id: 1, name: "Sample EVM deposits", kind: "hd", status: "active", blockchainFamilyID: 1, blockchainFamily: fam(1, "Ethereum family", "evm", "m/44'/60'/0'/0"), addressCount: 1000, createdAt: iso(-40 * DAY) },
+  { id: 2, name: "Sample Bitcoin deposits", kind: "hd", status: "active", blockchainFamilyID: 2, blockchainFamily: fam(2, "Bitcoin family", "btc", "m/84'/0'/0'/0"), addressCount: 500, createdAt: iso(-40 * DAY) },
+  { id: 3, name: "Sample Tron deposits", kind: "hd", status: "inactive", blockchainFamilyID: 3, blockchainFamily: fam(3, "Tron family", "trx", "m/44'/195'/0'/0"), addressCount: 250, createdAt: iso(-12 * DAY) },
+];
+const hex = (n: number) => n.toString(16).padStart(4, "0");
+const addresses = Array.from({ length: 20 }, (_, i) => ({
+  id: i + 1,
+  address: `0x5a3c${hex(i * 977)}e1b09f7d2c4a8b6e0f13579bdf2468ace0${hex(i)}`,
+  pathIndex: i,
+  status: (["used", "available", "available", "locked"] as const)[i % 4],
+  walletID: 1,
+  blockchainFamilyID: 1,
+  createdAt: iso(-40 * DAY + i * 3600_000),
+}));
+const hotWallets = [
+  { id: 11, name: "Sample EVM gas", kind: "hot", status: "active", blockchainFamilyID: 1, blockchainFamilyCode: "evm", address: "0x9f2b7c41d0e8a3f6b5c2d1e0f9a8b7c6d5e4f3a2", createdAt: iso(-20 * DAY) },
+  { id: 12, name: "Sample Tron gas", kind: "hot", status: "active", blockchainFamilyID: 3, blockchainFamilyCode: "trx", address: "TJsampleXq7wR2nB8vK3mD5pL9hF4cA6zE1y", createdAt: iso(-9 * DAY) },
+];
+const coldWallets = [
+  { blockchainCode: "ETH", address: "0x1c4e8a7b2d9f3e6a5b0c8d7e6f5a4b3c2d1e0f9a", name: "Sample treasury" },
+  { blockchainCode: "BTC", address: "bc1qsampl3xk7w9r2n8v3m5p0l9h4c6a2z8e1y7d5f", name: "Sample BTC vault" },
+];
+
 type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: URLSearchParams) => unknown; empty?: unknown };
 
 const ROUTES: Route[] = [
+  { method: "GET", pattern: /^\/wallets$/, body: () => ({ wallets }), empty: { wallets: [] } },
+  {
+    method: "GET",
+    pattern: /^\/wallets\/(\d+)\/addresses$/,
+    body: (_m, q) => {
+      const st = q.get("status");
+      const rows = st ? addresses.filter((a) => a.status === st) : addresses;
+      return { addresses: rows, total: st ? rows.length : 1000 };
+    },
+    empty: { addresses: [], total: 0 },
+  },
+  { method: "GET", pattern: /^\/wallets\/hot$/, body: () => ({ hotWallets }), empty: { hotWallets: [] } },
+  {
+    method: "GET",
+    pattern: /^\/wallets\/hot\/(\d+)\/balance$/,
+    body: (m) =>
+      m[1] === "11"
+        ? { address: hotWallets[0].address, chain: "ethereum", symbol: "ETH", balance: "0.004210" }
+        : { address: hotWallets[1].address, chain: "tron", symbol: "TRX", balance: "312.5" },
+  },
+  { method: "GET", pattern: /^\/wallets\/cold$/, body: () => ({ coldWallets }), empty: { coldWallets: [] } },
   {
     method: "GET",
     pattern: /^\/analytics\/summary$/,

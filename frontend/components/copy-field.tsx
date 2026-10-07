@@ -28,10 +28,10 @@ export function CopyField({
         className
       )}
     >
-      <code title={value} className="min-w-0 flex-1 truncate font-mono text-body-sm text-ink">
+      <code title={value} className={cn("min-w-0 truncate font-mono text-body-sm text-ink", boxed && "flex-1")}>
         {display ?? value}
       </code>
-      <CopyButton value={value} variant="ghost" size="icon" label="" className="size-7 shrink-0" />
+      <CopyButton value={value} variant="ghost" size="icon" label="" className={cn("shrink-0", boxed ? "size-7" : "size-6")} />
     </div>
   )
 }

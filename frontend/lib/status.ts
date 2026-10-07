@@ -39,6 +39,10 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   seen: { label: "Seen", tone: "note", glyph: "circle" },
   final: { label: "Final", tone: "ok", glyph: "check" },
   reorged: { label: "Reorged", tone: "bad", glyph: "x" },
+  // address pool
+  available: { label: "Available", tone: "note", glyph: "circle" },
+  used: { label: "Used", tone: "mute", glyph: "check" },
+  locked: { label: "Locked", tone: "wait", glyph: "clock" },
   // generic
   active: { label: "Active", tone: "ok", glyph: "check" },
   inactive: { label: "Inactive", tone: "mute", glyph: "minus" },
