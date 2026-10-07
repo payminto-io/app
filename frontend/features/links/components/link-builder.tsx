@@ -326,6 +326,7 @@ export function LinkBuilder({ link: initial, basePath = "/dashboard/links" }: { 
 
   return (
     <div className="space-y-5">
+      <div className="space-y-1">
       <PageHeader
         breadcrumbs={[{ label: LINKS_COPY.listTitle, href: basePath }, { label: title }]}
         title={
@@ -379,13 +380,14 @@ export function LinkBuilder({ link: initial, basePath = "/dashboard/links" }: { 
           ) : null}
         </div>
       </PageHeader>
-      <p role="status" aria-live="polite" className={cn("-mt-3 min-h-4 text-label", saveLabel === B.notSaved ? "text-bad" : "text-ink-soft")}>
+      <p role="status" aria-live="polite" className={cn("min-h-4 text-label", saveLabel === B.notSaved ? "text-bad" : "text-ink-soft")}>
         {saveLabel}
       </p>
+      </div>
 
       {current?.url ? (
         <div className="flex flex-col gap-3 rounded-md border border-line bg-surface p-4 sm:flex-row sm:items-center sm:p-5">
-          <ShortLink url={current.url} title={current.title} className="min-w-0 flex-1" />
+          <ShortLink url={current.url} title={current.title} qr={false} className="min-w-0 flex-1" />
           <div className="flex items-center gap-4">
             <QrButton url={current.url} title={current.title} labelled />
             <dl className="flex items-center gap-4 text-body-sm">

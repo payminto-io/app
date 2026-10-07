@@ -21,7 +21,7 @@ export function splitLinkUrl(url: string): { head: string; code: string } {
  * The short link in mono with the host truncated first, then copy and QR as two equal icon buttons
  * (32px on fine pointers, 44px hit area on coarse ones).
  */
-export function ShortLink({ url, title, className }: { url: string; title: string; className?: string }) {
+export function ShortLink({ url, title, className, qr = true }: { url: string; title: string; className?: string; qr?: boolean }) {
   const { head, code } = splitLinkUrl(url);
   return (
     <div className={cn("flex min-w-0 items-center gap-1", className)} onClick={(e) => e.stopPropagation()}>
@@ -30,7 +30,7 @@ export function ShortLink({ url, title, className }: { url: string; title: strin
         <span className="shrink-0">{code}</span>
       </code>
       <CopyButton value={url} variant="ghost" size="icon" label="" successMessage={LINKS_COPY.detail.copied} className="tap size-8 shrink-0" />
-      <QrButton url={url} title={title} />
+      {qr ? <QrButton url={url} title={title} /> : null}
     </div>
   );
 }

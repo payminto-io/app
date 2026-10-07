@@ -71,7 +71,7 @@ function columns(basePath: string): DataTableColumn<PaymentLink>[] {
       key: "url",
       stack: "detail",
       header: C.url,
-      cell: (l) => (l.url ? <ShortLink url={l.url} title={l.title} className="max-w-[30ch]" /> : null),
+      cell: (l) => (l.url ? <ShortLink url={l.url} title={l.title} className="max-w-[46ch] lg:min-w-[38ch]" /> : null),
     },
     {
       key: "created",

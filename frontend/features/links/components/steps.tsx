@@ -579,9 +579,9 @@ function MethodRow({
         )}
         {on && fee ? <FeeBadge fee={fee} customerMode={customerMode} /> : null}
       </div>
-      {on && fee?.kind === "priced" ? <FeeGrid preview={fee.preview} currency={currency} /> : null}
+      {on && fee?.kind === "priced" ? <FeeGrid preview={fee.preview} currency={currency} indent={!locked} /> : null}
       {error ? (
-        <div className="pb-1 pl-7">
+        <div className={cn("pb-1", !locked && "pl-7")}>
           <FieldError id={id}>{error}</FieldError>
         </div>
       ) : null}
@@ -612,7 +612,7 @@ function FeeBadge({ fee, customerMode }: { fee: MethodFeeView; customerMode: boo
 }
 
 /** The same four columns for every method so rows line up; the tax cell stays empty when there is none. */
-function FeeGrid({ preview, currency }: { preview: MethodPreview; currency: string }) {
+function FeeGrid({ preview, currency, indent }: { preview: MethodPreview; currency: string; indent: boolean }) {
   const cur = preview.fee_currency || currency;
   const cells: [string, string | null][] = [
     [FEE.fee, preview.fee],
@@ -621,7 +621,7 @@ function FeeGrid({ preview, currency }: { preview: MethodPreview; currency: stri
     [FEE.net, preview.merchant_net],
   ];
   return (
-    <dl className="grid grid-cols-4 gap-x-3 pb-1.5 pl-7">
+    <dl className={cn("grid grid-cols-2 gap-x-3 gap-y-1 pb-1.5 sm:grid-cols-4", indent && "pl-7")}>
       {cells.map(([k, v]) => (
         <div key={k} className="min-w-0">
           <dt className="truncate text-caption text-ink-soft">{k}</dt>
@@ -741,10 +741,10 @@ export function LifecycleStep({ form, edit, err }: StepProps) {
                 aria-label={F.accentPicker}
                 value={accentOk ? form.accent_color.toLowerCase() : "#0b7285"}
                 onChange={(e) => edit("accent_color", set("accent_color", e.target.value.toUpperCase()))}
-                className="absolute inset-0 cursor-pointer opacity-0"
+                className="absolute inset-0 size-full cursor-pointer opacity-0"
               />
             </label>
-            <Input id="lf-accent" className="font-mono uppercase" placeholder={F.noAccent} maxLength={7} value={form.accent_color} {...a11y("lf-accent", err("accent_color"))} onChange={(e) => edit("accent_color", set("accent_color", e.target.value))} />
+            <Input id="lf-accent" className="font-mono uppercase placeholder:normal-case placeholder:font-sans" placeholder={F.noAccent} maxLength={7} value={form.accent_color} {...a11y("lf-accent", err("accent_color"))} onChange={(e) => edit("accent_color", set("accent_color", e.target.value))} />
           </div>
         </Field>
         <Field label={F.language} htmlFor="lf-lang" error={err("language")}>
