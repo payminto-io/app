@@ -1,17 +1,30 @@
 "use client";
 
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import {
   useRecipientsList,
   useCreateRecipient,
   useUpdateRecipient,
   useDeleteRecipient,
 } from "@/lib/query/hooks/use-recipients";
-import { ErrorState } from "@/components/ui/states";
+import { isApiError } from "@/lib/query/hooks/use-auth";
+import type { Recipient } from "@/lib/query/hooks/use-recipients";
+import { chainName, PAYOUT_CHAINS } from "@/lib/chains";
+import { PageHeader } from "@/components/page-header";
+import { CopyField } from "@/components/copy-field";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { RowActions } from "@/components/row-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { BlockchainIcon } from "@/components/blockchain-icon";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { FormField, TextInput } from "@/components/ui/form-field";
 import {
   Select,
@@ -20,28 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { isApiError } from "@/lib/query/hooks/use-auth";
-import type { Recipient } from "@/lib/query/hooks/use-recipients";
-import type { BlockchainNetwork } from "@/lib/types";
-
-const CHAIN_MAP: Record<string, BlockchainNetwork> = {
-  ETH: "ethereum", BTC: "bitcoin", BASE: "base", POLYGON: "polygon", TRON: "tron",
-};
+import { ErrorState } from "@/components/ui/states";
 
 function truncateAddr(addr: string) {
   if (addr.length <= 16) return addr;
@@ -49,113 +41,74 @@ function truncateAddr(addr: string) {
 }
 
 export default function RecipientsPage() {
-  const { data, isLoading, error, refetch } = useRecipientsList();
+  const { data, error, refetch } = useRecipientsList();
   const [addOpen, setAddOpen] = useState(false);
   const [editRecipient, setEditRecipient] = useState<Recipient | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
+  const columns: DataTableColumn<Recipient>[] = [
+    { key: "name", header: "Name", className: "font-medium", cell: (r) => r.name },
+    { key: "email", header: "Email", className: "text-ink-soft", cell: (r) => r.email ?? null },
+    {
+      key: "asset",
+      header: "Asset",
+      cell: (r) => (
+        <span className="inline-flex items-baseline gap-1.5">
+          <span className="text-ink">{r.currencyCode}</span>
+          <span className="text-label text-ink-soft">on {chainName(r.blockchainCode)}</span>
+        </span>
+      ),
+    },
+    {
+      key: "address",
+      header: "Address",
+      cell: (r) => <CopyField value={r.address} display={truncateAddr(r.address)} boxed={false} />,
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      align: "right",
+      className: "w-0",
+      cell: (r) => (
+        <RowActions label={`Actions for ${r.name}`}>
+          <DropdownMenuItem onClick={() => setEditRecipient(r)}>Edit</DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onClick={() => setDeleteId(r.id)}>
+            Delete
+          </DropdownMenuItem>
+        </RowActions>
+      ),
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Address Book</h1>
-          <p className="text-[13px] text-muted-foreground mt-0.5">
-            Manage your saved payout recipients
-          </p>
-        </div>
-        <Button
-          onClick={() => setAddOpen(true)}
-          className="h-9 rounded-lg bg-[var(--pm-primary)] text-white hover:bg-[var(--pm-primary-deep)]"
-        >
-          Add Recipient
+    <div className="space-y-5">
+      <PageHeader title="Recipients">
+        <Button onClick={() => setAddOpen(true)}>
+          <Plus />
+          Add recipient
         </Button>
-      </div>
+      </PageHeader>
 
-      {error ? <ErrorState message={error.message} retry={refetch} /> : null}
-
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full rounded-lg" />
-          ))}
-        </div>
-      ) : data && data.length > 0 ? (
-        <Card className="border-border shadow-sm overflow-hidden">
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="pm-label pl-6">Name</TableHead>
-                  <TableHead className="pm-label">Email</TableHead>
-                  <TableHead className="pm-label">Chain</TableHead>
-                  <TableHead className="pm-label">Currency</TableHead>
-                  <TableHead className="pm-label">Address</TableHead>
-                  <TableHead className="pm-label text-right pr-6">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.map((r) => (
-                  <TableRow key={r.id} className="border-border/60 hover:bg-muted/30">
-                    <TableCell className="pl-6 font-medium text-[13px]">
-                      {r.name}
-                    </TableCell>
-                    <TableCell className="text-[13px] text-muted-foreground">
-                      {r.email ?? "\u2014"}
-                    </TableCell>
-                    <TableCell>
-                      <BlockchainIcon
-                        blockchain={CHAIN_MAP[r.blockchainCode?.toUpperCase()] ?? "ethereum"}
-                        size="sm"
-                        showLabel
-                      />
-                    </TableCell>
-                    <TableCell className="text-[13px]">{r.currencyCode}</TableCell>
-                    <TableCell className="font-mono text-[12px] text-muted-foreground">
-                      {truncateAddr(r.address)}
-                    </TableCell>
-                    <TableCell className="text-right pr-6 space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px]"
-                        onClick={() => setEditRecipient(r)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="h-7 text-[11px]"
-                        onClick={() => setDeleteId(r.id)}
-                      >
-                        Delete
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      {error ? (
+        <ErrorState message={error.message} retry={refetch} />
       ) : (
-        <Card className="border-border shadow-sm">
-          <CardContent className="flex h-40 items-center justify-center">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground">No recipients yet</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">
-                Add your first payout recipient.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <DataTable
+          columns={columns}
+          rows={data ?? []}
+          loading={!data}
+          getRowId={(r) => r.id}
+          emptyTitle="No recipients yet."
+          emptyDescription="Saved addresses fill in the payout form."
+          emptyAction={
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              Add recipient
+            </Button>
+          }
+        />
       )}
 
       <AddRecipientDialog open={addOpen} onOpenChange={setAddOpen} />
-      <EditRecipientDialog
-        recipient={editRecipient}
-        onClose={() => setEditRecipient(null)}
-      />
+      <EditRecipientDialog recipient={editRecipient} onClose={() => setEditRecipient(null)} />
       <DeleteConfirmDialog id={deleteId} onClose={() => setDeleteId(null)} />
     </div>
   );
@@ -191,7 +144,7 @@ function AddRecipientDialog({
       });
       onOpenChange(false);
     } catch (error) {
-      setErr(isApiError(error) ? error.message : "Failed to add recipient.");
+      setErr(isApiError(error) ? error.message : "The recipient could not be added.");
     }
   }
 
@@ -199,7 +152,7 @@ function AddRecipientDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Recipient</DialogTitle>
+          <DialogTitle>Add recipient</DialogTitle>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
           <FormField label="Name" htmlFor="rc-name">
@@ -208,29 +161,29 @@ function AddRecipientDialog({
           <FormField label="Email" htmlFor="rc-email" hint="Optional">
             <TextInput id="rc-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </FormField>
-          <FormField label="Blockchain" htmlFor="rc-chain">
+          <FormField label="Chain" htmlFor="rc-chain">
             <Select value={blockchain} onValueChange={(v) => { if (v) setBlockchain(v); }}>
-              <SelectTrigger id="rc-chain"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="rc-chain" className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {["ETH", "BTC", "BASE", "POLYGON", "TRON"].map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                {PAYOUT_CHAINS.map((c) => (
+                  <SelectItem key={c} value={c}>{chainName(c)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Currency" htmlFor="rc-cur">
-            <TextInput id="rc-cur" required value={currency} onChange={(e) => setCurrency(e.target.value)} />
+          <FormField label="Asset" htmlFor="rc-cur">
+            <TextInput id="rc-cur" required value={currency} onChange={(e) => setCurrency(e.target.value)} className="uppercase" />
           </FormField>
           <FormField label="Address" htmlFor="rc-addr">
-            <TextInput id="rc-addr" required value={address} onChange={(e) => setAddress(e.target.value)} />
+            <TextInput id="rc-addr" required value={address} onChange={(e) => setAddress(e.target.value)} className="font-mono" autoComplete="off" spellCheck={false} />
           </FormField>
           <FormField label="Memo" htmlFor="rc-memo" hint="Optional">
             <TextInput id="rc-memo" value={memo} onChange={(e) => setMemo(e.target.value)} />
           </FormField>
-          {err ? <p role="alert" className="text-sm text-destructive">{err}</p> : null}
+          {err ? <p role="alert" className="text-body-sm text-bad">{err}</p> : null}
           <DialogFooter>
-            <Button type="submit" disabled={create.isPending} className="bg-[var(--pm-primary)] text-white hover:bg-[var(--pm-primary-deep)]">
-              {create.isPending ? "Adding..." : "Add Recipient"}
+            <Button type="submit" disabled={create.isPending}>
+              {create.isPending ? "Adding..." : "Add recipient"}
             </Button>
           </DialogFooter>
         </form>
@@ -283,7 +236,7 @@ function EditRecipientDialog({
       });
       onClose();
     } catch (error) {
-      setErr(isApiError(error) ? error.message : "Failed to update recipient.");
+      setErr(isApiError(error) ? error.message : "The recipient could not be saved.");
     }
   }
 
@@ -291,7 +244,7 @@ function EditRecipientDialog({
     <Dialog open={recipient !== null} onOpenChange={() => onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit Recipient</DialogTitle>
+          <DialogTitle>Edit recipient</DialogTitle>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
           <FormField label="Name" htmlFor="ed-name">
@@ -300,25 +253,25 @@ function EditRecipientDialog({
           <FormField label="Email" htmlFor="ed-email" hint="Optional">
             <TextInput id="ed-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </FormField>
-          <FormField label="Blockchain" htmlFor="ed-chain">
-            <TextInput id="ed-chain" value={recipient?.blockchainCode ?? ""} disabled className="opacity-60" />
+          <FormField label="Chain" htmlFor="ed-chain">
+            <TextInput id="ed-chain" value={chainName(recipient?.blockchainCode)} disabled />
           </FormField>
-          <FormField label="Currency" htmlFor="ed-cur">
-            <TextInput id="ed-cur" value={recipient?.currencyCode ?? ""} disabled className="opacity-60" />
+          <FormField label="Asset" htmlFor="ed-cur">
+            <TextInput id="ed-cur" value={recipient?.currencyCode ?? ""} disabled />
           </FormField>
           <FormField label="Address" htmlFor="ed-addr">
-            <TextInput id="ed-addr" required value={address} onChange={(e) => setAddress(e.target.value)} />
+            <TextInput id="ed-addr" required value={address} onChange={(e) => setAddress(e.target.value)} className="font-mono" autoComplete="off" spellCheck={false} />
           </FormField>
           <FormField label="Memo" htmlFor="ed-memo" hint="Optional">
             <TextInput id="ed-memo" value={memo} onChange={(e) => setMemo(e.target.value)} />
           </FormField>
-          {err ? <p role="alert" className="text-sm text-destructive">{err}</p> : null}
+          {err ? <p role="alert" className="text-body-sm text-bad">{err}</p> : null}
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={update.isPending} className="bg-[var(--pm-primary)] text-white hover:bg-[var(--pm-primary-deep)]">
-              {update.isPending ? "Saving..." : "Save Changes"}
+            <Button type="submit" disabled={update.isPending}>
+              {update.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </form>
@@ -346,11 +299,9 @@ function DeleteConfirmDialog({
     <Dialog open={id !== null} onOpenChange={() => onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Delete Recipient</DialogTitle>
+          <DialogTitle>Delete this recipient?</DialogTitle>
+          <DialogDescription>This cannot be undone.</DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Are you sure you want to delete this recipient? This cannot be undone.
-        </p>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="destructive" onClick={onConfirm} disabled={remove.isPending}>

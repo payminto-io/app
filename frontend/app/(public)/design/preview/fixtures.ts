@@ -89,6 +89,24 @@ type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: U
 
 const ROUTES: Route[] = [
   {
+    method: "GET",
+    pattern: /^\/analytics\/sweeps$/,
+    body: () => ({ sweeps: { TotalSweeps: 12, TotalSwept: "14820.5", TotalGas: "0.084213" } }),
+    empty: { sweeps: { TotalSweeps: 0, TotalSwept: "0", TotalGas: "0" } },
+  },
+  {
+    method: "GET",
+    pattern: /^\/recipients$/,
+    body: () => ({
+      recipients: [
+        { id: 1, externalPlatformID: 1, memberID: 1, name: "Sample supplier", email: "supplier@example.com", blockchainCode: "ETH", currencyCode: "USDC", address: "0x3b7d2e9f1a8c4b6d0e5f7a9c1b3d5e7f9a1c3e5b", createdAt: iso(-20 * DAY), updatedAt: iso(-2 * DAY) },
+        { id: 2, externalPlatformID: 1, memberID: 1, name: "Sample contractor", blockchainCode: "TRON", currencyCode: "USDT", address: "TSampleContractorAddr9xK3mD5pL9hF4cA6z", createdAt: iso(-11 * DAY), updatedAt: iso(-11 * DAY) },
+        { id: 3, externalPlatformID: 1, memberID: 1, name: "Sample treasury", blockchainCode: "BTC", currencyCode: "BTC", address: "bc1qsampletreasury0x7w9r2n8v3m5p0l9h4c6a2", createdAt: iso(-4 * DAY), updatedAt: iso(-4 * DAY) },
+      ],
+    }),
+    empty: { recipients: [] },
+  },
+  {
     method: "POST",
     pattern: /^\/api-keys$/,
     body: () => ({ id: 9, name: "Sample", prefix: "pk_test_new0", active: true, status: "active", externalPlatformID: 1, createdAt: iso(0), rawKey: "pk_test_SAMPLE_not_a_real_key_0000000000000000" }),

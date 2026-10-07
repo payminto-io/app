@@ -31,17 +31,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ErrorState } from "@/components/ui/states";
+import { chainName } from "@/lib/chains";
 import { WalletTabs } from "../_components/wallet-tabs";
 
 /* ── Chain metadata ────────────────────────────────────── */
 
-const CHAIN_NAME: Record<string, string> = {
-  ETH: "Ethereum",
-  BASE: "Base",
-  POLYGON: "Polygon",
-  BTC: "Bitcoin",
-  TRX: "Tron",
-};
 
 const CHAIN_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "ETH", label: "Ethereum" },
@@ -100,7 +94,7 @@ const COLUMNS: DataTableColumn<ColdWallet>[] = [
     header: "Chain",
     cell: (w) => (
       <span className="inline-flex items-baseline gap-1.5">
-        <span className="text-ink">{CHAIN_NAME[w.blockchainCode] ?? w.blockchainCode}</span>
+        <span className="text-ink">{chainName(w.blockchainCode)}</span>
         <span className="font-mono text-label text-ink-soft">{w.blockchainCode}</span>
       </span>
     ),

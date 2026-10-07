@@ -10,6 +10,7 @@ import {
 import { isApiError } from "@/lib/query/hooks/use-auth";
 import { presentWithdrawalState, type Withdrawal } from "@/lib/api/withdrawal-contract";
 import { getExplorerUrl } from "@/lib/formatters";
+import { chainName, PAYOUT_CHAINS } from "@/lib/chains";
 import { PageHeader } from "@/components/page-header";
 import { CopyField } from "@/components/copy-field";
 import { CurrencyDisplay } from "@/components/currency-display";
@@ -35,13 +36,6 @@ import {
 import { ErrorState } from "@/components/ui/states";
 import { StatusBadge } from "@/components/ui/status-badge";
 
-const CHAIN_NAME: Record<string, string> = {
-  ETH: "Ethereum",
-  BTC: "Bitcoin",
-  BASE: "Base",
-  POLYGON: "Polygon",
-  TRON: "Tron",
-};
 const EXPLORER_CHAIN: Record<string, string> = {
   ETH: "ethereum",
   BTC: "bitcoin",
@@ -72,7 +66,7 @@ const COLUMNS: DataTableColumn<Withdrawal>[] = [
     key: "chain",
     header: "Chain",
     className: "text-ink-soft",
-    cell: (w) => CHAIN_NAME[w.blockchainCode?.toUpperCase()] ?? w.blockchainCode,
+    cell: (w) => chainName(w.blockchainCode),
   },
   {
     key: "tx",
@@ -232,8 +226,8 @@ function CreatePayoutDialog({
                 <Select value={blockchain} onValueChange={(v) => { if (v) setBlockchain(v); }}>
                   <SelectTrigger id="wd-chain" className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["ETH", "BTC", "BASE", "POLYGON", "TRON"].map((c) => (
-                      <SelectItem key={c} value={c}>{CHAIN_NAME[c] ?? c}</SelectItem>
+                    {PAYOUT_CHAINS.map((c) => (
+                      <SelectItem key={c} value={c}>{chainName(c)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
