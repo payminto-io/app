@@ -779,8 +779,29 @@ func (s *SolanaDepositService) fail(d *models.Deposit) error {
 	return res.Error
 }
 
-// finalize marks the deposit confirmed (from pending, confirming or a revived failed) and posts its
-// journal atomically when a ledger is wired, then finalizes the payment.
+// switchOwnsPayment reports a payment opened by the switch's chaindeposit connector: its invoice_id is
+// a switch attempt id, and the switch posts that payment's journal on Sync. Every other payment
+// (legacy POST /payment) gets its one payment journal from the watcher.
+func switchOwnsPayment(tx *gorm.DB, paymentRequestID *uint) (bool, error) {
+	if paymentRequestID == nil {
+		return false, nil
+	}
+	var p models.PaymentRequest
+	if err := tx.Select("id", "invoice_id").First(&p, *paymentRequestID).Error; err != nil {
+		return false, err
+	}
+	if p.InvoiceID == nil || *p.InvoiceID == "" || !tx.Migrator().HasTable("switch_payment_attempts") {
+		return false, nil
+	}
+	var n int64
+	if err := tx.Table("switch_payment_attempts").Where("id = ?", *p.InvoiceID).Count(&n).Error; err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// finalize marks the deposit confirmed (from pending, confirming or a revived failed) and, in the same
+// transaction, posts the payment journal unless the switch owns the payment; then finalizes the payment.
 func (s *SolanaDepositService) finalize(ctx context.Context, d *models.Deposit) (bool, error) {
 	won := false
 	post := func(tx *gorm.DB) error {
@@ -796,6 +817,10 @@ func (s *SolanaDepositService) finalize(ctx context.Context, d *models.Deposit) 
 		won = true
 		if s.ledger == nil {
 			return nil
+		}
+		owned, err := switchOwnsPayment(tx, d.PaymentRequestID)
+		if err != nil || owned {
+			return err
 		}
 		return s.ledger.RecordDepositIn(ctx, tx, d.ID, d.BlockchainCurrencyID, d.Amount)
 	}

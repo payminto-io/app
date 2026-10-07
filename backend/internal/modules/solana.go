@@ -29,8 +29,6 @@ type SolanaModule struct {
 	// FeePayer and HotWallet are set only when sweeping is configured.
 	FeePayer  *solana.Ed25519Signer
 	HotWallet solana.PublicKey
-	// PostDepositJournals is SOLANA_POST_DEPOSIT_JOURNALS.
-	PostDepositJournals bool
 	// LateWindow is how long after payment expiry an account stays watched.
 	LateWindow time.Duration
 	// Tokens are the enabled SPL rows after validation against the chain.
@@ -112,8 +110,7 @@ func WireSolana(deps Deps) (*SolanaModule, error) {
 	adapter := solana.NewAdapterWithCaller(caller, cluster)
 	m := &SolanaModule{
 		Adapter: adapter, Client: adapter.Client(), Chain: chain, Cluster: cluster,
-		PostDepositJournals: cfg.Solana.PostDepositJournals,
-		LateWindow:          time.Duration(max(cfg.Solana.LateWindowDays, 1)) * 24 * time.Hour,
+		LateWindow: time.Duration(max(cfg.Solana.LateWindowDays, 1)) * 24 * time.Hour,
 	}
 
 	if cfg.Solana.HotWalletAddress != "" || cfg.Solana.FeePayerKey != "" {
@@ -160,17 +157,31 @@ func WireSolana(deps Deps) (*SolanaModule, error) {
 	return m, nil
 }
 
-// requireProviderEndpoint refuses, in live, a pool made only of Solana Labs' public endpoints.
+// requireProviderEndpoint refuses, in live, a pool made only of Solana Labs' public endpoints, and a
+// pool with fewer than two distinct endpoints: drop and expiry evidence needs two (sweeps cannot
+// rebuild without it; see service/SOLANA_SWEEPS.md).
 func requireProviderEndpoint(env environment.Environment, nodes []models.RPCNode) error {
 	if env != environment.Live {
 		return nil
 	}
+	distinct := map[string]bool{}
+	provider := false
 	for _, n := range nodes {
-		if !IsPublicSolanaEndpoint(n.URL) {
-			return nil
-		}
+		distinct[normalizeEndpoint(n.URL)] = true
+		provider = provider || !IsPublicSolanaEndpoint(n.URL)
 	}
-	return fmt.Errorf("%w: solana rpc_nodes hold only public endpoints; live needs a provider endpoint (add an rpc_nodes row)", environment.ErrBoot)
+	if !provider {
+		return fmt.Errorf("%w: solana rpc_nodes hold only public endpoints; live needs a provider endpoint (add an rpc_nodes row)", environment.ErrBoot)
+	}
+	if len(distinct) < 2 {
+		return fmt.Errorf("%w: solana rpc_nodes hold %d distinct endpoint; live needs at least two for drop and expiry evidence (add an rpc_nodes row)", environment.ErrBoot, len(distinct))
+	}
+	return nil
+}
+
+// normalizeEndpoint compares endpoint URLs case-insensitively and without a trailing slash.
+func normalizeEndpoint(raw string) string {
+	return strings.TrimRight(strings.ToLower(strings.TrimSpace(raw)), "/")
 }
 
 // validateMint checks the seeded token program and decimals against the mint account on chain.

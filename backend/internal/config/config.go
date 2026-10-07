@@ -162,10 +162,6 @@ type SolanaConfig struct {
 	LateWindowDays int
 	// RequestsPerSecond is the per-RPC-node budget; the public endpoints allow about 10.
 	RequestsPerSecond int
-	// PostDepositJournals posts the deposit's payment journal from the watcher at finalization.
-	// Default false: the switch's chaindeposit connector posts the attempt journal (one journal per
-	// finalized deposit); true only for a deployment without the switch.
-	PostDepositJournals bool
 }
 
 // SecurityConfig controls authentication and the optional custody capability.
@@ -248,7 +244,6 @@ func Load() (*Config, error) {
 			SweepIntervalSeconds:     envInt("SOLANA_SWEEP_INTERVAL_SECONDS", 30),
 			LateWindowDays:           envInt("SOLANA_LATE_WINDOW_DAYS", 7),
 			RequestsPerSecond:        envInt("SOLANA_RPC_REQUESTS_PER_SECOND", 10),
-			PostDepositJournals:      envBool("SOLANA_POST_DEPOSIT_JOURNALS", false),
 		},
 		Security: SecurityConfig{
 			AESKey:          envStr("AES_KEY", ""),

@@ -131,7 +131,10 @@ func TestSolanaSweep_I1_LastAttemptLandingBehindLaggingNodesIsBooked(t *testing.
 	f.svc.SweepConfirmed(ctx)
 	// The attempt landed (the account is empty) but both nodes lag and the height passed validity.
 	balance = "0"
-	f.rpc.On("getSignatureStatuses", func(p []any) (any, error) { sigs, _ := p[0].([]string); return solana.ContextValue(1, make([]any, len(sigs))), nil })
+	f.rpc.On("getSignatureStatuses", func(p []any) (any, error) {
+		sigs, _ := p[0].([]string)
+		return solana.ContextValue(1, make([]any, len(sigs))), nil
+	})
 	f.rpc.Result("getBlockHeight", 600)
 	f.rpc.Result("getTransaction", nil)
 	f.svc.TrackConfirmations(ctx)

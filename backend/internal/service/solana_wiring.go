@@ -8,7 +8,6 @@ import (
 
 	"github.com/payminto/payminto/backend/internal/blockchain/solana"
 	"github.com/payminto/payminto/backend/internal/config"
-	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/modules"
 )
@@ -57,15 +56,10 @@ func (r *ServiceRegistry) wireSolana(cfg *config.Config) error {
 	log.Printf("[registry] registered SOLANA adapter (%s, %d tokens validated)", m.Cluster, len(m.Tokens))
 	r.depositAddressService.WithSolanaDepositAccounts(r.solanaDepositAccountRepo, r.db, m.LateWindow)
 
-	var depositLedger *LedgerService
-	if m.PostDepositJournals {
-		depositLedger = r.ledgerService
-	} else {
-		log.Printf("[registry] solana deposit journals are left to the switch (SOLANA_POST_DEPOSIT_JOURNALS=false)")
-	}
+	// The watcher posts the payment journal only for payments the switch does not own (switchOwnsPayment).
 	r.solanaDepositService = NewSolanaDepositService(
 		r.db, m.Client, m.Chain, r.solanaDepositAccountRepo, r.depositRepo, r.depositService,
-		r.missedDepositRepo, r.blockchainCurrencyRepo, depositLedger, nil,
+		r.missedDepositRepo, r.blockchainCurrencyRepo, r.ledgerService, nil,
 		SolanaDepositConfig{LateWindow: m.LateWindow},
 	)
 	if m.FeePayer == nil {
@@ -75,7 +69,7 @@ func (r *ServiceRegistry) wireSolana(cfg *config.Config) error {
 	r.solanaSweepService = NewSolanaSweepService(
 		r.db, m.Client, m.Chain, r.depositRepo, r.solanaDepositAccountRepo, r.blockchainCurrencyRepo, r.missedDepositRepo,
 		r.sweepRepo, r.sweepTxRepo, r.sweepService, r.sweepTransactionService, r.keyResolver, *m.FeePayer, m.HotWallet,
-		ledger.New(r.db, ledger.WithEnvironment(r.environmentModule.Environment), ledger.WithGuard(r.environmentModule.Guard)),
+		r.journal,
 		SolanaSweepConfig{
 			BatchSize: cfg.Solana.SweepBatchSize, ComputeUnitLimit: cfg.Solana.ComputeUnitLimit,
 			PriorityFeeMicroLamports: cfg.Solana.PriorityFeeMicroLamports, CloseAccounts: cfg.Solana.CloseDepositAccounts,

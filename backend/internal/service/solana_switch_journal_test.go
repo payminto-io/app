@@ -14,12 +14,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Step 0 of fix round 2: with SOLANA_POST_DEPOSIT_JOURNALS off (the default), one finalized Solana
-// deposit yields exactly one payment journal, posted by the switch's chaindeposit path in USDC.SOLANA.
+// One finalized Solana deposit on a switch-owned payment yields exactly one payment journal, posted by
+// the switch's chaindeposit path in USDC.SOLANA; the watcher, ledger wired, posts none (NEW2-M2).
 func TestSolanaDeposit_SwitchPathPostsExactlyOnePaymentJournal(t *testing.T) {
 	f := newSolanaFixture(t)
 	must(t, paymentswitch.Migrate(f.db))
-	f.svc.ledger = nil // the flag's effect in wiring
+	// The watcher has its ledger wired as in production; it must skip the switch-owned payment.
 
 	// Payminto side: an HD pool row for the owner so the switch's opener gets a real ATA.
 	var family models.BlockchainFamily
@@ -77,7 +77,7 @@ func TestSolanaDeposit_SwitchPathPostsExactlyOnePaymentJournal(t *testing.T) {
 	var journals int64
 	f.db.Table("ledger_journals").Where("kind = ?", "payment").Count(&journals)
 	if journals != 0 {
-		t.Fatalf("watcher posted %d journals with the flag off", journals)
+		t.Fatalf("watcher posted %d journals for a switch-owned payment", journals)
 	}
 
 	// The switch syncs the attempt and posts the one payment journal.
@@ -106,5 +106,35 @@ func TestSolanaDeposit_SwitchPathPostsExactlyOnePaymentJournal(t *testing.T) {
 	f.db.Table("ledger_journals").Where("kind = ?", "payment").Count(&journals)
 	if journals != 1 {
 		t.Fatalf("payment journals after replay = %d", journals)
+	}
+}
+
+// NEW2-M2: a payment created through the legacy POST /payment route (no switch attempt) gets exactly
+// one payment journal from the watcher, with the switch tables present.
+func TestSolanaDeposit_LegacyPaymentGetsExactlyOneWatcherJournal(t *testing.T) {
+	f := newSolanaFixture(t)
+	must(t, paymentswitch.Migrate(f.db))
+	pr, _ := f.newPayment("25", f.usdc, fxOwner, fxUSDCATA)
+	invoice := "merchant-invoice-42"
+	must(t, f.db.Model(&models.PaymentRequest{}).Where("id = ?", pr.ID).Update("invoice_id", invoice).Error)
+	f.script(map[string][]string{fxUSDCATA: {"usdc_transfer_checked.json"}})
+	ctx := context.Background()
+	if f.mustPoll(ctx) != 1 {
+		t.Fatal("deposit not recorded")
+	}
+	f.statuses(map[string]any{"slot": 250000123, "confirmations": nil, "err": nil, "confirmationStatus": "finalized"})
+	if f.mustConfirm(ctx) != 1 {
+		t.Fatal("deposit not finalized")
+	}
+	var journals int64
+	f.db.Table("ledger_journals").Where("kind = ?", "payment").Count(&journals)
+	if journals != 1 {
+		t.Fatalf("legacy payment journals = %d, want exactly one", journals)
+	}
+	f.mustConfirm(ctx)
+	f.mustPoll(ctx)
+	f.db.Table("ledger_journals").Where("kind = ?", "payment").Count(&journals)
+	if journals != 1 {
+		t.Fatalf("legacy payment journals after replay = %d", journals)
 	}
 }

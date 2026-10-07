@@ -42,7 +42,6 @@ func solanaConfig(env string) *config.Config {
 	cfg.Blockchain.NetworkType = "testnet"
 	cfg.Solana.RequestsPerSecond = 10
 	cfg.Solana.LateWindowDays = 7
-	cfg.Solana.PostDepositJournals = true
 	if env == "live" {
 		cfg.Blockchain.NetworkType = "mainnet"
 	}
@@ -85,12 +84,32 @@ func TestWireSolana_LiveRefusesPublicEndpoint(t *testing.T) {
 	}
 }
 
+// NEW2-M1: live refuses one provider endpoint (also listed twice under different spellings) and boots
+// past the endpoint check with two distinct ones.
+func TestWireSolana_LiveRequiresTwoDistinctEndpoints(t *testing.T) {
+	db := solanaTestDB(t, "https://mainnet.helius-rpc.com/?api-key=x")
+	_, err := WireSolana(Deps{DB: db, Config: solanaConfig("live")})
+	if !errors.Is(err, environment.ErrBoot) || !strings.Contains(err.Error(), "at least two") {
+		t.Fatalf("one endpoint: err = %v", err)
+	}
+	var chain models.Blockchain
+	db.First(&chain)
+	db.Create(&models.RPCNode{BlockchainID: chain.ID, Name: "same", URL: "HTTPS://mainnet.helius-rpc.com/?api-key=x/", Status: models.RPCNodeStatusHealthy})
+	if _, err := WireSolana(Deps{DB: db, Config: solanaConfig("live")}); !errors.Is(err, environment.ErrBoot) || !strings.Contains(err.Error(), "at least two") {
+		t.Fatalf("same endpoint twice: err = %v", err)
+	}
+	db.Create(&models.RPCNode{BlockchainID: chain.ID, Name: "second", URL: "https://solana-mainnet.g.alchemy.com/v2/x", Status: models.RPCNodeStatusHealthy})
+	if _, err := WireSolana(Deps{DB: db, Config: solanaConfig("live")}); err != nil && strings.Contains(err.Error(), "rpc_nodes") {
+		t.Fatalf("two distinct endpoints refused: %v", err)
+	}
+}
+
 func TestWireSolana_TestEnvironmentWiresWithPublicEndpoint(t *testing.T) {
 	m, err := WireSolana(Deps{DB: solanaTestDB(t, "https://api.devnet.solana.com"), Config: solanaConfig("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Adapter.Code() != solana.ChainCode || m.Cluster != solana.ClusterDevnet || m.FeePayer != nil || !m.PostDepositJournals {
+	if m.Adapter.Code() != solana.ChainCode || m.Cluster != solana.ClusterDevnet || m.FeePayer != nil {
 		t.Fatalf("module = %+v", m)
 	}
 }
