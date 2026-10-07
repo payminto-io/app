@@ -154,6 +154,30 @@ func (p *RPCPool) HealthCheck() error {
 	return p.Refresh()
 }
 
+// IDs lists the ids of the nodes in rotation.
+func (p *RPCPool) IDs() []uint {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]uint, 0, len(p.nodes))
+	for _, n := range p.nodes {
+		out = append(out, n.ID)
+	}
+	return out
+}
+
+// Node returns one node in rotation by id.
+func (p *RPCPool) Node(id uint) (*models.RPCNode, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for i := range p.nodes {
+		if p.nodes[i].ID == id {
+			n := p.nodes[i]
+			return &n, true
+		}
+	}
+	return nil, false
+}
+
 func (p *RPCPool) evictFromMemory(nodeID uint) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

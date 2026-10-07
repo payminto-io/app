@@ -20,6 +20,8 @@ func familyForChain(chainCode string) (string, bool) {
 		return "BTC_Family", true
 	case "TRX":
 		return "TRX_Family", true
+	case "SOLANA", "SOL":
+		return "SOL_Family", true
 	}
 	return "", false
 }

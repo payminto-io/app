@@ -12,6 +12,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// solanaChainCode mirrors solana.ChainCode without importing the adapter here.
+const solanaChainCode = "SOLANA"
+
 // DepositProcessor is a background worker that polls for Deposit rows in the
 // CONFIRMING state and marks them CONFIRMED once they reach the required
 // on-chain confirmation count.
@@ -53,6 +56,10 @@ func (dp *DepositProcessor) processConfirmingDeposits() {
 		Find(&deposits)
 
 	for _, d := range deposits {
+		// Solana is credited only at finalized by its own watcher; the count can never promote it here.
+		if d.BlockchainCurrency != nil && d.BlockchainCurrency.BlockchainCode == solanaChainCode {
+			continue
+		}
 		if d.Confirmations >= d.RequiredConfirmations {
 			dp.db.Model(&d).Updates(map[string]any{
 				"status": models.DepositStatusConfirmed,

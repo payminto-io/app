@@ -104,6 +104,8 @@ func (r *KeyResolver) PrivateKeyForAddress(address string) (privKey []byte, fami
 			net = &chaincfg.MainNetParams
 		}
 		derivedAddr, privKey, err = crypto.DeriveBtcAddress(seed, 0, uint32(pool.PathIndex), net)
+	case "SOL_Family", "sol", "SOL":
+		derivedAddr, privKey, err = crypto.DeriveSolanaAddress(seed, uint32(pool.PathIndex))
 	default:
 		return nil, "", fmt.Errorf("unsupported family %q", family.Code)
 	}

@@ -18,6 +18,7 @@ type Config struct {
 	Database   DatabaseConfig
 	Redis      RedisConfig
 	Blockchain BlockchainConfig
+	Solana     SolanaConfig
 	Security   SecurityConfig
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
@@ -154,6 +155,29 @@ type BlockchainConfig struct {
 	ColdWalletTRX string // Tron cold-storage destination
 }
 
+// SolanaConfig is the SOLANA_* section; mints live in the blockchain_currencies seeds, not here.
+// Reasoning: internal/blockchain/solana/README.md.
+type SolanaConfig struct {
+	// Cluster is mainnet-beta, devnet, testnet or localnet; defaults from BLOCKCHAIN_NETWORK_TYPE.
+	Cluster string
+	// HotWalletAddress is the owner whose ATAs receive sweeps; empty disables sweeping.
+	HotWalletAddress string
+	// FeePayerKey funds sweep fees and ATA rent: base58 secret, CLI JSON array, or a path to one.
+	FeePayerKey string
+	// DevnetUSDTMint fills the devnet USDT row, which has no official mint; ignored on mainnet.
+	DevnetUSDTMint           string
+	PriorityFeeMicroLamports uint64
+	ComputeUnitLimit         uint32
+	SweepBatchSize           int
+	CloseDepositAccounts     bool
+	PollIntervalSeconds      int
+	SweepIntervalSeconds     int
+	// LateWindowDays keeps a deposit account watched after payment expiry (late money).
+	LateWindowDays int
+	// RequestsPerSecond is the per-RPC-node budget; the public endpoints allow about 10.
+	RequestsPerSecond int
+}
+
 // SecurityConfig controls authentication and the optional custody capability.
 // AESKey is retained for legacy configuration compatibility; current custody
 // encrypts wallet material through the passphrase-derived SecretsVault.
@@ -225,6 +249,20 @@ func Load() (*Config, error) {
 			ColdWalletETH: envStr("COLD_WALLET_ETH", ""),
 			ColdWalletBTC: envStr("COLD_WALLET_BTC", ""),
 			ColdWalletTRX: envStr("COLD_WALLET_TRX", ""),
+		},
+		Solana: SolanaConfig{
+			Cluster:                  envStr("SOLANA_CLUSTER", ""),
+			HotWalletAddress:         envStr("SOLANA_HOT_WALLET_ADDRESS", ""),
+			FeePayerKey:              envStr("SOLANA_FEE_PAYER_KEY", ""),
+			DevnetUSDTMint:           envStr("SOLANA_DEVNET_USDT_MINT", ""),
+			PriorityFeeMicroLamports: uint64(envInt("SOLANA_PRIORITY_FEE_MICROLAMPORTS", 0)),
+			ComputeUnitLimit:         uint32(envInt("SOLANA_COMPUTE_UNIT_LIMIT", 120000)),
+			SweepBatchSize:           envInt("SOLANA_SWEEP_BATCH_SIZE", 5),
+			CloseDepositAccounts:     envBool("SOLANA_CLOSE_DEPOSIT_ACCOUNTS", true),
+			PollIntervalSeconds:      envInt("SOLANA_POLL_INTERVAL_SECONDS", 5),
+			SweepIntervalSeconds:     envInt("SOLANA_SWEEP_INTERVAL_SECONDS", 30),
+			LateWindowDays:           envInt("SOLANA_LATE_WINDOW_DAYS", 7),
+			RequestsPerSecond:        envInt("SOLANA_RPC_REQUESTS_PER_SECOND", 10),
 		},
 		Security: SecurityConfig{
 			AESKey:          envStr("AES_KEY", ""),

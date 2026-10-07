@@ -117,6 +117,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.EntrypointSCAddress{},
 		&models.InternalBlockchainTransaction{},
 		&models.MissedDeposit{},
+		&models.SolanaDepositAccount{},
+		&models.SolanaSweepAttempt{},
+		&models.SolanaSweepDeposit{},
+		&models.SolanaSweepLock{},
 
 		// --- Withdrawals / onramp / recipient — Phase C ---
 		&models.Withdrawal{},

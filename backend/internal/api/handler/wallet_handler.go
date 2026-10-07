@@ -558,6 +558,8 @@ func nativeChainForFamily(familyCode string) (chain string, decimals int32, symb
 		return "BTC", 8, "BTC", true
 	case "TRX_Family":
 		return "TRX", 6, "TRX", true
+	case "SOL_Family":
+		return "SOLANA", 9, "SOL", true
 	}
 	return "", 0, "", false
 }

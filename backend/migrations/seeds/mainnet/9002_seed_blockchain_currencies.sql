@@ -21,3 +21,16 @@ INSERT INTO blockchain_currencies (blockchain_id, currency_id, address, standard
   ((SELECT id FROM blockchains WHERE code='TRX'),     (SELECT id FROM currencies WHERE code='TRX'),  '',                                            'native', 'TRX',  'TRX',     true, true, true, 6,  NOW(), NOW()),
   ((SELECT id FROM blockchains WHERE code='TRX'),     (SELECT id FROM currencies WHERE code='USDT'), 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',         'TRC20',  'USDT', 'TRX',     true, true, true, 6,  NOW(), NOW())
 ON CONFLICT DO NOTHING;
+
+-- Solana (ticket 09): SOL native (gas is booked in SOL.SOLANA), USDC and USDT as peer SPL assets.
+-- Mints are data here, never in code. standard 'SPL' pins the classic token program; a Token-2022
+-- mint must be seeded as 'SPL-2022' to be accepted.
+INSERT INTO currencies (name, code, type, visible, deposit_enabled, withdrawal_enabled, wallet_precision, base_precision, created_at, updated_at) VALUES
+  ('Solana', 'SOL', 'native', true, true, true, 9, 9, NOW(), NOW())
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO blockchain_currencies (blockchain_id, currency_id, address, standard, currency_code, blockchain_code, deposit_enabled, withdrawal_enabled, visible, wallet_precision, min_deposit_amount, created_at, updated_at) VALUES
+  ((SELECT id FROM blockchains WHERE code='SOLANA'), (SELECT id FROM currencies WHERE code='SOL'),  '',                                             'native', 'SOL',  'SOLANA', false, true, false, 9, NULL,     NOW(), NOW()),
+  ((SELECT id FROM blockchains WHERE code='SOLANA'), (SELECT id FROM currencies WHERE code='USDC'), 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'SPL',    'USDC', 'SOLANA', true,  true, true,  6, 0.01,     NOW(), NOW()),
+  ((SELECT id FROM blockchains WHERE code='SOLANA'), (SELECT id FROM currencies WHERE code='USDT'), 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYb', 'SPL',    'USDT', 'SOLANA', true,  true, true,  6, 0.01,     NOW(), NOW())
+ON CONFLICT DO NOTHING;

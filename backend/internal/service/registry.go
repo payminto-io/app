@@ -91,6 +91,12 @@ type ServiceRegistry struct {
 	// blockchain adapter registry
 	adapterRegistry *blockchain.AdapterRegistry
 
+	// Solana (ticket 09): owner/ATA records, signature watcher, sponsored sweeps
+	solanaDepositAccountRepo repository.SolanaDepositAccountRepository
+	solanaModule             *modules.SolanaModule
+	solanaDepositService     *SolanaDepositService
+	solanaSweepService       *SolanaSweepService
+
 	// services (existing — Phase A.9 will refactor these to take repos)
 	authService         *AuthService
 	paymentService      *PaymentService
@@ -252,6 +258,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 	r.walletSCWRepo = repository.NewWalletSCWRepository(db)
 	r.addressRepo = repository.NewAddressRepository(db)
 	r.missedDepositRepo = repository.NewMissedDepositRepository(db)
+	r.solanaDepositAccountRepo = repository.NewSolanaDepositAccountRepository(db)
 
 	// Phase F: Sweep, UTXO, InternalBlockchainTx, AddressDeployment, Account repos
 	r.sweepRepo = repository.NewSweepRepository(db)
@@ -295,7 +302,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 				log.Printf("[registry] no RPC nodes for %s, skipping adapter", chain.Code)
 				continue
 			}
-			switch chain.Family {
+			switch familyOfChain(chain) {
 			case "ETH_Family":
 				chainID := int64(0)
 				if chain.ChainID != nil {
@@ -320,6 +327,8 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 				adapter := tronAdapter.NewAdapter(pool, tronNet)
 				_ = r.adapterRegistry.Register(adapter)
 				log.Printf("[registry] registered TRX adapter for %s (%s, %d RPC nodes)", chain.Code, tronNet, pool.Len())
+			case "SOL_Family":
+				// Wired by modules.WireSolana below (rate limit, live endpoint policy, mint validation).
 			default:
 				log.Printf("[registry] no adapter impl for family %s (chain %s), skipping", chain.Family, chain.Code)
 			}
@@ -438,6 +447,11 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 		r.sweepService,
 		NewAdapterConfirmationChecker(r.adapterRegistry),
 	)
+
+	// Ticket 09: Solana module (adapter, RPC policy, sweep identity), then watcher and sweeper.
+	if err := r.wireSolana(cfg); err != nil {
+		return nil, fmt.Errorf("wire solana: %w", err)
+	}
 
 	// Phase F.4: UTXOService
 	r.utxoService = NewUTXOService(r.utxoRepo)
@@ -714,6 +728,20 @@ func (r *ServiceRegistry) WalletSCWRepo() repository.WalletSCWRepository {
 }
 func (r *ServiceRegistry) AddressRepo() repository.AddressRepository {
 	return r.addressRepo
+}
+
+// SolanaDepositService returns the Solana signature watcher, or nil when SOLANA has no adapter.
+func (r *ServiceRegistry) SolanaDepositService() *SolanaDepositService { return r.solanaDepositService }
+
+// SolanaSweepService returns the Solana sweeper, or nil when sweeping is not configured.
+func (r *ServiceRegistry) SolanaSweepService() *SolanaSweepService { return r.solanaSweepService }
+
+// SolanaModule returns the wired Solana module, or nil when SOLANA is not seeded.
+func (r *ServiceRegistry) SolanaModule() *modules.SolanaModule { return r.solanaModule }
+
+// SolanaDepositAccountRepo returns the owner/ATA repository.
+func (r *ServiceRegistry) SolanaDepositAccountRepo() repository.SolanaDepositAccountRepository {
+	return r.solanaDepositAccountRepo
 }
 
 // MissedDepositRepo returns the MissedDeposit repository.

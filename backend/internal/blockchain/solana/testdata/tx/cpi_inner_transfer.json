@@ -1,0 +1,43 @@
+{
+  "slot": 250001500,
+  "blockTime": 1759839700,
+  "transaction": {
+    "signatures": ["2eF4gH6jK8lM1nP3qR5sT7uV9wX2yZ4aB6cD8eF1gH3jK5lM7nP9qR2sT4uV6wX8yZ1aB3cD5eF7gH9jK2lM4n"],
+    "message": {
+      "accountKeys": [
+        {"pubkey": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "signer": true, "writable": true, "source": "transaction"},
+        {"pubkey": "4UPQECFG63ACbYHxyqUKqCsGrVAPEu65QXF5wnMJ3vLh", "signer": false, "writable": true, "source": "transaction"},
+        {"pubkey": "5N3f1tj9v1vc5TUZ8S7mCAnVmjVKrfnzXWhxLaxyZAgt", "signer": false, "writable": true, "source": "transaction"},
+        {"pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "signer": false, "writable": false, "source": "transaction"},
+        {"pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "signer": false, "writable": false, "source": "transaction"},
+        {"pubkey": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4", "signer": false, "writable": false, "source": "transaction"}
+      ],
+      "instructions": [
+        {"programId": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4", "accounts": ["9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "4UPQECFG63ACbYHxyqUKqCsGrVAPEu65QXF5wnMJ3vLh", "5N3f1tj9v1vc5TUZ8S7mCAnVmjVKrfnzXWhxLaxyZAgt", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"], "data": "3Bxs4h24hBtQy9rw", "stackHeight": null}
+      ],
+      "recentBlockhash": "6hJ9kM2nP4qS6tV8xZ1bD3eG5hJ7kL9mN2pR4sU6vX8y"
+    }
+  },
+  "meta": {
+    "err": null,
+    "status": {"Ok": null},
+    "fee": 5000,
+    "preBalances": [1000000000, 2039280, 2039280, 374004672, 934087680, 1141440],
+    "postBalances": [999995000, 2039280, 2039280, 374004672, 934087680, 1141440],
+    "innerInstructions": [
+      {"index": 0, "instructions": [
+        {"program": "spl-token", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "parsed": {"type": "transferChecked", "info": {"authority": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "destination": "5N3f1tj9v1vc5TUZ8S7mCAnVmjVKrfnzXWhxLaxyZAgt", "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "source": "4UPQECFG63ACbYHxyqUKqCsGrVAPEu65QXF5wnMJ3vLh", "tokenAmount": {"amount": "12500000", "decimals": 6, "uiAmount": 12.5, "uiAmountString": "12.5"}}}, "stackHeight": 2}
+      ]}
+    ],
+    "preTokenBalances": [
+      {"accountIndex": 1, "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "owner": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "uiTokenAmount": {"amount": "100000000", "decimals": 6, "uiAmount": 100.0, "uiAmountString": "100"}},
+      {"accountIndex": 2, "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "owner": "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "uiTokenAmount": {"amount": "25000000", "decimals": 6, "uiAmount": 25.0, "uiAmountString": "25"}}
+    ],
+    "postTokenBalances": [
+      {"accountIndex": 1, "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "owner": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "uiTokenAmount": {"amount": "87500000", "decimals": 6, "uiAmount": 87.5, "uiAmountString": "87.5"}},
+      {"accountIndex": 2, "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "owner": "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "uiTokenAmount": {"amount": "37500000", "decimals": 6, "uiAmount": 37.5, "uiAmountString": "37.5"}}
+    ],
+    "logMessages": [],
+    "computeUnitsConsumed": 40000
+  }
+}

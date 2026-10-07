@@ -20,3 +20,8 @@ INSERT INTO rpc_nodes (blockchain_id, name, url, weight, priority, status, creat
   ((SELECT id FROM blockchains WHERE code='TRX'),     'TronGrid',    'https://api.trongrid.io',               1, 10, 'healthy', NOW(), NOW()),
   ((SELECT id FROM blockchains WHERE code='TRX'),     'NowNodes',    'https://trx.nownodes.io',               1, 20, 'healthy', NOW(), NOW())
 ON CONFLICT DO NOTHING;
+
+-- Solana: the public endpoint is rate limited; ops should add a paid node (Helius, Triton, QuickNode) at a lower priority number.
+INSERT INTO rpc_nodes (blockchain_id, name, url, weight, priority, status, created_at, updated_at) VALUES
+  ((SELECT id FROM blockchains WHERE code='SOLANA'), 'Solana-Public', 'https://api.mainnet-beta.solana.com', 1, 50, 'healthy', NOW(), NOW())
+ON CONFLICT DO NOTHING;

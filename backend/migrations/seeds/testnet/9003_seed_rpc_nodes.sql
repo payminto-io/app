@@ -8,3 +8,7 @@ INSERT INTO rpc_nodes (blockchain_id, name, url, weight, priority, status, creat
   ((SELECT id FROM blockchains WHERE code='BTC'),     'Blockstream-Testnet',   'https://blockstream.info/testnet/api',        1, 10, 'healthy', NOW(), NOW()),
   ((SELECT id FROM blockchains WHERE code='TRX'),     'TronGrid-Nile',         'https://nile.trongrid.io',                    1, 10, 'healthy', NOW(), NOW())
 ON CONFLICT DO NOTHING;
+
+INSERT INTO rpc_nodes (blockchain_id, name, url, weight, priority, status, created_at, updated_at) VALUES
+  ((SELECT id FROM blockchains WHERE code='SOLANA'), 'Solana-Devnet', 'https://api.devnet.solana.com', 1, 10, 'healthy', NOW(), NOW())
+ON CONFLICT DO NOTHING;

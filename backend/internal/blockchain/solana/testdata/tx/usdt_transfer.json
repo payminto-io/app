@@ -1,0 +1,50 @@
+{
+  "slot": 250000456,
+  "blockTime": 1759838600,
+  "transaction": {
+    "signatures": ["2VvjQp9XgF4R8dC1zP7mQ3nB5kL6wH2sT9yE4rU8iO1pA3sD6fG9hJ2kL5mN8bV1cX4zQ7wE2rT5yU8iO3pA6sD"],
+    "message": {
+      "accountKeys": [
+        {"pubkey": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "signer": true, "writable": true, "source": "transaction"},
+        {"pubkey": "BqsiqXxou9qJ36A1sywynvjDhmMXPm6mThZVWGKwf6wu", "signer": false, "writable": true, "source": "transaction"},
+        {"pubkey": "4fz24twEFEWmsAKeeD7hgGZtVBHiGjRLEFuciSgRcgdw", "signer": false, "writable": true, "source": "transaction"},
+        {"pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "signer": false, "writable": false, "source": "transaction"}
+      ],
+      "instructions": [
+        {
+          "program": "spl-token",
+          "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "parsed": {
+            "type": "transfer",
+            "info": {
+              "amount": "10000000",
+              "authority": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY",
+              "destination": "4fz24twEFEWmsAKeeD7hgGZtVBHiGjRLEFuciSgRcgdw",
+              "source": "BqsiqXxou9qJ36A1sywynvjDhmMXPm6mThZVWGKwf6wu"
+            }
+          },
+          "stackHeight": null
+        }
+      ],
+      "recentBlockhash": "7pWqF1vXjQ2nD4sT8kL6mB3cR5yH9wE2aG7uN1xP4zV8"
+    }
+  },
+  "meta": {
+    "err": null,
+    "status": {"Ok": null},
+    "fee": 5000,
+    "preBalances": [2000000000, 2039280, 2039280, 934087680],
+    "postBalances": [1999995000, 2039280, 2039280, 934087680],
+    "innerInstructions": [],
+    "preTokenBalances": [
+      {"accountIndex": 1, "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYb", "owner": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "uiTokenAmount": {"amount": "50000000", "decimals": 6, "uiAmount": 50.0, "uiAmountString": "50"}},
+      {"accountIndex": 2, "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYb", "owner": "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "uiTokenAmount": {"amount": "0", "decimals": 6, "uiAmount": null, "uiAmountString": "0"}}
+    ],
+    "postTokenBalances": [
+      {"accountIndex": 1, "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYb", "owner": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "uiTokenAmount": {"amount": "40000000", "decimals": 6, "uiAmount": 40.0, "uiAmountString": "40"}},
+      {"accountIndex": 2, "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYb", "owner": "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk", "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "uiTokenAmount": {"amount": "10000000", "decimals": 6, "uiAmount": 10.0, "uiAmountString": "10"}}
+    ],
+    "logMessages": ["Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]", "Program log: Instruction: Transfer", "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"],
+    "computeUnitsConsumed": 4644
+  }
+}
