@@ -105,3 +105,9 @@ func TestBoot_TestAgainstRemoteNonTestDatabaseRefuses(t *testing.T) {
 func TestBoot_UnknownEnvironmentRefuses(t *testing.T) {
 	requireRefusal(t, map[string]string{"GATEWAY_ENVIRONMENT": "sandbox"}, "GATEWAY_ENVIRONMENT")
 }
+
+func TestBoot_LiveWithDevelopmentJWTSecretExitsNonZero(t *testing.T) {
+	env := liveEnv()
+	env["JWT_SECRET"] = "payminto-development-jwt-secret-not-for-production"
+	requireRefusal(t, env, "JWT_SECRET")
+}

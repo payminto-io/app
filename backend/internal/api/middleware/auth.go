@@ -14,6 +14,18 @@ import (
 // CodeAPIKeyEnvironmentMismatch is the error code for a key from the other environment (ticket 13).
 const CodeAPIKeyEnvironmentMismatch = "api_key_environment_mismatch"
 
+// CodeSessionEnvironmentMismatch is the error code for a session token minted by the other environment.
+const CodeSessionEnvironmentMismatch = "session_environment_mismatch"
+
+// rejectSession writes the 401 for a failed token validation, naming the environment when that is the reason.
+func rejectSession(c *gin.Context, err error) {
+	if errors.Is(err, environment.ErrMismatch) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error(), "code": CodeSessionEnvironmentMismatch})
+		return
+	}
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+}
+
 // rejectAPIKey writes the 401 for a failed key validation, with a code when the environment is the reason.
 func rejectAPIKey(c *gin.Context, err error) {
 	if errors.Is(err, environment.ErrMismatch) {
@@ -89,12 +101,17 @@ func JWTOrAPIKey(authSvc *service.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		if claims, err := authSvc.ValidateJWT(tokenStr); err == nil {
+		claims, jwtErr := authSvc.ValidateJWT(tokenStr)
+		if jwtErr == nil {
 			c.Set("memberID", claims.MemberID)
 			c.Set("email", claims.Email)
 			c.Set("memberType", claims.MemberType)
 			c.Set("externalPlatformID", claims.ExternalPlatformID)
 			c.Next()
+			return
+		}
+		if errors.Is(jwtErr, environment.ErrMismatch) {
+			rejectSession(c, jwtErr)
 			return
 		}
 
@@ -141,7 +158,7 @@ func JWTAuth(authSvc *service.AuthService) gin.HandlerFunc {
 
 		claims, err := authSvc.ValidateJWT(tokenStr)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			rejectSession(c, err)
 			return
 		}
 

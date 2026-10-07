@@ -124,3 +124,49 @@ func TestEnvironmentMiddleware_TagsTheRequestContext(t *testing.T) {
 		t.Fatalf("request context not tagged: %v", body)
 	}
 }
+
+func TestJWTMiddlewares_RejectSessionsFromTheOtherEnvironment(t *testing.T) {
+	for _, processEnv := range environment.All() {
+		auth, _ := newEnvAuth(t, processEnv)
+		other := environment.Test
+		if processEnv == environment.Test {
+			other = environment.Live
+		}
+		otherAuth, _ := newEnvAuth(t, other)
+		member := &models.Member{Name: "m", MemberType: "root", State: "active"}
+		member.ID = 1
+		foreign, err := otherAuth.GenerateJWT(member, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		own, err := auth.GenerateJWT(member, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, mw := range map[string]gin.HandlerFunc{"JWTAuth": JWTAuth(auth), "JWTOrAPIKey": JWTOrAPIKey(auth)} {
+			w, body := serveWithBearer(t, mw, own)
+			if w.Code != http.StatusOK {
+				t.Errorf("%s/%s own token: %d %v", name, processEnv, w.Code, body)
+			}
+			w, body = serveWithBearer(t, mw, foreign)
+			if w.Code != http.StatusUnauthorized || body["code"] != CodeSessionEnvironmentMismatch {
+				t.Errorf("%s/%s foreign token: %d %v, want 401 %s", name, processEnv, w.Code, body, CodeSessionEnvironmentMismatch)
+			}
+		}
+	}
+}
+
+func serveWithBearer(t *testing.T, mw gin.HandlerFunc, token string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	_, r := gin.CreateTestContext(w)
+	r.Use(mw)
+	r.GET("/test", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	r.ServeHTTP(w, req)
+	body := map[string]any{}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	return w, body
+}

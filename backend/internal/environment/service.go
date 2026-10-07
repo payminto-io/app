@@ -87,6 +87,8 @@ type BootFacts struct {
 	DeploymentHardened bool
 	// NetworkType is the chain network the process will watch: testnet or mainnet.
 	NetworkType string
+	// JWTSecretWeak is true when JWT_SECRET is a known development default or shorter than 32 bytes.
+	JWTSecretWeak bool
 }
 
 // BootError carries every refusal at once so an operator fixes them in one pass.
@@ -142,6 +144,9 @@ func CheckBoot(facts BootFacts) error {
 		}
 		if !strings.EqualFold(facts.NetworkType, "mainnet") {
 			refuse("BLOCKCHAIN_NETWORK_TYPE must be mainnet for live money (got %q)", facts.NetworkType)
+		}
+		if facts.JWTSecretWeak {
+			refuse("JWT_SECRET is a development default or shorter than 32 bytes; sessions would be forgeable")
 		}
 	case Test:
 		if facts.DatabaseName == "" {

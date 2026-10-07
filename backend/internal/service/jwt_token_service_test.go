@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"testing"
 	"time"
 
@@ -47,6 +48,7 @@ func newTestJWTService(t *testing.T, db *gorm.DB) (*JWTTokenService, repository.
 	memberRepo := repository.NewMemberRepository(db)
 	svc := NewJWTTokenService(refreshRepo, memberRepo, "access-secret", "refresh-secret",
 		15*time.Minute, 30*24*time.Hour)
+	svc.SetEnvironment(environment.Test)
 	return svc, refreshRepo, memberRepo
 }
 

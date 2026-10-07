@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -73,15 +74,80 @@ func (s *AuthService) SetEventEmitter(svc *EventEmitterService) {
 	s.eventEmitter = svc
 }
 
-// SetEnvironment sets the process environment keys are validated and issued against.
+// SetEnvironment sets the process environment keys and sessions are validated and issued against.
 func (s *AuthService) SetEnvironment(env environment.Environment) { s.environment = env }
 
-// Environment is the process environment, defaulting to test so a bare service never admits live keys.
-func (s *AuthService) Environment() environment.Environment {
-	if s.environment == "" {
-		return environment.Test
+// Environment is the process environment; an unset one is an error so nothing silently runs as test.
+func (s *AuthService) Environment() (environment.Environment, error) {
+	if !s.environment.Valid() {
+		return "", environment.ErrUnconfigured
 	}
-	return s.environment
+	return s.environment, nil
+}
+
+// ErrSessionEnvironmentMismatch wraps environment.ErrMismatch for a session minted by the other environment.
+var ErrSessionEnvironmentMismatch = errors.New("session belongs to the other environment")
+
+type sessionEnvironmentError struct {
+	process, session environment.Environment
+}
+
+func (e *sessionEnvironmentError) Error() string {
+	return fmt.Sprintf("session was issued by the %s environment but this server is %s", e.session, e.process)
+}
+
+func (e *sessionEnvironmentError) Is(target error) bool {
+	return target == ErrSessionEnvironmentMismatch || target == environment.ErrMismatch
+}
+
+// signingKeyFor derives the per-environment HS256 key from the shared secret (ticket 13, C1).
+func signingKeyFor(secret string, env environment.Environment) ([]byte, error) {
+	if strings.TrimSpace(secret) == "" {
+		return nil, errors.New("JWT secret is empty")
+	}
+	return environment.DeriveKey([]byte(secret), env, "jwt-access")
+}
+
+// signSessionClaims issues an HS256 token bound to env by audience and key.
+func signSessionClaims(secret string, env environment.Environment, claims JWTClaims) (string, error) {
+	key, err := signingKeyFor(secret, env)
+	if err != nil {
+		return "", err
+	}
+	claims.Audience = jwt.ClaimStrings{env.Audience()}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(key)
+}
+
+// parseSessionClaims verifies a token for env: the audience is checked before the signature so a
+// token from the other environment is reported as a mismatch rather than a generic failure.
+func parseSessionClaims(secret string, env environment.Environment, tokenString string) (*JWTClaims, error) {
+	unverified := &JWTClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tokenString, unverified); err != nil {
+		return nil, err
+	}
+	for _, aud := range unverified.Audience {
+		if tokenEnv, ok := environment.AudienceEnvironment(aud); ok && tokenEnv != env {
+			return nil, &sessionEnvironmentError{process: env, session: tokenEnv}
+		}
+	}
+	key, err := signingKeyFor(secret, env)
+	if err != nil {
+		return nil, err
+	}
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return key, nil
+	}, jwt.WithAudience(env.Audience()))
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*JWTClaims)
+	if !ok || !token.Valid {
+		return nil, errors.New("invalid token")
+	}
+	return claims, nil
 }
 
 // GenerateAPIKey issues a test secret key; callers that know the process environment use GenerateAPIKeyFor.
@@ -154,6 +220,10 @@ func (s *AuthService) GenerateJWT(member *models.Member, platformID uint) (strin
 	if member.Email != nil {
 		email = *member.Email
 	}
+	env, err := s.Environment()
+	if err != nil {
+		return "", err
+	}
 	claims := JWTClaims{
 		MemberID:           member.ID,
 		Email:              email,
@@ -164,29 +234,25 @@ func (s *AuthService) GenerateJWT(member *models.Member, platformID uint) (strin
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.jwtSecret))
+	return signSessionClaims(s.jwtSecret, env, claims)
 }
 
-// ValidateJWT parses and validates a JWT string, returning the embedded JWTClaims on success.
+// ValidateJWT verifies a session token for this process environment and returns its claims.
 func (s *AuthService) ValidateJWT(tokenString string) (*JWTClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(t *jwt.Token) (any, error) {
-		return []byte(s.jwtSecret), nil
-	})
+	env, err := s.Environment()
 	if err != nil {
 		return nil, err
 	}
-	claims, ok := token.Claims.(*JWTClaims)
-	if !ok || !token.Valid {
-		return nil, errors.New("invalid token")
-	}
-	return claims, nil
+	return parseSessionClaims(s.jwtSecret, env, tokenString)
 }
 
 // ValidateAPIKey looks up and validates a raw API key, returning the active APIKey record.
 // A key whose prefix or row names the other environment is refused before anything else.
 func (s *AuthService) ValidateAPIKey(key string) (*models.APIKey, error) {
-	process := s.Environment()
+	process, err := s.Environment()
+	if err != nil {
+		return nil, err
+	}
 	if keyEnv, _, ok := environment.KeyEnvironment(key); ok && keyEnv != process {
 		return nil, &apiKeyEnvironmentError{process: process, key: keyEnv}
 	}

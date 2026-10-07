@@ -333,7 +333,20 @@ func (c *Config) BootFacts() environmentpkg.BootFacts {
 		DatabaseInsecureLocalException: c.Database.AllowInsecureLocal,
 		DeploymentHardened:             isDeploymentEnvironment(c.Server.Environment),
 		NetworkType:                    c.Blockchain.NetworkType,
+		JWTSecretWeak:                  isKnownDevSecret(c.Security.JWTSecret) || len(strings.TrimSpace(c.Security.JWTSecret)) < 32,
 	}
+}
+
+// knownDevSecrets are the JWT secrets this repository ships for local stacks; live must never run on them.
+var knownDevSecrets = []string{
+	"payminto-development-jwt-secret-not-for-production",
+	"dev-jwt-secret",
+	"test-secret",
+}
+
+func isKnownDevSecret(value string) bool {
+	value = strings.TrimSpace(value)
+	return slices.Contains(knownDevSecrets, value) || !isStrongSecret(value, 32)
 }
 
 func envStr(key, fallback string) string {

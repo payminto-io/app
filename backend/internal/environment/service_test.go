@@ -91,6 +91,7 @@ func TestCheckBoot_LiveRefusals(t *testing.T) {
 		"ssl disabled no opt-in": {func(f *BootFacts) { f.DatabaseHost, f.DatabaseSSLMode = "localhost", "disable" }, "verify-full"},
 		"testnet":                {func(f *BootFacts) { f.NetworkType = "testnet" }, "must be mainnet"},
 		"empty database":         {func(f *BootFacts) { f.DatabaseName = "" }, "database name is empty"},
+		"weak jwt secret":        {func(f *BootFacts) { f.JWTSecretWeak = true }, "JWT_SECRET is a development default"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

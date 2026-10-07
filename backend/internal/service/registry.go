@@ -439,9 +439,11 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		jwtAccessTTL,
 		jwtRefreshTTL,
 	)
+	r.jwtTokenService.SetEnvironment(r.environmentModule.Environment)
 
 	// Phase G.2: OTPService
 	r.otpService = NewOTPService(r.otpRepo)
+	r.otpService.SetEnvironment(r.environmentModule.Environment)
 
 	// Phase G.3: EventEmitterService
 	r.eventEmitterService = NewEventEmitterService(r.eeEventRepo)

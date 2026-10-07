@@ -5,6 +5,8 @@ package environment
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -63,10 +65,38 @@ func KeyEnvironment(rawKey string) (env Environment, kind KeyKind, ok bool) {
 	return "", "", false
 }
 
+// Audience is the JWT audience a session of this environment carries and must present.
+func (e Environment) Audience() string { return audiencePrefix + string(e) }
+
+const audiencePrefix = "payminto:"
+
+// AudienceEnvironment reads the environment out of an audience claim; ok is false for foreign audiences.
+func AudienceEnvironment(aud string) (Environment, bool) {
+	rest, found := strings.CutPrefix(aud, audiencePrefix)
+	if !found {
+		return "", false
+	}
+	env := Environment(rest)
+	return env, env.Valid()
+}
+
+// DeriveKey binds a shared secret to one environment and purpose (HKDF-SHA256), so material
+// signed or hashed for test never verifies on live even when operators reuse the raw secret.
+func DeriveKey(secret []byte, env Environment, purpose string) ([]byte, error) {
+	if !env.Valid() {
+		return nil, fmt.Errorf("%w: %q", ErrInvalid, env)
+	}
+	if len(secret) == 0 || purpose == "" {
+		return nil, errors.New("environment: derive key needs a secret and a purpose")
+	}
+	return hkdf.Key(sha256.New, secret, []byte("payminto/environment"), "payminto/"+purpose+"/"+string(env), 32)
+}
+
 var (
-	ErrInvalid  = errors.New("environment: invalid environment")
-	ErrMismatch = errors.New("environment: mismatch")
-	ErrBoot     = errors.New("environment: refusing to boot")
+	ErrInvalid      = errors.New("environment: invalid environment")
+	ErrMismatch     = errors.New("environment: mismatch")
+	ErrBoot         = errors.New("environment: refusing to boot")
+	ErrUnconfigured = errors.New("environment: not configured; wire the environment module before use")
 )
 
 // MismatchError is the typed error every guard returns; errors.Is(err, ErrMismatch) holds.

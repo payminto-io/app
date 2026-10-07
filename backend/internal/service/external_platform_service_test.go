@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/payminto/payminto/backend/internal/environment"
 	"strings"
 	"testing"
 
@@ -28,10 +29,12 @@ func setupExternalPlatformDB(t *testing.T) *gorm.DB {
 func newExternalPlatformService(t *testing.T) (*ExternalPlatformService, *gorm.DB) {
 	t.Helper()
 	db := setupExternalPlatformDB(t)
-	return NewExternalPlatformService(
+	svc := NewExternalPlatformService(
 		repository.NewExternalPlatformRepository(db),
 		repository.NewAPIKeyRepository(db),
-	), db
+	)
+	svc.SetEnvironment(environment.Test)
+	return svc, db
 }
 
 func TestExternalPlatformService_Create_ReturnsPlainKeyOnce(t *testing.T) {

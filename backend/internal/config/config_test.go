@@ -386,3 +386,16 @@ func TestBootFacts_ProjectsConfig(t *testing.T) {
 		t.Errorf("facts = %+v", facts)
 	}
 }
+
+func TestBootFacts_FlagsDevelopmentJWTSecrets(t *testing.T) {
+	for secret, weak := range map[string]bool{
+		"payminto-development-jwt-secret-not-for-production": true,
+		"short": true,
+		"a-strong-jwt-secret-value-with-32-plus-chars": false,
+	} {
+		cfg := &Config{Security: SecurityConfig{JWTSecret: secret}}
+		if got := cfg.BootFacts().JWTSecretWeak; got != weak {
+			t.Errorf("JWTSecretWeak(%q) = %v, want %v", secret, got, weak)
+		}
+	}
+}

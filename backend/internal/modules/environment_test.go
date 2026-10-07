@@ -17,6 +17,7 @@ func liveConfig() *config.Config {
 		Server:     config.ServerConfig{Environment: config.EnvironmentProduction},
 		Database:   config.DatabaseConfig{Host: "db.internal", Database: "gateway", TestDatabase: "gateway_test", SSLMode: "verify-full"},
 		Blockchain: config.BlockchainConfig{NetworkType: "mainnet"},
+		Security:   config.SecurityConfig{JWTSecret: "a-strong-jwt-secret-value-with-32-plus-chars"},
 		Gateway:    config.GatewayConfig{Environment: "live"},
 	}
 }

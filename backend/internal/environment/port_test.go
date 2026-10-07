@@ -57,3 +57,29 @@ func TestMismatchErrorIs(t *testing.T) {
 		t.Fatal("MismatchError must be recoverable with errors.As")
 	}
 }
+
+func TestDeriveKeyAndAudience(t *testing.T) {
+	secret := []byte("shared-secret")
+	testKey, err := DeriveKey(secret, Test, "jwt-access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveKey, _ := DeriveKey(secret, Live, "jwt-access")
+	again, _ := DeriveKey(secret, Test, "jwt-access")
+	other, _ := DeriveKey(secret, Test, "refresh-token")
+	if string(testKey) == string(liveKey) || string(testKey) == string(other) || string(testKey) != string(again) || len(testKey) != 32 {
+		t.Fatal("derived keys must differ per environment and purpose and be deterministic")
+	}
+	if _, err := DeriveKey(secret, "prod", "x"); !errors.Is(err, ErrInvalid) {
+		t.Fatal("invalid environment accepted")
+	}
+	if _, err := DeriveKey(nil, Test, "x"); err == nil {
+		t.Fatal("empty secret accepted")
+	}
+	if env, ok := AudienceEnvironment(Live.Audience()); !ok || env != Live {
+		t.Fatalf("AudienceEnvironment(%q) = %q %v", Live.Audience(), env, ok)
+	}
+	if _, ok := AudienceEnvironment("other:live"); ok {
+		t.Fatal("foreign audience parsed")
+	}
+}
