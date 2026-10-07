@@ -14,3 +14,6 @@ Owner direction 2026-10-07: use NOWNodes for RPC on Solana and the EVM chains. V
 
 ## Acceptance
 Boot with NOWNodes endpoints in test; a read-only smoke test (slot, chain id, a known account balance) passes against each endpoint when `NOWNODES_API_KEY` is set and skips otherwise; no key in logs, errors or the repository.
+
+## Follow-up
+NOWNodes also offers gRPC (https://docs.nownodes.io/grpc-api/). For Solana, a streaming subscription can replace polling for deposit detection; evaluate after JSON-RPC lands, keep JSON-RPC as the baseline and fallback.
