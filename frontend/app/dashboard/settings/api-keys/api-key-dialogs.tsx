@@ -38,7 +38,7 @@ export function CreateKeyDialog({
       const result = await create.mutateAsync({ name });
       if (result.rawKey) onCreated(result.rawKey);
     } catch (error) {
-      setErr(isApiError(error) ? error.message : "Failed to create key.");
+      setErr(isApiError(error) ? error.message : "The key could not be created.");
     }
   }
 
@@ -46,30 +46,23 @@ export function CreateKeyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Generate API Key</DialogTitle>
-          <DialogDescription>
-            Create a new API key for programmatic access to the Payminto API.
-          </DialogDescription>
+          <DialogTitle>Generate API key</DialogTitle>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
-          <FormField label="Key Name" htmlFor="ak-name">
+          <FormField label="Name" htmlFor="ak-name">
             <TextInput
               id="ak-name"
               required
-              placeholder="e.g. Production"
+              placeholder="Production server"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </FormField>
           {err ? (
-            <p role="alert" className="text-sm text-destructive">{err}</p>
+            <p role="alert" className="text-body-sm text-bad">{err}</p>
           ) : null}
           <DialogFooter>
-            <Button
-              type="submit"
-              disabled={create.isPending}
-              className="bg-[var(--pm-primary)] text-white hover:bg-[var(--pm-primary-deep)]"
-            >
+            <Button type="submit" disabled={create.isPending}>
               {create.isPending ? "Generating..." : "Generate"}
             </Button>
           </DialogFooter>
@@ -90,15 +83,12 @@ export function RevealKeyDialog({
     <Dialog open={Boolean(rawKey)} onOpenChange={() => onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Your API Key</DialogTitle>
-          <DialogDescription>
-            Copy this key now. It will not be shown again.
-          </DialogDescription>
+          <DialogTitle>Your new API key</DialogTitle>
         </DialogHeader>
         {rawKey && (
           <ApiKeyReveal
             secret={rawKey}
-            label="API Key"
+            label="Secret key"
             onConfirm={onClose}
           />
         )}
@@ -126,12 +116,9 @@ export function RevokeConfirmDialog({
     <Dialog open={id !== null} onOpenChange={() => onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Revoke API Key</DialogTitle>
+          <DialogTitle>Revoke this key?</DialogTitle>
+          <DialogDescription>Requests signed with it stop working at once. This cannot be undone.</DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          This key will be permanently deactivated. Any integrations using it
-          will stop working.
-        </p>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button

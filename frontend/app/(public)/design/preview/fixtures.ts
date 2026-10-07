@@ -88,6 +88,23 @@ const withdrawals = WD_STATES.map((state, i) => ({
 type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: URLSearchParams) => unknown; empty?: unknown };
 
 const ROUTES: Route[] = [
+  {
+    method: "POST",
+    pattern: /^\/api-keys$/,
+    body: () => ({ id: 9, name: "Sample", prefix: "pk_test_new0", active: true, status: "active", externalPlatformID: 1, createdAt: iso(0), rawKey: "pk_test_SAMPLE_not_a_real_key_0000000000000000" }),
+  },
+  {
+    method: "GET",
+    pattern: /^\/api-keys$/,
+    body: () => ({
+      apiKeys: [
+        { id: 1, name: "Sample production server", prefix: "pk_live_s4mp", active: true, status: "active", externalPlatformID: 1, lastUsedAt: iso(-3600_000), createdAt: iso(-30 * DAY) },
+        { id: 2, name: "Sample staging", prefix: "pk_test_9x2q", active: true, status: "active", externalPlatformID: 1, createdAt: iso(-6 * DAY) },
+        { id: 3, name: "Sample old key", prefix: "pk_test_a1b2", active: false, status: "inactive", externalPlatformID: 1, lastUsedAt: iso(-50 * DAY), createdAt: iso(-90 * DAY) },
+      ],
+    }),
+    empty: { apiKeys: [] },
+  },
   { method: "GET", pattern: /^\/withdrawal\/merchant$/, body: () => ({ withdrawals }), empty: { withdrawals: [] } },
   { method: "GET", pattern: /^\/wallets$/, body: () => ({ wallets }), empty: { wallets: [] } },
   {

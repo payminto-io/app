@@ -1,132 +1,83 @@
 "use client";
 
 import { useState } from "react";
-import { Key, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useApiKeys } from "@/lib/query/hooks/use-merchant-misc";
-import { ErrorState } from "@/components/ui/states";
+import type { APIKey } from "@/lib/api/api-keys";
+import { PageHeader } from "@/components/page-header";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { DateTime } from "@/components/date-time";
+import { RowActions } from "@/components/row-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { ErrorState } from "@/components/ui/states";
 import { StatusBadge } from "@/components/ui/status-badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  CreateKeyDialog,
-  RevealKeyDialog,
-  RevokeConfirmDialog,
-} from "./api-key-dialogs";
+import { SettingsTabs } from "../_components/settings-tabs";
+import { CreateKeyDialog, RevealKeyDialog, RevokeConfirmDialog } from "./api-key-dialogs";
 
 export default function ApiKeysPage() {
-  const { data, isLoading, error, refetch } = useApiKeys();
+  const { data, error, refetch } = useApiKeys();
   const [createOpen, setCreateOpen] = useState(false);
   const [revokeId, setRevokeId] = useState<number | null>(null);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
 
+  const columns: DataTableColumn<APIKey>[] = [
+    { key: "name", header: "Name", className: "font-medium", cell: (k) => k.name },
+    {
+      key: "prefix",
+      header: "Key",
+      cell: (k) => <code className="font-mono text-label text-ink-soft">{k.prefix}...</code>,
+    },
+    { key: "status", header: "Status", cell: (k) => <StatusBadge status={k.active ? "active" : "inactive"} /> },
+    {
+      key: "used",
+      header: "Last used",
+      className: "text-ink-soft",
+      cell: (k) => (k.lastUsedAt ? <DateTime value={k.lastUsedAt} /> : "Never"),
+    },
+    { key: "created", header: "Created", className: "text-ink-soft", cell: (k) => <DateTime value={k.createdAt} format="date" /> },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      align: "right",
+      className: "w-0",
+      cell: (k) =>
+        k.active ? (
+          <RowActions label={`Actions for ${k.name}`}>
+            <DropdownMenuItem variant="destructive" onClick={() => setRevokeId(k.id)}>
+              Revoke
+            </DropdownMenuItem>
+          </RowActions>
+        ) : null,
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">API Keys</h1>
-          <p className="text-[13px] text-muted-foreground mt-0.5">
-            Manage authentication keys for your integrations
-          </p>
-        </div>
-        <Button
-          onClick={() => setCreateOpen(true)}
-          className="h-9 rounded-lg bg-[var(--pm-primary)] text-white hover:bg-[var(--pm-primary-deep)]"
-        >
-          <Plus className="size-4" />
-          Generate Key
+    <div className="space-y-5">
+      <PageHeader title="Settings">
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus />
+          Generate key
         </Button>
-      </div>
+      </PageHeader>
+      <SettingsTabs />
 
-      {error ? <ErrorState message={error.message} retry={refetch} /> : null}
-
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full rounded-lg" />
-          ))}
-        </div>
-      ) : data && data.length > 0 ? (
-        <Card className="border-border shadow-sm overflow-hidden">
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="pm-label pl-6">Name</TableHead>
-                  <TableHead className="pm-label">Prefix</TableHead>
-                  <TableHead className="pm-label">Status</TableHead>
-                  <TableHead className="pm-label">Last Used</TableHead>
-                  <TableHead className="pm-label">Created</TableHead>
-                  <TableHead className="pm-label text-right pr-6">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.map((k) => (
-                  <TableRow key={k.id} className="border-border/60 hover:bg-muted/30">
-                    <TableCell className="pl-6">
-                      <div className="flex items-center gap-2">
-                        <Key className="size-3.5 text-muted-foreground" />
-                        <span className="font-medium text-[13px]">{k.name}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <code className="rounded-md border border-border bg-muted/50 px-2 py-0.5 font-mono text-[11px]">
-                        {k.prefix}...
-                      </code>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={k.active ? "active" : "inactive"} />
-                    </TableCell>
-                    <TableCell className="text-[12px] text-muted-foreground">
-                      {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString() : "Never"}
-                    </TableCell>
-                    <TableCell className="text-[12px] text-muted-foreground">
-                      {new Date(k.createdAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className="text-right pr-6">
-                      {k.active ? (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          className="h-7 text-[11px]"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRevokeId(k.id);
-                          }}
-                        >
-                          Revoke
-                        </Button>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground">Revoked</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      {error ? (
+        <ErrorState message={error.message} retry={refetch} />
       ) : (
-        <Card className="border-border shadow-sm">
-          <CardContent className="flex h-40 items-center justify-center">
-            <div className="text-center">
-              <Key className="mx-auto size-8 text-muted-foreground/40 mb-2" />
-              <p className="text-sm text-muted-foreground">No API keys yet</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">
-                Generate your first key to start integrating.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <DataTable
+          columns={columns}
+          rows={data ?? []}
+          loading={!data}
+          getRowId={(k) => k.id}
+          emptyTitle="No API keys yet."
+          emptyDescription="A key lets your server create payments."
+          emptyAction={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              Generate key
+            </Button>
+          }
+        />
       )}
 
       <CreateKeyDialog

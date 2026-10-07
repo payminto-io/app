@@ -44,7 +44,7 @@ export function PageHeader({
           ))}
         </nav>
       )}
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+      <div className="flex min-h-9 flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="flex min-w-0 items-start gap-3">
           {icon && (
             <div className="flex size-9 shrink-0 items-center justify-center rounded-sm border border-line bg-surface text-ink-soft [&_svg]:size-4">
