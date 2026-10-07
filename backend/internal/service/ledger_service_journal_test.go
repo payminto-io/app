@@ -9,6 +9,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 func newJournalingLedgerService(t *testing.T) (*LedgerService, *ledger.Service) {
@@ -18,14 +19,14 @@ func newJournalingLedgerService(t *testing.T) (*LedgerService, *ledger.Service) 
 		t.Fatalf("ledger.Migrate: %v", err)
 	}
 	journal := ledger.New(db)
-	resolver := func(currencyID uint) (string, error) {
-		switch currencyID {
+	resolver := func(_ *gorm.DB, blockchainCurrencyID uint) (Assets, error) {
+		switch blockchainCurrencyID {
 		case 1:
-			return "USDC", nil
+			return Assets{Asset: "USDC.BASE", Native: "ETH.BASE"}, nil
 		case 2:
-			return "ETH", nil
+			return Assets{Asset: "ETH.BASE", Native: "ETH.BASE"}, nil
 		}
-		return "", errors.New("unknown currency")
+		return Assets{}, errors.New("unknown blockchain currency")
 	}
 	return NewLedgerService(repository.NewAccountRepository(db), WithJournal(journal, resolver)), journal
 }
@@ -70,7 +71,7 @@ func TestLedgerService_DualWritesEveryEventAsABalancedJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(totals) != 2 {
-		t.Fatalf("assets posted = %v, want USDC and ETH", totals)
+		t.Fatalf("assets posted = %v, want USDC.BASE and ETH.BASE", totals)
 	}
 	for _, r := range totals {
 		if !r.Total.IsZero() {
@@ -78,17 +79,25 @@ func TestLedgerService_DualWritesEveryEventAsABalancedJournal(t *testing.T) {
 		}
 	}
 
-	hot, err := journal.AccountID(ctx, ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: "USDC", Kind: ledger.KindAsset})
-	if err != nil {
-		t.Fatal(err)
+	// Token custody moves only by token amounts; gas only touches the native asset.
+	balance := func(asset string) decimal.Decimal {
+		id, err := journal.AccountID(ctx, ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: asset, Kind: ledger.KindAsset})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bal, err := journal.Balance(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bal
 	}
-	bal, err := journal.Balance(ctx, hot)
-	if err != nil {
-		t.Fatal(err)
+	// +100 deposit -100 sweep -100 withdrawal +100 duplicate -100 referral = -100
+	if got := balance("USDC.BASE"); !got.Equal(decimal.NewFromInt(-100)) {
+		t.Fatalf("crypto_assets USDC.BASE = %s, want -100", got)
 	}
-	// +100 deposit -103 sweep -103 withdrawal +100 duplicate -100 referral = -106
-	if want := decimal.NewFromInt(-106); !bal.Equal(want) {
-		t.Fatalf("crypto_assets USDC balance = %s, want %s", bal, want)
+	// gas: sweep, withdrawal, gas fee, deployment = 4 x 3
+	if got := balance("ETH.BASE"); !got.Equal(decimal.NewFromInt(-12)) {
+		t.Fatalf("crypto_assets ETH.BASE = %s, want -12", got)
 	}
 }
 
@@ -127,22 +136,33 @@ func TestLedgerService_UnresolvableAssetWritesNothing(t *testing.T) {
 func TestLedgerService_ReconcileReportsDriftWithoutFixing(t *testing.T) {
 	svc, journal := newJournalingLedgerService(t)
 	ctx := context.Background()
-	if _, err := journal.Post(ctx, ledger.Journal{
-		Kind:           ledger.KindPayment,
-		IdempotencyKey: "member-credit",
-		Lines: []ledger.Line{
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: "USDC", Kind: ledger.KindAsset}, Amount: decimal.NewFromInt(40)},
-			{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: "7", Asset: "USDC", Kind: ledger.KindLiability}, Amount: decimal.NewFromInt(-40)},
-		},
-	}); err != nil {
-		t.Fatal(err)
+	for _, asset := range []string{"USDC.BASE", "USDC.ETH"} {
+		if _, err := journal.Post(ctx, ledger.Journal{
+			Kind:           ledger.KindPayment,
+			IdempotencyKey: "member-credit-" + asset,
+			Lines: []ledger.Line{
+				{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: asset, Kind: ledger.KindAsset}, Amount: decimal.NewFromInt(20)},
+				{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: "7", Asset: asset, Kind: ledger.KindLiability}, Amount: decimal.NewFromInt(-20)},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	codeOf := func(currencyID uint) (string, error) {
+		switch currencyID {
+		case 1:
+			return "USDC", nil
+		case 2:
+			return "ETH", nil
+		}
+		return "", errors.New("unknown currency")
 	}
 	stored := []models.Account{
-		{MemberID: 7, CurrencyID: 1, Balance: decimal.NewFromInt(40)},
+		{MemberID: 7, CurrencyID: 1, Balance: decimal.NewFromInt(40)}, // both chain instances sum to the stored balance
 		{MemberID: 7, CurrencyID: 2, Balance: decimal.NewFromInt(1)},
 		{MemberID: 8, CurrencyID: 1, Balance: decimal.NewFromInt(12)},
 	}
-	drifts, err := svc.ReconcileStoredBalances(ctx, stored)
+	drifts, err := svc.ReconcileStoredBalances(ctx, stored, codeOf)
 	if err != nil {
 		t.Fatal(err)
 	}

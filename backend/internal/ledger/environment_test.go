@@ -57,20 +57,23 @@ func TestEnvironment_SameOwnerAndAssetAreDifferentAccountsPerEnvironment(t *test
 		t.Fatal("test and live resolved to the same ledger account")
 	}
 	testBal, _ := s.Balance(ctx, testID)
-	liveBal, _ := s.Balance(ctx, liveID)
+	liveBal, _ := s.Balance(environment.WithContext(ctx, environment.Live), liveID)
 	if !testBal.Equal(dec("-10")) || !liveBal.Equal(dec("-25")) {
 		t.Fatalf("balances mixed: test=%s live=%s", testBal, liveBal)
+	}
+	if _, err := s.Balance(ctx, liveID); !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("Balance by id must not cross environments: %v", err)
 	}
 
 	testTotals, err := s.Balances(environment.WithContext(ctx, environment.Test), OwnerMember, "m1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !testTotals["USDC"].Equal(dec("-10")) {
+	if !testTotals["USDC"].Equal(dec("10")) {
 		t.Fatalf("test owner totals include live lines: %v", testTotals)
 	}
 	liveTotals, _ := s.Balances(environment.WithContext(ctx, environment.Live), OwnerMember, "m1")
-	if !liveTotals["USDC"].Equal(dec("-25")) {
+	if !liveTotals["USDC"].Equal(dec("25")) {
 		t.Fatalf("live owner totals wrong: %v", liveTotals)
 	}
 	var n int64

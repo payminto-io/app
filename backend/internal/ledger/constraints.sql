@@ -1,8 +1,11 @@
 -- Postgres-only guarantees the GORM models cannot express. Idempotent: applied by
 -- AutoMigrate in dev/test and repeated verbatim in the checksummed migration.
 
+ALTER TABLE ledger_journals ADD COLUMN IF NOT EXISTS posting_txid bigint NOT NULL DEFAULT 0;
+
+-- Environment isolation (ticket 13). The four-column index stays until every binary
+-- infers the five-column one; follow-up ticket drops it.
 ALTER TABLE ledger_accounts ADD COLUMN IF NOT EXISTS environment varchar(8) NOT NULL DEFAULT 'test';
-DROP INDEX IF EXISTS ledger_accounts_owner_asset_kind_key;
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_accounts_env_owner_asset_kind_key
     ON ledger_accounts (environment, owner_type, owner_id, asset, kind);
 
@@ -10,7 +13,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_accounts'::regclass AND conname = 'ledger_accounts_environment_check') THEN
         ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_environment_check
-            CHECK (environment IN ('test', 'live'));
+            CHECK (environment IN ('test', 'live')) NOT VALID;
+        ALTER TABLE ledger_accounts VALIDATE CONSTRAINT ledger_accounts_environment_check;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_accounts'::regclass AND conname = 'ledger_accounts_id_asset_key') THEN
         ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_id_asset_key UNIQUE (id, asset);
@@ -89,6 +93,36 @@ BEGIN
 END;
 $$;
 
+-- The posting transaction id is server-stamped so a client cannot forge it.
+CREATE OR REPLACE FUNCTION ledger_stamp_journal_txid()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.posting_txid := txid_current();
+    RETURN NEW;
+END;
+$$;
+
+-- Lines may only be added by the transaction that inserted the journal; a committed journal is sealed.
+CREATE OR REPLACE FUNCTION ledger_check_line_same_transaction()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    journal_txid bigint;
+BEGIN
+    SELECT posting_txid INTO journal_txid FROM ledger_journals WHERE id = NEW.journal_id;
+    IF journal_txid IS NULL THEN
+        RAISE EXCEPTION 'ledger: journal % does not exist', NEW.journal_id;
+    END IF;
+    IF journal_txid <> txid_current() THEN
+        RAISE EXCEPTION 'ledger: journal % is sealed; it was posted in another transaction', NEW.journal_id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION ledger_check_journal_has_lines()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -115,6 +149,31 @@ DROP TRIGGER IF EXISTS ledger_lines_append_only ON ledger_lines;
 CREATE TRIGGER ledger_lines_append_only
     BEFORE UPDATE OR DELETE ON ledger_lines
     FOR EACH ROW EXECUTE FUNCTION ledger_reject_mutation();
+
+DROP TRIGGER IF EXISTS ledger_accounts_no_truncate ON ledger_accounts;
+CREATE TRIGGER ledger_accounts_no_truncate
+    BEFORE TRUNCATE ON ledger_accounts
+    FOR EACH STATEMENT EXECUTE FUNCTION ledger_reject_mutation();
+
+DROP TRIGGER IF EXISTS ledger_journals_no_truncate ON ledger_journals;
+CREATE TRIGGER ledger_journals_no_truncate
+    BEFORE TRUNCATE ON ledger_journals
+    FOR EACH STATEMENT EXECUTE FUNCTION ledger_reject_mutation();
+
+DROP TRIGGER IF EXISTS ledger_lines_no_truncate ON ledger_lines;
+CREATE TRIGGER ledger_lines_no_truncate
+    BEFORE TRUNCATE ON ledger_lines
+    FOR EACH STATEMENT EXECUTE FUNCTION ledger_reject_mutation();
+
+DROP TRIGGER IF EXISTS ledger_journals_stamp_txid ON ledger_journals;
+CREATE TRIGGER ledger_journals_stamp_txid
+    BEFORE INSERT ON ledger_journals
+    FOR EACH ROW EXECUTE FUNCTION ledger_stamp_journal_txid();
+
+DROP TRIGGER IF EXISTS ledger_lines_same_transaction ON ledger_lines;
+CREATE TRIGGER ledger_lines_same_transaction
+    BEFORE INSERT ON ledger_lines
+    FOR EACH ROW EXECUTE FUNCTION ledger_check_line_same_transaction();
 
 DROP TRIGGER IF EXISTS ledger_lines_balance ON ledger_lines;
 CREATE CONSTRAINT TRIGGER ledger_lines_balance

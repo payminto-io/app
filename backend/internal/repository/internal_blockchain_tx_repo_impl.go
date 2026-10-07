@@ -23,6 +23,16 @@ type InternalBlockchainTransactionRepositoryImpl struct {
 	db *gorm.DB
 }
 
+// InternalBlockchainTransactionTxBinder is implemented by IBT repositories that can run inside a caller's transaction.
+type InternalBlockchainTransactionTxBinder interface {
+	WithTx(tx *gorm.DB) InternalBlockchainTransactionRepository
+}
+
+// WithTx returns a copy bound to tx so the IBT row commits with its ledger journal.
+func (r *InternalBlockchainTransactionRepositoryImpl) WithTx(tx *gorm.DB) InternalBlockchainTransactionRepository {
+	return &InternalBlockchainTransactionRepositoryImpl{db: tx}
+}
+
 // NewInternalBlockchainTransactionRepository constructs a new
 // InternalBlockchainTransactionRepository backed by the provided *gorm.DB.
 func NewInternalBlockchainTransactionRepository(db *gorm.DB) InternalBlockchainTransactionRepository {

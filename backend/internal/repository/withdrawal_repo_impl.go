@@ -61,6 +61,16 @@ type WithdrawalRepositoryImpl struct {
 	db *gorm.DB
 }
 
+// WithdrawalTxBinder is implemented by withdrawal repositories that can run inside a caller's transaction.
+type WithdrawalTxBinder interface {
+	WithTx(tx *gorm.DB) WithdrawalRepository
+}
+
+// WithTx returns a copy bound to tx so state changes can commit with the ledger journal.
+func (r *WithdrawalRepositoryImpl) WithTx(tx *gorm.DB) WithdrawalRepository {
+	return &WithdrawalRepositoryImpl{db: tx}
+}
+
 // NewWithdrawalRepository constructs a WithdrawalRepositoryImpl.
 func NewWithdrawalRepository(db *gorm.DB) WithdrawalRepository {
 	return &WithdrawalRepositoryImpl{db: db}

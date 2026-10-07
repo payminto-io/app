@@ -49,11 +49,11 @@ var _ = fmt.Sprintf
 // VolumeBucket is a single time-bucket returned by GetVolumeOverTime.
 type VolumeBucket struct {
 	// Bucket is the start of the time bucket (day/hour/week depending on interval).
-	Bucket       time.Time
+	Bucket time.Time
 	// BucketLabel is the string representation for display.
-	BucketLabel  string
+	BucketLabel string
 	// Volume is the total confirmed deposit amount in that bucket.
-	Volume       decimal.Decimal
+	Volume decimal.Decimal
 	// PaymentCount is the number of distinct payments in that bucket.
 	PaymentCount int
 }
@@ -61,11 +61,11 @@ type VolumeBucket struct {
 // CustomerSummary is a row returned by GetTopCustomers.
 type CustomerSummary struct {
 	// CustomerID is the merchant-supplied customer identifier.
-	CustomerID   string
+	CustomerID string
 	// CustomerEmail is the optional email address on record.
 	CustomerEmail *string
 	// TotalVolume is the sum of all confirmed deposits from this customer.
-	TotalVolume  decimal.Decimal
+	TotalVolume decimal.Decimal
 	// PaymentCount is the number of payments from this customer.
 	PaymentCount int
 }
@@ -75,13 +75,13 @@ type RevenueBreakdown struct {
 	// BlockchainCode is the chain code (ETH, BTC, …).
 	BlockchainCode string
 	// CurrencyCode is the token code (USDT, ETH, …).
-	CurrencyCode   string
+	CurrencyCode string
 	// State is the payment state (FILLED, OPEN, …).
-	State          string
+	State string
 	// TotalAmount is the sum of amounts in this bucket.
-	TotalAmount    decimal.Decimal
+	TotalAmount decimal.Decimal
 	// Count is the number of payments in this bucket.
-	Count          int
+	Count int
 }
 
 // SweepStats is returned by GetSweepStats.
@@ -89,9 +89,9 @@ type SweepStats struct {
 	// TotalSweeps is the count of completed sweeps.
 	TotalSweeps int
 	// TotalSwept is the sum of amounts swept.
-	TotalSwept  decimal.Decimal
+	TotalSwept decimal.Decimal
 	// TotalGas is the sum of gas fees spent.
-	TotalGas    decimal.Decimal
+	TotalGas decimal.Decimal
 }
 
 // WithdrawalStats is returned by GetWithdrawalStats.
@@ -99,25 +99,25 @@ type WithdrawalStats struct {
 	// TotalWithdrawals is the count of completed withdrawals.
 	TotalWithdrawals int
 	// TotalAmount is the sum of withdrawal amounts.
-	TotalAmount      decimal.Decimal
+	TotalAmount decimal.Decimal
 	// TotalGas is the sum of gas fees paid.
-	TotalGas         decimal.Decimal
+	TotalGas decimal.Decimal
 }
 
 // DashboardSummary is the all-up aggregate for the dashboard home tile.
 type DashboardSummary struct {
 	// TotalPayments is the lifetime count of payment requests.
-	TotalPayments      int64
+	TotalPayments int64
 	// FilledPayments is the count of payments in FILLED state.
-	FilledPayments     int64
+	FilledPayments int64
 	// TotalVolume is the sum of deposit amounts across all FILLED payments.
-	TotalVolume        decimal.Decimal
+	TotalVolume decimal.Decimal
 	// TotalSweeps is the lifetime count of sweeps.
-	TotalSweeps        int64
+	TotalSweeps int64
 	// TotalWithdrawals is the lifetime count of withdrawals.
-	TotalWithdrawals   int64
+	TotalWithdrawals int64
 	// ActiveWebhooks is the count of active webhook endpoints.
-	ActiveWebhooks     int64
+	ActiveWebhooks int64
 }
 
 // AnalyticsRepository defines read-only aggregation queries used by
@@ -210,10 +210,10 @@ func (r *AnalyticsRepositoryImpl) GetTopCustomers(platformID uint, limit int) ([
 	}
 
 	type row struct {
-		CustomerID   string
+		CustomerID    string
 		CustomerEmail *string
-		TotalVolume  decimal.Decimal
-		PaymentCount int
+		TotalVolume   decimal.Decimal
+		PaymentCount  int
 	}
 
 	var rows []row
@@ -240,10 +240,10 @@ func (r *AnalyticsRepositoryImpl) GetTopCustomers(platformID uint, limit int) ([
 	summaries := make([]CustomerSummary, len(rows))
 	for i, r := range rows {
 		summaries[i] = CustomerSummary{
-			CustomerID:   r.CustomerID,
+			CustomerID:    r.CustomerID,
 			CustomerEmail: r.CustomerEmail,
-			TotalVolume:  r.TotalVolume,
-			PaymentCount: r.PaymentCount,
+			TotalVolume:   r.TotalVolume,
+			PaymentCount:  r.PaymentCount,
 		}
 	}
 	return summaries, nil

@@ -24,6 +24,8 @@ Required in staging/production:
 - `JWT_SECRET` — at least 32 non-placeholder characters from a secrets manager.
 - `POSTGRES_PASSWORD` — at least 16 non-placeholder characters.
 - `POSTGRES_SCHEMA_MODE=validate`.
+- A database role for the server that is not the migration role (see Ledger roles below).
+  The server refuses to boot in staging and production when its role can rewrite the ledger.
 - `POSTGRES_SSL_MODE=verify-full` for a remote database, with its CA available
   to the runtime. The only insecure exception is an explicitly approved
   loopback database with `POSTGRES_ALLOW_INSECURE_LOCAL=true`.
@@ -40,6 +42,8 @@ Optional / feature flags:
   credentials (safe default). Set explicit origins for cookie-based flows.
 - `METRICS_ENABLED` (default `true`) — exposes Prometheus `/metrics`.
 - `SENTRY_DSN` — enables error reporting; empty = structured logging only.
+- `POSTGRES_LEDGER_APP_ROLE` — role that `cmd/migrate` narrows to `SELECT, INSERT`
+  on the ledger tables after applying migrations (also `--ledger-app-role`).
 - `SMTP_HOST/PORT/USERNAME/PASSWORD/FROM` — enables real email; otherwise emails
   are logged (no-op transport).
 
@@ -55,6 +59,25 @@ Do not point either AutoMigrate path at a production or legacy PayRam database.
 A future release must provide checksummed versioned migrations, legacy-schema
 transformation, backup-before-change, rollback constraints, and PostgreSQL
 integration evidence before a production topology is published.
+
+### Ledger roles
+
+The double-entry ledger (`ledger_accounts`, `ledger_journals`, `ledger_lines`) is append-only
+by trigger. A role that owns those tables can disable the triggers, so two roles are required:
+
+- A privileged migration role runs `cmd/migrate`. Migration `2026100701` creates a `NOLOGIN`
+  role `ledger_owner` and moves the ledger tables and trigger functions to it, keeping
+  `SELECT, INSERT` for the migrator. This needs `CREATEROLE` or superuser; without it the
+  migration logs a notice and the transfer must be done by hand with the same statements.
+- The server connects as a separate application role with ordinary rights on every other table
+  and only `SELECT, INSERT` plus sequence `USAGE` on the ledger. `cmd/migrate --ledger-app-role
+  <role>` (or `POSTGRES_LEDGER_APP_ROLE`) applies exactly that grant set.
+
+At boot in staging and production the server checks that its role is not a superuser, does not
+own the ledger tables, holds no `UPDATE`, `DELETE`, `TRUNCATE` or `TRIGGER` on them, and can
+`SELECT` and `INSERT`; any other state refuses to start. Every environment also refuses to boot
+when the ledger tables, triggers or functions are missing, and validate mode additionally requires
+migration `2026100701` recorded as applied.
 
 ## Observability
 
