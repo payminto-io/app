@@ -4,12 +4,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/payminto/payminto/backend/internal/environment"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/service"
 )
 
 // Sweeps are not scoped to a platform, so instance-wide sweep stats must never be on the merchant API.
 func TestRouter_NoInstanceWideSweepStatsOnMerchantAPI(t *testing.T) {
 	r := NewRouter(RouterConfig{
+		Environment:  &modules.EnvironmentModule{Environment: environment.Test},
 		Host:         "http://localhost:8080",
 		AnalyticsSvc: service.NewAnalyticsService(nil),
 		MEPRoleSvc:   &service.MemberExternalPlatformRoleService{},

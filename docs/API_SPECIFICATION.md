@@ -1950,7 +1950,7 @@ The full list of validation codes and when they apply is in `backend/internal/li
 | POST | `/api/v2/links` | 201 link | Creates a draft. Absent fields take defaults. |
 | GET | `/api/v2/links?status=&limit=&offset=` | 200 `{links, total}` | Newest first; `limit` 1-100 (default 25). |
 | GET | `/api/v2/links/:id` | 200 link | |
-| PATCH | `/api/v2/links/:id` | 200 link | Each top-level key sent replaces that field whole; other fields keep their values. A published link may not change `amount_mode`, `amount`, `amount_min`, `amount_max`, `currency`, `methods` or `line_items` (409 `link_published_immutable`) and is re-validated in full. |
+| PATCH | `/api/v2/links/:id` | 200 link | Each top-level key sent replaces that field whole; other fields keep their values. Optional `If-Match: <revision>`; a concurrent change is 409 `link_conflict`. A published link may not change `amount_mode`, `amount`, `amount_min`, `amount_max`, `currency`, `methods`, `line_items` or `fee_bearer` (409 `link_published_immutable`) and is re-validated in full; use limits may not drop below payments taken (409 `use_limit_below_uses`). |
 | DELETE | `/api/v2/links/:id` | 204 | Drafts only (409 `link_not_deletable`). |
 | POST | `/api/v2/links/:id/publish` | 200 link | Draft or paused to active. Runs full validation; mints `short_code` on first publish. |
 | POST | `/api/v2/links/:id/pause` | 200 link | Active to paused. |
@@ -1979,7 +1979,7 @@ line_items: [{name, quantity, unit_price, tax_rate}],
 questions: [{key, label, type: "text" | "select" | "checkbox", options?, required, per_order}]
 ```
 
-Link response: the body fields above plus `id`, `status`, `environment` (`live` | `test`), `short_code`, `url` (`<CHECKOUT_BASE_URL>/l/<short_code>`, the QR payload; both null on a draft), `total` (the fixed amount or the server's line-item sum; null for customer-entered), `uses_count`, `revision`, `published_at`, `created_at`, `updated_at`.
+Link response: the body fields above plus `id`, `status`, `environment` (`live` | `test`), `short_code`, `url` (`<CHECKOUT_BASE_URL>/l/<short_code>`, the QR payload; both null on a draft), `total` (the fixed amount or the server's line-item sum; null for customer-entered), `uses_count`, `revision`, `published_at`, `created_at`, `updated_at`, and on single-link responses `fee_preview`: `[{method, chain, asset, connector, rule_id, rule_version, fee_bearer, fee_currency, amount, fee, tax, customer_total, merchant_net, unavailable}]` (null in lists).
 
 #### Public routes (no authentication, rate limited per IP)
 
@@ -2003,6 +2003,10 @@ branding: {logo_url, accent_color, language}
 `fee`, `tax` and `customer_total` on a method are set only for a customer-borne fee on a known amount in the link's currency; otherwise null.
 A hidden field's `prefill` is always null.
 
+`GET /api/v2/public/links/:short_code/qr.svg` (120 per minute) returns the link URL as an SVG QR code.
+
+Public limits are per client IP, where the IP is the socket address unless the peer is in `TRUSTED_PROXIES`; they are kept in Redis and fall back to an in-process limit when Redis is unavailable.
+
 `POST /api/v2/public/links/:short_code/pay` (20 per minute) requires an `Idempotency-Key` header (1-128 characters, scoped to the link).
 
 ```
@@ -2021,7 +2025,7 @@ A hidden field's `prefill` is always null.
 ```
 
 `success_redirect_url` is the merchant's URL with `reference_id` appended, for redirect links.
-Refusals: 400 `idempotency_key_required`; 409 `idempotency_key_reused`, `payment_in_progress`, `link_paused`, `link_use_limit_reached`; 410 `link_archived`, `link_expired`; 422 payer-input and pricing codes; 502 `payment_creation_failed` (the use is released, so the same key may retry).
+Refusals: 400 `idempotency_key_required`; 409 `idempotency_key_reused`, `payment_in_progress` (with `Retry-After`; retry the same key), `link_paused`, `link_use_limit_reached`, `link_environment_mismatch`; 410 `link_archived`, `link_expired`; 429 `open_payments_limit`, `rate_limit_exceeded`; 422 payer-input and pricing codes; 502 `payment_creation_failed` (the processor refused and the use was released, so the same key may retry).
 
 ---
 

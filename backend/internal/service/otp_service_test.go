@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +27,9 @@ func newOTPTestDB(t *testing.T) *gorm.DB {
 
 func newOTPService(db *gorm.DB) (*OTPService, repository.OTPRepository) {
 	repo := repository.NewOTPRepository(db)
-	return NewOTPService(repo), repo
+	svc := NewOTPService(repo)
+	svc.SetEnvironment(environment.Test)
+	return svc, repo
 }
 
 func TestOTPService_GenerateAndVerify(t *testing.T) {
@@ -83,6 +86,7 @@ func TestOTPService_Expiry(t *testing.T) {
 	db := newOTPTestDB(t)
 	repo := repository.NewOTPRepository(db)
 	svc := NewOTPService(repo)
+	svc.SetEnvironment(environment.Test)
 
 	code, err := svc.Generate(1, models.OTPPurposePasswordReset)
 	if err != nil {

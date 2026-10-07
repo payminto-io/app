@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/payminto/payminto/backend/internal/config"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/links"
 	"gorm.io/gorm"
@@ -18,38 +19,53 @@ func (nopCreator) Connectors(context.Context, links.Environment, string, links.M
 func (nopCreator) CreatePayment(context.Context, links.PaymentRequest) (links.CreatedPayment, error) {
 	return links.CreatedPayment{}, nil
 }
+func (nopCreator) FindPayment(context.Context, string) (links.CreatedPayment, bool, error) {
+	return links.CreatedPayment{}, false, nil
+}
 
-func linksDeps(env string, fc config.FeesConfig) Deps {
+func linksDeps(t *testing.T, server string, env environment.Environment, fc config.FeesConfig) Deps {
+	t.Helper()
+	guard, err := environment.NewGuard(env)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return Deps{
-		DB: &gorm.DB{}, Config: &config.Config{Server: config.ServerConfig{Environment: env}, Fees: fc},
-		Fees: fees.NewService(&gorm.DB{}, nil, fees.DefaultPolicy()), LinkPayments: nopCreator{},
+		DB:     &gorm.DB{},
+		Config: &config.Config{Server: config.ServerConfig{Environment: server}, Fees: fc, Links: config.LinksConfig{LeaseSeconds: 300, MaxOpenPayments: 100, MaxOpenPaymentsPerClient: 3}},
+		Fees:   fees.NewService(&gorm.DB{}, nil, fees.DefaultPolicy()), LinkPayments: nopCreator{},
+		Environment: &EnvironmentModule{Environment: env, Guard: guard},
 	}
 }
 
-func TestWireLinksTagsTheEnvironment(t *testing.T) {
-	for env, want := range map[string]links.Environment{
-		config.EnvironmentDevelopment: links.EnvTest, config.EnvironmentTest: links.EnvTest,
-		config.EnvironmentStaging: links.EnvTest, config.EnvironmentProduction: links.EnvLive,
+func TestWireLinksTakesTheProcessEnvironmentNotSERVER(t *testing.T) {
+	for _, tc := range []struct {
+		server string
+		env    environment.Environment
+	}{
+		{config.EnvironmentStaging, environment.Live},
+		{config.EnvironmentProduction, environment.Test},
+		{config.EnvironmentDevelopment, environment.Test},
 	} {
-		m, err := WireLinks(linksDeps(env, config.FeesConfig{}))
-		if err != nil || m.Port == nil || m.Environment != want {
-			t.Errorf("%s: %+v %v, want %s", env, m, err, want)
+		m, err := WireLinks(linksDeps(t, tc.server, tc.env, config.FeesConfig{}))
+		if err != nil || m.Port == nil || m.Service == nil || m.Environment != tc.env {
+			t.Errorf("SERVER=%s GATEWAY_ENVIRONMENT=%s: %+v %v", tc.server, tc.env, m, err)
 		}
 	}
 }
 
-func TestWireLinksRefusesMissingDepsAndBadPrecision(t *testing.T) {
-	d := linksDeps(config.EnvironmentDevelopment, config.FeesConfig{})
-	d.LinkPayments = nil
-	if _, err := WireLinks(d); err == nil {
-		t.Fatal("wired without a payment creator")
-	}
-	d = linksDeps(config.EnvironmentDevelopment, config.FeesConfig{})
-	d.Fees = nil
-	if _, err := WireLinks(d); err == nil {
-		t.Fatal("wired without fees")
-	}
-	if _, err := WireLinks(linksDeps(config.EnvironmentDevelopment, config.FeesConfig{AssetPrecision: "XRP:x"})); err == nil {
-		t.Fatal("wired with bad precision")
+func TestWireLinksRefusesMissingDepsAndBadConfig(t *testing.T) {
+	for name, edit := range map[string]func(*Deps){
+		"no creator":     func(d *Deps) { d.LinkPayments = nil },
+		"no fees":        func(d *Deps) { d.Fees = nil },
+		"no environment": func(d *Deps) { d.Environment = nil },
+		"bad precision":  func(d *Deps) { d.Config.Fees.AssetPrecision = "XRP:x" },
+		"short lease":    func(d *Deps) { d.Config.Links.LeaseSeconds = 10 },
+		"negative cap":   func(d *Deps) { d.Config.Links.MaxOpenPayments = -1 },
+	} {
+		d := linksDeps(t, config.EnvironmentDevelopment, environment.Test, config.FeesConfig{})
+		edit(&d)
+		if _, err := WireLinks(d); err == nil {
+			t.Errorf("%s: wired", name)
+		}
 	}
 }

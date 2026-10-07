@@ -2,17 +2,13 @@ package links
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/shopspring/decimal"
 )
@@ -25,10 +21,19 @@ type Service struct {
 	destinations DestinationVerifier
 	precision    fees.Precision
 	env          Environment
+	guard        environment.Guard
 	checkoutBase string
 	newCode      func() (string, error)
 	now          func() time.Time
+	lease        time.Duration
+	limits       ReserveLimits
 }
+
+// DefaultLease is how long a pending use is held before the resolver may look its payment up.
+const DefaultLease = 5 * time.Minute
+
+// DefaultLimits caps open payments per multi-use link and per payer on it.
+var DefaultLimits = ReserveLimits{MaxOpen: 100, MaxOpenPerClient: 3}
 
 var _ Port = (*Service)(nil)
 
@@ -36,8 +41,18 @@ type Option func(*Service)
 
 func WithDestinations(d DestinationVerifier) Option { return func(s *Service) { s.destinations = d } }
 func WithPrecision(p fees.Precision) Option         { return func(s *Service) { s.precision = p } }
-func WithEnvironment(e Environment) Option          { return func(s *Service) { s.env = e } }
-func WithClock(now func() time.Time) Option         { return func(s *Service) { s.now = now } }
+
+// WithGuard sets the process guard; links are tagged with, and paid only in, its environment.
+func WithGuard(g environment.Guard) Option {
+	return func(s *Service) { s.guard, s.env = g, g.Current() }
+}
+
+// WithLease sets the pending-use lease (DefaultLease); the creator call is bounded to well inside it.
+func WithLease(d time.Duration) Option { return func(s *Service) { s.lease = d } }
+
+// WithLimits sets the open-payment caps on multi-use links (DefaultLimits).
+func WithLimits(l ReserveLimits) Option     { return func(s *Service) { s.limits = l } }
+func WithClock(now func() time.Time) Option { return func(s *Service) { s.now = now } }
 
 // WithCheckoutBaseURL is the hosted checkout origin; a link's URL is <base>/l/<short code>.
 func WithCheckoutBaseURL(base string) Option {
@@ -48,10 +63,11 @@ func WithCheckoutBaseURL(base string) Option {
 func WithShortCodes(gen func() (string, error)) Option { return func(s *Service) { s.newCode = gen } }
 
 func NewService(store Store, quoter FeeQuoter, creator PaymentCreator, opts ...Option) *Service {
+	testGuard, _ := environment.NewGuard(EnvTest)
 	s := &Service{
 		store: store, fees: quoter, creator: creator, destinations: NoDestinations{},
-		precision: fees.DefaultPrecision(), env: EnvTest, newCode: NewShortCode,
-		now: func() time.Time { return time.Now().UTC() },
+		precision: fees.DefaultPrecision(), env: EnvTest, guard: testGuard, newCode: NewShortCode,
+		now: func() time.Time { return time.Now().UTC() }, lease: DefaultLease, limits: DefaultLimits,
 	}
 	for _, o := range opts {
 		o(s)
@@ -70,9 +86,9 @@ func notFound() error { return newErr(CodeNotFound, "", "payment link not found"
 
 func storeErr(err error) error {
 	switch {
-	case errors.Is(err, errStoreNotFound):
+	case errors.Is(err, ErrStoreNotFound):
 		return notFound()
-	case errors.Is(err, errStale):
+	case errors.Is(err, ErrStale):
 		return newErr(CodeConflict, "", "the link changed while this request ran; reload and retry")
 	}
 	return err
@@ -138,10 +154,13 @@ func (s *Service) List(ctx context.Context, platformID uint, f ListFilter) ([]Li
 }
 
 // Update replaces the editable fields. A published link keeps amount, currency, methods and line items and is re-validated in full.
-func (s *Service) Update(ctx context.Context, platformID uint, id string, in Input) (Link, error) {
+func (s *Service) Update(ctx context.Context, platformID uint, id string, revision int, in Input) (Link, error) {
 	cur, err := s.Get(ctx, platformID, id)
 	if err != nil {
 		return Link{}, err
+	}
+	if cur.Revision != revision {
+		return Link{}, newErr(CodeConflict, "revision", "the link is at revision %d, not %d; reload and retry", cur.Revision, revision)
 	}
 	if cur.Status == StatusArchived {
 		return Link{}, newErr(CodeNotEditable, "", "an archived link cannot be edited; duplicate it")
@@ -152,6 +171,16 @@ func (s *Service) Update(ctx context.Context, platformID uint, id string, in Inp
 	}
 	next := cur
 	next.Input, next.Total = in, total
+	if limit := next.EffectiveUseLimit(); limit != nil && *limit < cur.UsesCount {
+		field := "use_limit"
+		switch {
+		case !next.MultiUse:
+			field = "multi_use"
+		case next.ExpiresAfterPayments != nil && *next.ExpiresAfterPayments < cur.UsesCount:
+			field = "expires_after_payments"
+		}
+		return Link{}, newErr(CodeUseLimitBelowUses, field, "the link has already taken %d payments", cur.UsesCount)
+	}
 	if cur.Status.Published() {
 		if f := immutableDiff(cur.Input, in); f != "" {
 			return Link{}, newErr(CodePublishedImmutable, f, "a published link cannot change %s; duplicate it instead", f)
@@ -206,7 +235,7 @@ func (s *Service) Publish(ctx context.Context, platformID uint, id string) (Link
 			return Link{}, err
 		}
 		l, err := s.store.SetStatus(ctx, platformID, id, cur.Revision, StatusActive, code, s.now())
-		if errors.Is(err, errShortCodeTaken) {
+		if errors.Is(err, ErrShortCodeTaken) {
 			continue
 		}
 		return l, storeErr(err)
@@ -451,314 +480,4 @@ func (s *Service) Render(ctx context.Context, code string) (RenderModel, error) 
 		methods = append(methods, rm)
 	}
 	return s.renderModel(l, merchant, methods, availability(l, s.now())), nil
-}
-
-// requestHash fingerprints a pay body so an idempotency key cannot be replayed with different contents.
-func requestHash(req PayRequest) string {
-	raw, _ := json.Marshal(struct {
-		Method   MethodSpec        `json:"m"`
-		Amount   string            `json:"a"`
-		Customer CustomerInput     `json:"c"`
-		Billing  *Address          `json:"b"`
-		Shipping *Address          `json:"s"`
-		Answers  map[string]string `json:"q"`
-	}{req.Method, decString(req.Amount), req.Customer, req.BillingAddress, req.ShippingAddress, req.Answers})
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
-}
-
-func decString(d *decimal.Decimal) string {
-	if d == nil {
-		return ""
-	}
-	return d.String()
-}
-
-const maxIdempotencyKey = 128
-
-// Pay validates the payer's input, reserves one use under a lock, and creates the payment through PaymentCreator.
-func (s *Service) Pay(ctx context.Context, code string, req PayRequest) (PayResult, error) {
-	key := strings.TrimSpace(req.IdempotencyKey)
-	if key == "" || len(key) > maxIdempotencyKey {
-		return PayResult{}, newErr(CodeIdempotencyKeyRequired, "Idempotency-Key", "send a unique Idempotency-Key header of 1-%d characters", maxIdempotencyKey)
-	}
-	if req.Amount != nil && !sane(*req.Amount) {
-		return PayResult{}, newErr(CodeAmountInvalid, "amount", "out of range")
-	}
-	l, err := s.publicLink(ctx, code)
-	if err != nil {
-		return PayResult{}, err
-	}
-	req.Method.Method = fees.Method(strings.ToLower(strings.TrimSpace(string(req.Method.Method))))
-	req.Method.Chain, req.Method.Asset = normCode(req.Method.Chain), normCode(req.Method.Asset)
-	hash := requestHash(req)
-
-	existing, err := s.store.FindPayment(ctx, l.ID, key)
-	if err != nil {
-		return PayResult{}, err
-	}
-	if existing != nil {
-		return s.replay(l, *existing, hash)
-	}
-	if err := availability(l, s.now()); err != nil {
-		return PayResult{}, err
-	}
-	p, err := s.quote(ctx, l, req)
-	if err != nil {
-		return PayResult{}, err
-	}
-	p.IdempotencyKey, p.RequestHash = key, hash
-
-	reserved, existing, err := s.store.Reserve(ctx, p, s.now())
-	if err != nil {
-		return PayResult{}, storeErr(err)
-	}
-	if existing != nil {
-		return s.replay(l, *existing, hash)
-	}
-
-	created, err := s.creator.CreatePayment(ctx, PaymentRequest{
-		LinkID: l.ID, LinkPaymentID: reserved.ID, MemberID: l.MemberID, PlatformID: l.ExternalPlatformID,
-		Environment: l.Environment, Method: p.Method, Connector: p.Connector,
-		Amount: p.Amount, Currency: p.Currency, CustomerTotal: p.CustomerTotal, FeeBearer: p.FeeBearer,
-		FeeRuleID: derefUint(p.FeeRuleID), FeeRuleVersion: derefInt(p.FeeRuleVersion),
-		CustomerName: p.CustomerName, CustomerEmail: p.CustomerEmail, CustomerPhone: p.CustomerPhone,
-		BillingAddress: p.BillingAddress, ShippingAddress: p.ShippingAddress,
-		ReferenceID: l.ReferenceID, Metadata: l.Metadata,
-		CaptureMode: l.CaptureMode, ThreeDSPolicy: l.ThreeDSPolicy,
-		ChainToleranceBps: l.ChainToleranceBps, QuoteExpirySeconds: l.QuoteExpirySeconds, WebhookID: l.WebhookID,
-	})
-	if err != nil {
-		if rerr := s.store.Release(ctx, reserved.ID); rerr != nil {
-			slog.Error("links: release reservation after failed payment creation", "link_payment_id", reserved.ID, "error", rerr)
-		}
-		var e *Error
-		if errors.As(err, &e) {
-			return PayResult{}, e
-		}
-		slog.Error("links: payment creation failed", "link_payment_id", reserved.ID, "error", err)
-		return PayResult{}, newErr(CodePaymentCreationFailed, "", "the payment could not be created; retry with the same key")
-	}
-	if err := s.store.Complete(ctx, reserved.ID, created); err != nil {
-		slog.Error("links: payment created but reservation not completed", "link_payment_id", reserved.ID, "payment_reference", created.Reference, "error", err)
-		return PayResult{}, fmt.Errorf("links: complete reservation %s: %w", reserved.ID, err)
-	}
-	reserved.Status, reserved.PaymentReference, reserved.Processor = paymentCreated, created.Reference, &created
-	return s.result(l, reserved, false), nil
-}
-
-func derefUint(v *uint) uint {
-	if v == nil {
-		return 0
-	}
-	return *v
-}
-
-func derefInt(v *int) int {
-	if v == nil {
-		return 0
-	}
-	return *v
-}
-
-func (s *Service) replay(l Link, p LinkPayment, hash string) (PayResult, error) {
-	switch {
-	case p.RequestHash != hash:
-		return PayResult{}, newErr(CodeIdempotencyKeyReused, "Idempotency-Key", "this key was used for a different payment")
-	case p.Status != paymentCreated:
-		return PayResult{}, newErr(CodePaymentInProgress, "Idempotency-Key", "a payment with this key is still being created; retry shortly")
-	}
-	return s.result(l, p, true), nil
-}
-
-func (s *Service) result(l Link, p LinkPayment, replayed bool) PayResult {
-	r := PayResult{
-		PaymentReference: p.PaymentReference, Amount: p.Amount, Currency: p.Currency, Fee: p.Fee, Tax: p.Tax,
-		CustomerTotal: p.CustomerTotal, FeeBearer: p.FeeBearer, Method: p.Method, Replayed: replayed,
-	}
-	if p.Processor != nil {
-		r.CheckoutURL, r.DepositAddress, r.ExpiresAt = p.Processor.CheckoutURL, p.Processor.DepositAddress, p.Processor.ExpiresAt
-	}
-	if l.SuccessMode == SuccessRedirect && l.SuccessURL != "" {
-		r.SuccessRedirectURL = withReference(l.SuccessURL, l.ReferenceID)
-	}
-	return r
-}
-
-// withReference appends reference_id to the merchant's success URL, keeping its own query.
-func withReference(raw, ref string) string {
-	u, err := url.Parse(raw)
-	if err != nil || ref == "" {
-		return raw
-	}
-	q := u.Query()
-	q.Set("reference_id", ref)
-	u.RawQuery = q.Encode()
-	return u.String()
-}
-
-// quote validates everything the payer sent and prices it, producing the reservation to store.
-func (s *Service) quote(ctx context.Context, l Link, req PayRequest) (LinkPayment, error) {
-	var errs []*Error
-	if !slices.Contains(l.Methods, req.Method) {
-		errs = append(errs, newErr(CodeMethodNotEnabled, "method", "%s is not enabled on this link", req.Method))
-	}
-	places := s.places(l.Currency)
-	amount, err := payAmount(l, req.Amount, places)
-	if err != nil {
-		errs = append(errs, err.(*Error))
-	}
-	name, email, phone, cerrs := resolveCustomer(l.CustomerFields, req.Customer)
-	errs = append(errs, cerrs...)
-
-	var billing, shipping *Address
-	for _, a := range []struct {
-		field    string
-		required bool
-		in       *Address
-		out      **Address
-	}{{"billing_address", l.BillingRequired, req.BillingAddress, &billing}, {"shipping_address", l.ShippingRequired, req.ShippingAddress, &shipping}} {
-		if a.in == nil {
-			if a.required {
-				errs = append(errs, newErr(CodeAddressRequired, a.field, "is required"))
-			}
-			continue
-		}
-		addr := *a.in
-		addr.Country = normCode(addr.Country)
-		if e := validateAddress(a.field, addr); e != nil {
-			errs = append(errs, e)
-			continue
-		}
-		*a.out = &addr
-	}
-
-	answers, aerrs, err := s.checkAnswers(ctx, l, email, req.Answers)
-	if err != nil {
-		return LinkPayment{}, err
-	}
-	errs = append(errs, aerrs...)
-	if err := joinErrs(errs); err != nil {
-		return LinkPayment{}, err
-	}
-
-	p, e, err := s.price(ctx, l, req.Method, amount, true)
-	if err != nil {
-		return LinkPayment{}, err
-	}
-	if e != nil {
-		if e.Code == CodeMethodNoConnector || e.Code == CodeMethodNoFeeRule || e.Code == CodeFeeRuleAmbiguous {
-			e.Code = CodeMethodUnavailable
-		}
-		e.Field = "method"
-		return LinkPayment{}, e
-	}
-	ruleID, version := p.rule.ID, p.rule.Version
-	out := LinkPayment{
-		LinkID: l.ID, Environment: l.Environment, Method: req.Method, Connector: p.connector,
-		Amount: amount, Currency: l.Currency, CustomerTotal: amount, FeeBearer: l.FeeBearer,
-		FeeRuleID: &ruleID, FeeRuleVersion: &version,
-		CustomerName: name, CustomerEmail: email, CustomerPhone: phone,
-		BillingAddress: billing, ShippingAddress: shipping, Answers: answers,
-	}
-	if b := p.breakdown; b != nil {
-		out.Fee, out.Tax, out.CustomerTotal = &b.Fee, &b.Tax, b.CustomerTotal
-		out.FeeRuleID, out.FeeRuleVersion = &b.RuleID, &b.Version
-	}
-	return out, nil
-}
-
-// resolveCustomer applies the field policy: hidden fields may not be sent, required ones must be present or prefilled.
-func resolveCustomer(policy CustomerFieldPolicy, in CustomerInput) (name, email, phone string, errs []*Error) {
-	vals := [3]string{}
-	for i, f := range []struct {
-		name string
-		rule FieldRule
-		v    *string
-	}{{"name", policy.Name, in.Name}, {"email", policy.Email, in.Email}, {"phone", policy.Phone, in.Phone}} {
-		field := "customer." + f.name
-		if f.v != nil && f.rule.Mode == FieldHidden {
-			errs = append(errs, newErr(CodeCustomerFieldHidden, field, "this link does not ask for %s", f.name))
-			continue
-		}
-		v := ""
-		if f.v != nil {
-			v = strings.TrimSpace(*f.v)
-		}
-		if v == "" {
-			v = f.rule.Prefill
-		}
-		if v == "" {
-			if f.rule.Mode == FieldRequired {
-				errs = append(errs, newErr(CodeCustomerFieldRequired, field, "is required"))
-			}
-			continue
-		}
-		if e := checkCustomerValue(f.name, v); e != nil {
-			errs = append(errs, e)
-			continue
-		}
-		vals[i] = v
-	}
-	return vals[0], strings.ToLower(vals[1]), vals[2], errs
-}
-
-func (s *Service) checkAnswers(ctx context.Context, l Link, email string, in map[string]string) ([]Answer, []*Error, error) {
-	var errs []*Error
-	byKey := map[string]Question{}
-	for _, q := range l.Questions {
-		byKey[q.Key] = q
-	}
-	for k := range in {
-		if _, ok := byKey[k]; !ok {
-			errs = append(errs, newErr(CodeAnswerUnknownQuestion, "answers."+k, "this link has no question %q", k))
-		}
-	}
-	var perCustomer []string
-	for _, q := range l.Questions {
-		if !q.PerOrder && q.Required {
-			perCustomer = append(perCustomer, q.Key)
-		}
-	}
-	answered := map[string]bool{}
-	if email != "" && len(perCustomer) > 0 {
-		var err error
-		if answered, err = s.store.AnsweredBefore(ctx, l.ID, email, perCustomer); err != nil {
-			return nil, nil, err
-		}
-	}
-	var out []Answer
-	for _, q := range l.Questions {
-		field := "answers." + q.Key
-		v := strings.TrimSpace(in[q.Key])
-		if v == "" {
-			if q.Required && !answered[q.Key] {
-				errs = append(errs, newErr(CodeAnswerRequired, field, "%s is required", q.Label))
-			}
-			continue
-		}
-		switch q.Type {
-		case QuestionText:
-			if len([]rune(v)) > maxText {
-				errs = append(errs, newErr(CodeAnswerInvalid, field, "at most %d characters", maxText))
-				continue
-			}
-		case QuestionSelect:
-			if !slices.Contains(q.Options, v) {
-				errs = append(errs, newErr(CodeAnswerInvalid, field, "must be one of the options"))
-				continue
-			}
-		case QuestionCheckbox:
-			if v != "true" && v != "false" {
-				errs = append(errs, newErr(CodeAnswerInvalid, field, "must be true or false"))
-				continue
-			}
-			if v == "false" && q.Required && !answered[q.Key] {
-				errs = append(errs, newErr(CodeAnswerRequired, field, "%s must be checked", q.Label))
-				continue
-			}
-		}
-		out = append(out, Answer{QuestionKey: q.Key, QuestionLabel: q.Label, Value: v})
-	}
-	return out, errs, nil
 }

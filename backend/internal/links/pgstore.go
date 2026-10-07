@@ -147,6 +147,9 @@ type paymentRow struct {
 	ShippingAddress   *string `gorm:"type:jsonb"`
 	PaymentReference  *string
 	ProcessorResponse *string `gorm:"type:jsonb"`
+	ClientKey         string
+	ReservedUntil     time.Time
+	OpenUntil         time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
@@ -326,7 +329,7 @@ func (s *PGStore) loadOne(tx *gorm.DB, query string, args ...any) (Link, error) 
 		return Link{}, fmt.Errorf("links: load link: %w", err)
 	}
 	if len(rows) == 0 {
-		return Link{}, errStoreNotFound
+		return Link{}, ErrStoreNotFound
 	}
 	out, err := s.loadRows(tx, rows)
 	if err != nil {
@@ -400,7 +403,7 @@ func txNow(tx *gorm.DB) (time.Time, error) {
 
 func (s *PGStore) Get(ctx context.Context, platformID uint, id string) (Link, error) {
 	if _, err := uuid.Parse(id); err != nil {
-		return Link{}, errStoreNotFound
+		return Link{}, ErrStoreNotFound
 	}
 	return s.loadOne(s.db.WithContext(ctx), "id = ? AND external_platform_id = ?", id, platformID)
 }
@@ -434,9 +437,9 @@ func classifyMiss(tx *gorm.DB, platformID uint, id string) error {
 		return err
 	}
 	if n == 0 {
-		return errStoreNotFound
+		return ErrStoreNotFound
 	}
-	return errStale
+	return ErrStale
 }
 
 func (s *PGStore) Save(ctx context.Context, l Link) (Link, error) {
@@ -489,7 +492,7 @@ func (s *PGStore) SetStatus(ctx context.Context, platformID uint, id string, rev
 		if res.Error != nil {
 			var pg *pgconn.PgError
 			if errors.As(res.Error, &pg) && pg.Code == "23505" && pg.ConstraintName == "payment_links_short_code_key" {
-				return errShortCodeTaken
+				return ErrShortCodeTaken
 			}
 			return fmt.Errorf("links: set status: %w", res.Error)
 		}
@@ -532,22 +535,6 @@ func (s *PGStore) MerchantName(ctx context.Context, platformID uint) (string, er
 	return names[0], nil
 }
 
-func (s *PGStore) AnsweredBefore(ctx context.Context, linkID, email string, keys []string) (map[string]bool, error) {
-	var found []string
-	err := s.db.WithContext(ctx).Raw(`SELECT DISTINCT a.question_key FROM payment_link_answers a
-		JOIN payment_link_payments p ON p.id = a.link_payment_id
-		WHERE p.link_id = ? AND p.status = 'created' AND p.customer_email = ? AND a.question_key IN ?`,
-		linkID, email, keys).Scan(&found).Error
-	if err != nil {
-		return nil, fmt.Errorf("links: earlier answers: %w", err)
-	}
-	out := map[string]bool{}
-	for _, k := range found {
-		out[k] = true
-	}
-	return out, nil
-}
-
 func toPayment(r paymentRow, answers []answerRow) (LinkPayment, error) {
 	p := LinkPayment{
 		ID: r.ID, LinkID: r.LinkID, IdempotencyKey: r.IdempotencyKey, RequestHash: r.RequestHash, Status: r.Status,
@@ -555,6 +542,7 @@ func toPayment(r paymentRow, answers []answerRow) (LinkPayment, error) {
 		Connector: r.Connector, Amount: r.Amount, Currency: r.Currency, Fee: fromNull(r.Fee), Tax: fromNull(r.Tax),
 		CustomerTotal: r.CustomerTotal, FeeBearer: fees.FeeBearer(r.FeeBearer), FeeRuleID: r.FeeRuleID, FeeRuleVersion: r.FeeRuleVersion,
 		CustomerName: r.CustomerName, CustomerEmail: r.CustomerEmail, CustomerPhone: r.CustomerPhone, CreatedAt: r.CreatedAt,
+		ClientKey: r.ClientKey, ReservedUntil: r.ReservedUntil.UTC(), OpenUntil: r.OpenUntil.UTC(),
 	}
 	if r.PaymentReference != nil {
 		p.PaymentReference = *r.PaymentReference
@@ -597,7 +585,7 @@ func (s *PGStore) FindPayment(ctx context.Context, linkID, key string) (*LinkPay
 }
 
 // Reserve locks the link row, so concurrent payers on one link serialise and the use limit holds exactly.
-func (s *PGStore) Reserve(ctx context.Context, p LinkPayment, now time.Time) (LinkPayment, *LinkPayment, error) {
+func (s *PGStore) Reserve(ctx context.Context, p LinkPayment, now time.Time, limits ReserveLimits) (LinkPayment, *LinkPayment, error) {
 	var existing *LinkPayment
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []linkRow
@@ -605,7 +593,7 @@ func (s *PGStore) Reserve(ctx context.Context, p LinkPayment, now time.Time) (Li
 			return fmt.Errorf("links: lock link: %w", err)
 		}
 		if len(rows) == 0 {
-			return errStoreNotFound
+			return ErrStoreNotFound
 		}
 		var err error
 		if existing, err = findPayment(tx, p.LinkID, p.IdempotencyKey); err != nil || existing != nil {
@@ -618,6 +606,19 @@ func (s *PGStore) Reserve(ctx context.Context, p LinkPayment, now time.Time) (Li
 		if err := availability(l, now); err != nil {
 			return err
 		}
+		if l.FeeBearer != p.FeeBearer {
+			return ErrStale
+		}
+		if l.MultiUse {
+			var counts struct{ Open, Mine int }
+			if err := tx.Raw(`SELECT count(*) AS open, count(*) FILTER (WHERE client_key = ?) AS mine
+				FROM payment_link_payments WHERE link_id = ? AND open_until > ?`, p.ClientKey, p.LinkID, now).Scan(&counts).Error; err != nil {
+				return fmt.Errorf("links: count open payments: %w", err)
+			}
+			if err := openPaymentsError(l, limits, counts.Open, counts.Mine); err != nil {
+				return err
+			}
+		}
 		p.ID, p.Status = uuid.NewString(), paymentPending
 		row := paymentRow{
 			ID: p.ID, LinkID: p.LinkID, IdempotencyKey: p.IdempotencyKey, RequestHash: p.RequestHash, Status: p.Status,
@@ -625,6 +626,7 @@ func (s *PGStore) Reserve(ctx context.Context, p LinkPayment, now time.Time) (Li
 			Connector: p.Connector, Amount: p.Amount, Currency: p.Currency, Fee: nullDec(p.Fee), Tax: nullDec(p.Tax),
 			CustomerTotal: p.CustomerTotal, FeeBearer: string(p.FeeBearer), FeeRuleID: p.FeeRuleID, FeeRuleVersion: p.FeeRuleVersion,
 			CustomerName: p.CustomerName, CustomerEmail: p.CustomerEmail, CustomerPhone: p.CustomerPhone,
+			ClientKey: p.ClientKey, ReservedUntil: p.ReservedUntil, OpenUntil: p.OpenUntil,
 			CreatedAt: now, UpdatedAt: now,
 		}
 		if row.BillingAddress, err = optJSON(p.BillingAddress, p.BillingAddress != nil); err != nil {
@@ -654,18 +656,18 @@ func (s *PGStore) Reserve(ctx context.Context, p LinkPayment, now time.Time) (Li
 	return p, nil, nil
 }
 
-func (s *PGStore) Complete(ctx context.Context, id string, created CreatedPayment) error {
+func (s *PGStore) Complete(ctx context.Context, id string, created CreatedPayment, openUntil time.Time) error {
 	raw, err := toJSON(created)
 	if err != nil {
 		return err
 	}
 	res := s.db.WithContext(ctx).Exec(`UPDATE payment_link_payments SET status = 'created', payment_reference = ?,
-		processor_response = ?, updated_at = now() WHERE id = ? AND status = 'pending'`, created.Reference, raw, id)
+		processor_response = ?, open_until = ?, updated_at = now() WHERE id = ? AND status = 'pending'`, created.Reference, raw, openUntil, id)
 	if res.Error != nil {
 		return fmt.Errorf("links: complete reservation: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return errStale
+		return ErrStale
 	}
 	return nil
 }
@@ -677,8 +679,25 @@ func (s *PGStore) Release(ctx context.Context, id string) error {
 			return fmt.Errorf("links: release reservation: %w", err)
 		}
 		if len(linkIDs) == 0 {
-			return errStale
+			return ErrStale
 		}
 		return tx.Exec(`UPDATE payment_links SET uses_count = uses_count - 1 WHERE id = ?`, linkIDs[0]).Error
 	})
+}
+
+func (s *PGStore) ExpiredPending(ctx context.Context, now time.Time, limit int) ([]LinkPayment, error) {
+	var rows []paymentRow
+	if err := s.db.WithContext(ctx).Where("status = 'pending' AND reserved_until < ?", now).
+		Order("reserved_until").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("links: expired reservations: %w", err)
+	}
+	out := make([]LinkPayment, len(rows))
+	for i, r := range rows {
+		p, err := toPayment(r, nil)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = p
+	}
+	return out, nil
 }

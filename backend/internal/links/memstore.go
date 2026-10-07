@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +19,8 @@ type MemStore struct {
 	payments  map[string]LinkPayment
 	webhooks  map[uint]uint
 	merchants map[uint]string
+	// failComplete, when set, is returned once by Complete (FailNextComplete).
+	failComplete error
 }
 
 func NewMemStore() *MemStore {
@@ -100,7 +101,7 @@ func (s *MemStore) Get(_ context.Context, platformID uint, id string) (Link, err
 	defer s.mu.Unlock()
 	l, ok := s.links[id]
 	if !ok || l.ExternalPlatformID != platformID {
-		return Link{}, errStoreNotFound
+		return Link{}, ErrStoreNotFound
 	}
 	return cloneLink(l), nil
 }
@@ -113,7 +114,7 @@ func (s *MemStore) GetByShortCode(_ context.Context, code string) (Link, error) 
 			return cloneLink(l), nil
 		}
 	}
-	return Link{}, errStoreNotFound
+	return Link{}, ErrStoreNotFound
 }
 
 func (s *MemStore) List(_ context.Context, platformID uint, f ListFilter) ([]Link, int64, error) {
@@ -142,10 +143,10 @@ func (s *MemStore) Save(_ context.Context, l Link) (Link, error) {
 	defer s.mu.Unlock()
 	cur, ok := s.links[l.ID]
 	if !ok || cur.ExternalPlatformID != l.ExternalPlatformID {
-		return Link{}, errStoreNotFound
+		return Link{}, ErrStoreNotFound
 	}
 	if cur.Revision != l.Revision {
-		return Link{}, errStale
+		return Link{}, ErrStale
 	}
 	next := cloneLink(l)
 	cur.Input, cur.Total = next.Input, next.Total
@@ -160,15 +161,15 @@ func (s *MemStore) SetStatus(_ context.Context, platformID uint, id string, revi
 	defer s.mu.Unlock()
 	cur, ok := s.links[id]
 	if !ok || cur.ExternalPlatformID != platformID {
-		return Link{}, errStoreNotFound
+		return Link{}, ErrStoreNotFound
 	}
 	if cur.Revision != revision {
-		return Link{}, errStale
+		return Link{}, ErrStale
 	}
 	if code != "" && cur.ShortCode == "" {
 		for _, other := range s.links {
 			if other.ShortCode == code {
-				return Link{}, errShortCodeTaken
+				return Link{}, ErrShortCodeTaken
 			}
 		}
 		cur.ShortCode = code
@@ -189,10 +190,10 @@ func (s *MemStore) DeleteDraft(_ context.Context, platformID uint, id string, re
 	defer s.mu.Unlock()
 	cur, ok := s.links[id]
 	if !ok || cur.ExternalPlatformID != platformID {
-		return errStoreNotFound
+		return ErrStoreNotFound
 	}
 	if cur.Revision != revision || cur.Status != StatusDraft {
-		return errStale
+		return ErrStale
 	}
 	delete(s.links, id)
 	return nil
@@ -211,23 +212,6 @@ func (s *MemStore) MerchantName(_ context.Context, platformID uint) (string, err
 	return s.merchants[platformID], nil
 }
 
-func (s *MemStore) AnsweredBefore(_ context.Context, linkID, email string, keys []string) (map[string]bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := map[string]bool{}
-	for _, p := range s.payments {
-		if p.LinkID != linkID || p.Status != paymentCreated || !strings.EqualFold(p.CustomerEmail, email) {
-			continue
-		}
-		for _, a := range p.Answers {
-			if slices.Contains(keys, a.QuestionKey) {
-				out[a.QuestionKey] = true
-			}
-		}
-	}
-	return out, nil
-}
-
 func (s *MemStore) findLocked(linkID, key string) *LinkPayment {
 	for _, p := range s.payments {
 		if p.LinkID == linkID && p.IdempotencyKey == key {
@@ -244,7 +228,7 @@ func (s *MemStore) FindPayment(_ context.Context, linkID, key string) (*LinkPaym
 	return s.findLocked(linkID, key), nil
 }
 
-func (s *MemStore) Reserve(_ context.Context, p LinkPayment, now time.Time) (LinkPayment, *LinkPayment, error) {
+func (s *MemStore) Reserve(_ context.Context, p LinkPayment, now time.Time, limits ReserveLimits) (LinkPayment, *LinkPayment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing := s.findLocked(p.LinkID, p.IdempotencyKey); existing != nil {
@@ -252,9 +236,24 @@ func (s *MemStore) Reserve(_ context.Context, p LinkPayment, now time.Time) (Lin
 	}
 	l, ok := s.links[p.LinkID]
 	if !ok {
-		return LinkPayment{}, nil, errStoreNotFound
+		return LinkPayment{}, nil, ErrStoreNotFound
 	}
 	if err := availability(l, now); err != nil {
+		return LinkPayment{}, nil, err
+	}
+	if l.FeeBearer != p.FeeBearer {
+		return LinkPayment{}, nil, ErrStale
+	}
+	open, mine := 0, 0
+	for _, q := range s.payments {
+		if q.LinkID == p.LinkID && q.OpenUntil.After(now) {
+			open++
+			if q.ClientKey == p.ClientKey {
+				mine++
+			}
+		}
+	}
+	if err := openPaymentsError(l, limits, open, mine); err != nil {
 		return LinkPayment{}, nil, err
 	}
 	l.UsesCount++
@@ -264,14 +263,18 @@ func (s *MemStore) Reserve(_ context.Context, p LinkPayment, now time.Time) (Lin
 	return p, nil, nil
 }
 
-func (s *MemStore) Complete(_ context.Context, id string, created CreatedPayment) error {
+func (s *MemStore) Complete(_ context.Context, id string, created CreatedPayment, openUntil time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.failComplete; err != nil {
+		s.failComplete = nil
+		return err
+	}
 	p, ok := s.payments[id]
 	if !ok || p.Status != paymentPending {
-		return errStale
+		return ErrStale
 	}
-	p.Status, p.PaymentReference, p.Processor = paymentCreated, created.Reference, &created
+	p.Status, p.PaymentReference, p.Processor, p.OpenUntil = paymentCreated, created.Reference, &created, openUntil
 	s.payments[id] = p
 	return nil
 }
@@ -281,7 +284,7 @@ func (s *MemStore) Release(_ context.Context, id string) error {
 	defer s.mu.Unlock()
 	p, ok := s.payments[id]
 	if !ok || p.Status != paymentPending {
-		return errStale
+		return ErrStale
 	}
 	delete(s.payments, id)
 	if l, ok := s.links[p.LinkID]; ok {
@@ -289,6 +292,29 @@ func (s *MemStore) Release(_ context.Context, id string) error {
 		s.links[l.ID] = l
 	}
 	return nil
+}
+
+func (s *MemStore) ExpiredPending(_ context.Context, now time.Time, limit int) ([]LinkPayment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []LinkPayment
+	for _, p := range s.payments {
+		if p.Status == paymentPending && p.ReservedUntil.Before(now) {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ReservedUntil.Before(out[j].ReservedUntil) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// FailNextComplete makes the next Complete return err without writing, to test the window after creation.
+func (s *MemStore) FailNextComplete(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failComplete = err
 }
 
 // Payments returns every stored use of a link, for tests.

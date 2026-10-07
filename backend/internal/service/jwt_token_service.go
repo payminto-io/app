@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"time"
 
+	"crypto/hmac"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"gorm.io/gorm"
@@ -49,6 +52,33 @@ type JWTTokenService struct {
 	refreshSecret string
 	accessTTL     time.Duration
 	refreshTTL    time.Duration
+	// environment binds access tokens (key and audience) and refresh hashes to one environment.
+	environment environment.Environment
+}
+
+// SetEnvironment sets the process environment; every token operation fails closed until it is set.
+func (s *JWTTokenService) SetEnvironment(env environment.Environment) { s.environment = env }
+
+func (s *JWTTokenService) env() (environment.Environment, error) {
+	if !s.environment.Valid() {
+		return "", environment.ErrUnconfigured
+	}
+	return s.environment, nil
+}
+
+// hashRefresh keys the stored hash per environment so a test refresh token can never be found on live.
+func (s *JWTTokenService) hashRefresh(raw string) (string, error) {
+	env, err := s.env()
+	if err != nil {
+		return "", err
+	}
+	key, err := environment.DeriveKey([]byte(s.refreshSecret), env, "refresh-token")
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(raw))
+	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
 // NewJWTTokenService constructs a JWTTokenService.
@@ -82,7 +112,10 @@ func (s *JWTTokenService) GenerateTokenPair(member *models.Member, platformID ui
 	}
 
 	family := uuid.NewString() // new family for a new login session
-	hash := hashToken(rawRefresh)
+	hash, err := s.hashRefresh(rawRefresh)
+	if err != nil {
+		return nil, err
+	}
 
 	now := time.Now()
 	record := &models.AuthRefreshToken{
@@ -107,24 +140,21 @@ func (s *JWTTokenService) GenerateTokenPair(member *models.Member, platformID ui
 // ValidateAccessToken parses and validates a JWT string, returning the embedded
 // JWTClaims on success.
 func (s *JWTTokenService) ValidateAccessToken(tokenString string) (*JWTClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(t *jwt.Token) (any, error) {
-		return []byte(s.accessSecret), nil
-	})
+	env, err := s.env()
 	if err != nil {
 		return nil, err
 	}
-	claims, ok := token.Claims.(*JWTClaims)
-	if !ok || !token.Valid {
-		return nil, errors.New("invalid access token")
-	}
-	return claims, nil
+	return parseSessionClaims(s.accessSecret, env, tokenString)
 }
 
 // RefreshAccessToken verifies a refresh token by hashed lookup, rotates the
 // pair (invalidates old row, issues new pair with same family), and detects
 // reuse by checking RevokedAt on the found row.
 func (s *JWTTokenService) RefreshAccessToken(refreshToken string) (*TokenPair, error) {
-	hash := hashToken(refreshToken)
+	hash, err := s.hashRefresh(refreshToken)
+	if err != nil {
+		return nil, err
+	}
 
 	record, err := s.refreshRepo.GetByTokenHash(hash)
 	if err != nil {
@@ -170,9 +200,13 @@ func (s *JWTTokenService) RefreshAccessToken(refreshToken string) (*TokenPair, e
 		return nil, fmt.Errorf("generate refresh token: %w", err)
 	}
 
+	newHash, err := s.hashRefresh(rawRefresh)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	newRecord := &models.AuthRefreshToken{
-		TokenHash:          hashToken(rawRefresh),
+		TokenHash:          newHash,
 		MemberID:           member.ID,
 		ExternalPlatformID: record.ExternalPlatformID, // carry forward from previous record
 		RotationFamily:     record.RotationFamily,     // same family
@@ -192,7 +226,10 @@ func (s *JWTTokenService) RefreshAccessToken(refreshToken string) (*TokenPair, e
 
 // RevokeRefreshToken marks the token (identified by raw token string) as revoked.
 func (s *JWTTokenService) RevokeRefreshToken(refreshToken string) error {
-	hash := hashToken(refreshToken)
+	hash, err := s.hashRefresh(refreshToken)
+	if err != nil {
+		return err
+	}
 	record, err := s.refreshRepo.GetByTokenHash(hash)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -214,6 +251,10 @@ func (s *JWTTokenService) signAccessToken(member *models.Member, platformID uint
 	if member.Email != nil {
 		email = *member.Email
 	}
+	env, err := s.env()
+	if err != nil {
+		return "", err
+	}
 	claims := JWTClaims{
 		MemberID:           member.ID,
 		Email:              email,
@@ -224,8 +265,7 @@ func (s *JWTTokenService) signAccessToken(member *models.Member, platformID uint
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.accessSecret))
+	return signSessionClaims(s.accessSecret, env, claims)
 }
 
 // generateSecureToken produces a cryptographically random 32-byte hex string.

@@ -8,6 +8,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/api/middleware"
 	"github.com/payminto/payminto/backend/internal/blockchain"
 	"github.com/payminto/payminto/backend/internal/constants"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/repository"
@@ -81,21 +82,40 @@ type RouterConfig struct {
 	// balance lookups).
 	AdapterReg *blockchain.AdapterRegistry
 
+	// Environment is the process environment module; NewRouter refuses to build without one (ticket 13).
+	Environment *modules.EnvironmentModule
+
 	// Fees is the fee rules module (internal/fees); nil leaves its routes unmounted.
 	Fees *modules.FeesModule
 
 	// Links is the payment links module (internal/links); nil leaves its /api/v2 routes unmounted.
 	Links *modules.LinksModule
 
-	// Redis backs the public rate limits; nil disables them (middleware.RateLimit).
+	// Redis backs the public link rate limits; without it they fall back to an in-process limiter.
 	Redis *redis.Client
+
+	// TrustedProxies are the proxies whose X-Forwarded-For sets the client IP; empty trusts none.
+	TrustedProxies []string
+}
+
+// processEnvironment is the environment every request is tagged with; there is no default.
+func (cfg RouterConfig) processEnvironment() environment.Environment {
+	if cfg.Environment == nil || !cfg.Environment.Environment.Valid() {
+		panic("api: RouterConfig.Environment is not wired; the router never assumes an environment")
+	}
+	return cfg.Environment.Environment
 }
 
 // NewRouter constructs and returns a configured Gin engine.
 func NewRouter(cfg RouterConfig) *gin.Engine {
 	r := gin.Default()
+	// Client IPs come from the socket unless the peer is a configured proxy (TRUSTED_PROXIES); gin trusts all by default.
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		panic("api: TRUSTED_PROXIES: " + err.Error())
+	}
 
 	r.Use(middleware.RequestID())
+	r.Use(middleware.Environment(cfg.processEnvironment()))
 	r.Use(middleware.CORS(cfg.AllowedOrigins...))
 
 	// Observability: record per-request metrics and expose the Prometheus
@@ -111,6 +131,11 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 	r.GET("/readyz", healthH.Health)
 
 	v1 := r.Group("/api/v1")
+
+	// ---- v2: environment indicator (session or API key) ----
+	v2 := r.Group("/v2")
+	v2.Use(middleware.JWTOrAPIKey(cfg.AuthSvc))
+	RegisterEnvironmentRoutes(v2, cfg.Environment)
 
 	// ---- Public auth routes ----
 	authH := handler.NewAuthHandler(cfg.AuthSvc, cfg.JWTTokenSvc)
@@ -189,7 +214,7 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 
 		// Merchant-facing API key management — scoped to caller's platform.
 		if cfg.APIKeyRepo != nil {
-			apiKeyH := handler.NewAPIKeyHandler(cfg.APIKeyRepo)
+			apiKeyH := handler.NewAPIKeyHandler(cfg.APIKeyRepo, cfg.processEnvironment())
 			protected.GET("/api-keys", apiKeyH.ListAPIKeys)
 			protected.POST("/api-keys", apiKeyH.CreateAPIKey)
 			protected.POST("/api-keys/:id/revoke", apiKeyH.RevokeAPIKey)
@@ -438,8 +463,8 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 	// ---- Payment links: merchant CRUD (session or API key) and the public checkout, rate limited per IP ----
 	if cfg.Links != nil {
 		auth := LinksAuth{
-			PublicRead: middleware.RateLimitScoped(cfg.Redis, "links:read", linksPublicReadPerMinute, time.Minute),
-			PublicPay:  middleware.RateLimitScoped(cfg.Redis, "links:pay", linksPublicPayPerMinute, time.Minute),
+			PublicRead: middleware.RateLimitStrict(cfg.Redis, "links:read", linksPublicReadPerMinute, time.Minute),
+			PublicPay:  middleware.RateLimitStrict(cfg.Redis, "links:pay", linksPublicPayPerMinute, time.Minute),
 		}
 		if cfg.AuthSvc != nil {
 			auth.Merchant = middleware.JWTOrAPIKey(cfg.AuthSvc)

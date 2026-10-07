@@ -48,6 +48,10 @@ type CreatePaymentInput struct {
 	InvoiceID      *string         `json:"invoiceID"`
 	BlockchainCode string          `json:"blockchainCode"`
 	CurrencyCode   string          `json:"currencyCode"`
+	// ReferenceID, when set, replaces the generated reference; the unique index makes a repeat fail rather than duplicate.
+	ReferenceID string `json:"-"`
+	// ExpiresIn, when set, replaces the default 30-minute expiry.
+	ExpiresIn time.Duration `json:"-"`
 }
 
 // CreatePaymentResult carries both the created payment and any auto-assigned
@@ -77,9 +81,16 @@ func (s *PaymentService) CreatePayment(input CreatePaymentInput, memberID, platf
 		return nil, err
 	}
 
-	expiresAt := time.Now().Add(30 * time.Minute)
+	ttl, ref := 30*time.Minute, GenerateReferenceID()
+	if input.ExpiresIn > 0 {
+		ttl = input.ExpiresIn
+	}
+	if input.ReferenceID != "" {
+		ref = input.ReferenceID
+	}
+	expiresAt := time.Now().Add(ttl)
 	payment := &models.PaymentRequest{
-		ReferenceID:        GenerateReferenceID(),
+		ReferenceID:        ref,
 		AmountInUSD:        input.AmountInUSD,
 		State:              models.PaymentStateOpen,
 		CustomerEmail:      input.CustomerEmail,

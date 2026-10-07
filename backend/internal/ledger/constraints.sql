@@ -8,8 +8,26 @@ ALTER TABLE ledger_journals ADD COLUMN IF NOT EXISTS posting_started_at timestam
 ALTER TABLE ledger_accounts ALTER COLUMN asset TYPE varchar(32);
 ALTER TABLE ledger_lines ALTER COLUMN asset TYPE varchar(32);
 
+-- Environment isolation (ticket 13). The four-column index stays until every binary
+-- infers the five-column one; ticket 17 drops it.
+ALTER TABLE ledger_accounts ADD COLUMN IF NOT EXISTS environment varchar(8) NOT NULL DEFAULT 'test';
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_accounts_env_owner_asset_kind_key
+    ON ledger_accounts (environment, owner_type, owner_id, asset, kind);
+ALTER TABLE ledger_journals ADD COLUMN IF NOT EXISTS environment varchar(8) NOT NULL DEFAULT 'test';
+CREATE INDEX IF NOT EXISTS ledger_journals_environment_idx ON ledger_journals (environment);
+
 DO $$
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_accounts'::regclass AND conname = 'ledger_accounts_environment_check') THEN
+        ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_environment_check
+            CHECK (environment IN ('test', 'live')) NOT VALID;
+        ALTER TABLE ledger_accounts VALIDATE CONSTRAINT ledger_accounts_environment_check;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_journals'::regclass AND conname = 'ledger_journals_environment_check') THEN
+        ALTER TABLE ledger_journals ADD CONSTRAINT ledger_journals_environment_check
+            CHECK (environment IN ('test', 'live')) NOT VALID;
+        ALTER TABLE ledger_journals VALIDATE CONSTRAINT ledger_journals_environment_check;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_accounts'::regclass AND conname = 'ledger_accounts_id_asset_key') THEN
         ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_id_asset_key UNIQUE (id, asset);
     END IF;
@@ -135,6 +153,37 @@ BEGIN
             RETURN NULL;
         END;
         $body$$f$, s);
+
+    -- The only sanctioned rewrite of ledger rows: relabelling a database adopted as live (cmd/migrate
+    -- adopt-live). SECURITY DEFINER so the table owner's right to pause the append-only triggers is
+    -- exercised here and nowhere else; it refuses once any live row exists.
+    EXECUTE format($f$
+        CREATE OR REPLACE FUNCTION %1$I.ledger_adopt_environment(target text)
+        RETURNS TABLE (accounts bigint, journals bigint)
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $body$
+        DECLARE
+            relabelled_accounts bigint;
+            relabelled_journals bigint;
+        BEGIN
+            IF target <> 'live' THEN
+                RAISE EXCEPTION 'ledger: adoption only moves test rows to live, not to %%', target;
+            END IF;
+            IF EXISTS (SELECT 1 FROM %1$I.ledger_accounts WHERE environment = 'live')
+               OR EXISTS (SELECT 1 FROM %1$I.ledger_journals WHERE environment = 'live') THEN
+                RAISE EXCEPTION 'ledger: live rows already exist; this database was adopted or served live before';
+            END IF;
+            ALTER TABLE %1$I.ledger_accounts DISABLE TRIGGER ledger_accounts_append_only;
+            ALTER TABLE %1$I.ledger_journals DISABLE TRIGGER ledger_journals_append_only;
+            UPDATE %1$I.ledger_accounts SET environment = 'live' WHERE environment = 'test';
+            GET DIAGNOSTICS relabelled_accounts = ROW_COUNT;
+            UPDATE %1$I.ledger_journals SET environment = 'live' WHERE environment = 'test';
+            GET DIAGNOSTICS relabelled_journals = ROW_COUNT;
+            ALTER TABLE %1$I.ledger_accounts ENABLE TRIGGER ledger_accounts_append_only;
+            ALTER TABLE %1$I.ledger_journals ENABLE TRIGGER ledger_journals_append_only;
+            RETURN QUERY SELECT relabelled_accounts, relabelled_journals;
+        END;
+        $body$$f$, s);
+    EXECUTE format('REVOKE ALL ON FUNCTION %I.ledger_adopt_environment(text) FROM PUBLIC', s);
 END;
 $install$;
 

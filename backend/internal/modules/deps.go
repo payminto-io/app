@@ -21,4 +21,6 @@ type Deps struct {
 	Fees fees.Port
 	// LinkPayments turns a paid link into a payment (service.LinkPaymentCreator until the switch).
 	LinkPayments links.PaymentCreator
+	// Environment is the wired process environment and guard, for modules that tag or move money.
+	Environment *EnvironmentModule
 }

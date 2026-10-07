@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/links"
 	"github.com/payminto/payminto/backend/internal/modules"
@@ -51,6 +52,10 @@ func (c *linksCreator) CreatePayment(_ context.Context, req links.PaymentRequest
 	return links.CreatedPayment{Reference: "pr_" + req.LinkPaymentID, CheckoutURL: "https://checkout.test/pay/pr_" + req.LinkPaymentID}, nil
 }
 
+func (c *linksCreator) FindPayment(_ context.Context, id string) (links.CreatedPayment, bool, error) {
+	return links.CreatedPayment{}, false, nil
+}
+
 func linksRouter(t *testing.T) (*gin.Engine, *links.MemStore, *linksCreator) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -60,8 +65,12 @@ func linksRouter(t *testing.T) (*gin.Engine, *links.MemStore, *linksCreator) {
 	svc := links.NewService(store, linksFees{}, creator, links.WithCheckoutBaseURL("https://checkout.test"))
 	r := gin.New()
 	auth := func(c *gin.Context) {
+		platform := uint(3)
+		if c.GetHeader("X-Test-Platform") == "4" {
+			platform = 4
+		}
 		c.Set("memberID", uint(7))
-		c.Set("externalPlatformID", uint(3))
+		c.Set("externalPlatformID", platform)
 	}
 	RegisterLinksRoutes(r.Group("/api/v2"), &modules.LinksModule{Port: svc}, LinksAuth{Merchant: auth})
 	return r, store, creator
@@ -260,7 +269,8 @@ func TestNewRouterGuardsMerchantLinkRoutesButNotTheCheckout(t *testing.T) {
 	f := newRBACFixture(t)
 	store := links.NewMemStore()
 	svc := links.NewService(store, linksFees{}, &linksCreator{})
-	r := NewRouter(RouterConfig{AuthSvc: f.auth, MEPRoleSvc: f.mep, Links: &modules.LinksModule{Port: svc}})
+	r := NewRouter(RouterConfig{AuthSvc: f.auth, MEPRoleSvc: f.mep, Links: &modules.LinksModule{Port: svc},
+		Environment: &modules.EnvironmentModule{Environment: environment.Test}})
 	for _, rt := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v2/links"}, {http.MethodGet, "/api/v2/links"}, {http.MethodGet, "/api/v2/links/x"},
 		{http.MethodPatch, "/api/v2/links/x"}, {http.MethodDelete, "/api/v2/links/x"},

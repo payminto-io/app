@@ -84,17 +84,23 @@ func (f *fakeFees) Preview(ctx context.Context, req fees.PreviewRequest) (fees.B
 	return b, nil
 }
 
-// fakeCreator offers connectors per method and records every payment it creates.
+// fakeCreator offers connectors per method and is idempotent on LinkPaymentID, like the contract requires.
+// err fails before creating; errAfter creates and then fails (the ambiguous case); findErr fails lookups.
 type fakeCreator struct {
 	mu         sync.Mutex
 	connectors map[string][]string
 	created    []PaymentRequest
+	byID       map[string]CreatedPayment
 	err        error
+	errAfter   error
+	findErr    error
 	calls      atomic.Int64
 	delay      time.Duration
 }
 
-func newFakeCreator() *fakeCreator { return &fakeCreator{connectors: map[string][]string{}} }
+func newFakeCreator() *fakeCreator {
+	return &fakeCreator{connectors: map[string][]string{}, byID: map[string]CreatedPayment{}}
+}
 
 func (c *fakeCreator) offer(m MethodSpec, conns ...string) {
 	c.mu.Lock()
@@ -108,7 +114,7 @@ func (c *fakeCreator) Connectors(_ context.Context, _ Environment, _ string, m M
 	return c.connectors[m.String()], nil
 }
 
-func (c *fakeCreator) CreatePayment(_ context.Context, req PaymentRequest) (CreatedPayment, error) {
+func (c *fakeCreator) CreatePayment(ctx context.Context, req PaymentRequest) (CreatedPayment, error) {
 	c.calls.Add(1)
 	if c.delay > 0 {
 		time.Sleep(c.delay)
@@ -118,8 +124,35 @@ func (c *fakeCreator) CreatePayment(_ context.Context, req PaymentRequest) (Crea
 	if c.err != nil {
 		return CreatedPayment{}, c.err
 	}
+	if got, ok := c.byID[req.LinkPaymentID]; ok {
+		return got, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return CreatedPayment{}, err
+	}
+	created := CreatedPayment{Reference: "pay_" + req.LinkPaymentID, CheckoutURL: "https://checkout.test/pay/pay_" + req.LinkPaymentID}
+	c.byID[req.LinkPaymentID] = created
 	c.created = append(c.created, req)
-	return CreatedPayment{Reference: "pay_" + req.LinkPaymentID, CheckoutURL: "https://checkout.test/pay/pay_" + req.LinkPaymentID}, nil
+	if c.errAfter != nil {
+		return CreatedPayment{}, c.errAfter
+	}
+	return created, nil
+}
+
+func (c *fakeCreator) FindPayment(_ context.Context, id string) (CreatedPayment, bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.findErr != nil {
+		return CreatedPayment{}, false, c.findErr
+	}
+	got, ok := c.byID[id]
+	return got, ok, nil
+}
+
+func (c *fakeCreator) payments() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.created)
 }
 
 type verifier map[string]bool

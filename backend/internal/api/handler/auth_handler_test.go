@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,9 +43,11 @@ func newAuthHandler(t *testing.T, db *gorm.DB) (*AuthHandler, *service.AuthServi
 
 	jwtSvc := service.NewJWTTokenService(refreshRepo, memberRepo, "test-secret", "test-secret",
 		15*time.Minute, 30*24*time.Hour)
+	jwtSvc.SetEnvironment(environment.Test)
 	emitter := service.NewEventEmitterService(eeRepo)
 
 	authSvc := service.NewAuthService(memberRepo, apiKeyRepo, "test-secret")
+	authSvc.SetEnvironment(environment.Test)
 	authSvc.SetJWTTokenService(jwtSvc)
 	authSvc.SetEventEmitter(emitter)
 

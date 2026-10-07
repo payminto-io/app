@@ -102,7 +102,7 @@ func TestLoad_DatabaseSSLModeIsConfigurable(t *testing.T) {
 	if cfg.Database.SSLMode != "verify-full" {
 		t.Errorf("Database.SSLMode = %q, want verify-full", cfg.Database.SSLMode)
 	}
-	if !strings.Contains(cfg.Database.DSN(), "sslmode=verify-full") {
+	if !strings.Contains(cfg.Database.DSN(), "sslmode='verify-full'") {
 		t.Errorf("Database.DSN() = %q, want configured SSL mode", cfg.Database.DSN())
 	}
 }
@@ -284,7 +284,7 @@ func TestEnforceModeMatch_EmptyEnv(t *testing.T) {
 }
 
 func TestEnforceModeMatch_FirstBootStamps(t *testing.T) {
-	repo := &fakeConfigRepo{}
+	repo := &fakeConfigRepo{values: map[string]string{}}
 	if err := EnforceModeMatch("testnet", repo); err != nil {
 		t.Fatal(err)
 	}
@@ -307,3 +307,160 @@ func TestEnforceModeMatch_Mismatch(t *testing.T) {
 		t.Error("expected mismatch error")
 	}
 }
+
+func TestLoad_GatewayEnvironmentDefaultsToTest(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Gateway.Environment != "test" {
+		t.Errorf("GATEWAY_ENVIRONMENT default = %q, want test", cfg.Gateway.Environment)
+	}
+	if cfg.Database.TestDatabase != "payminto_test" {
+		t.Errorf("POSTGRES_TEST_DATABASE default = %q", cfg.Database.TestDatabase)
+	}
+	if cfg.Security.DevKeystore {
+		t.Error("DEV_KEYSTORE must default to false")
+	}
+	if len(cfg.Modules.Providers) != 0 {
+		t.Errorf("no provider should be configured by default, got %v", cfg.Modules.Providers)
+	}
+}
+
+func TestLoad_GatewayEnvironmentIsClosed(t *testing.T) {
+	t.Setenv("GATEWAY_ENVIRONMENT", "LIVE")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Gateway.Environment != "live" {
+		t.Errorf("GATEWAY_ENVIRONMENT = %q, want canonical live", cfg.Gateway.Environment)
+	}
+	t.Setenv("GATEWAY_ENVIRONMENT", "sandbox")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GATEWAY_ENVIRONMENT") {
+		t.Fatalf("Load() error = %v, want GATEWAY_ENVIRONMENT rejection", err)
+	}
+}
+
+func TestLoad_SlotProvidersAndDevKeystore(t *testing.T) {
+	t.Setenv("CUSTODY_PROVIDER", "mock")
+	t.Setenv("CONNECTORS_PROVIDER", "stripe")
+	t.Setenv("DEV_KEYSTORE", "true")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Modules.Providers["custody"] != "mock" || cfg.Modules.Providers["connectors"] != "stripe" {
+		t.Errorf("providers = %v", cfg.Modules.Providers)
+	}
+	if !cfg.Security.DevKeystore {
+		t.Error("DEV_KEYSTORE=true not read")
+	}
+}
+
+func TestBootFacts_ProjectsConfig(t *testing.T) {
+	t.Setenv("GATEWAY_ENVIRONMENT", "live")
+	t.Setenv("SERVER", "production")
+	t.Setenv("POSTGRES_HOST", "db.internal")
+	t.Setenv("POSTGRES_DATABASE", "gateway")
+	t.Setenv("POSTGRES_PASSWORD", "a-strong-database-secret-value")
+	t.Setenv("JWT_SECRET", "a-strong-jwt-secret-value-with-32-plus-chars")
+	t.Setenv("AES_KEY", "legacy-local-master-key")
+	t.Setenv("BLOCKCHAIN_NETWORK_TYPE", "mainnet")
+	t.Setenv("CUSTODY_PROVIDER", "bitgo")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	facts := cfg.BootFacts()
+	if facts.Environment != "live" || facts.DatabaseName != "gateway" || facts.DatabaseHost != "db.internal" {
+		t.Errorf("facts = %+v", facts)
+	}
+	if !facts.DevKeystore {
+		t.Error("AES_KEY must count as a local vault master key")
+	}
+	if !facts.DeploymentHardened || facts.DatabaseSSLMode != "verify-full" || facts.NetworkType != "mainnet" {
+		t.Errorf("facts = %+v", facts)
+	}
+	if facts.SlotProviders["custody"] != "bitgo" || facts.TestDatabaseName != "payminto_test" {
+		t.Errorf("facts = %+v", facts)
+	}
+}
+
+func TestBootFacts_FlagsDevelopmentJWTSecrets(t *testing.T) {
+	for secret, weak := range map[string]bool{
+		"payminto-development-jwt-secret-not-for-production": true,
+		"short": true,
+		"a-strong-jwt-secret-value-with-32-plus-chars": false,
+	} {
+		cfg := &Config{Security: SecurityConfig{JWTSecret: secret}}
+		if got := cfg.BootFacts().JWTSecretWeak; got != weak {
+			t.Errorf("JWTSecretWeak(%q) = %v, want %v", secret, got, weak)
+		}
+	}
+}
+
+func TestLoad_RejectsDatabaseNamesThatCouldEscapeTheDSN(t *testing.T) {
+	for _, bad := range []string{"payminto_test sslmode=verify-full", "payminto_test=", "pay'minto", `pay"minto`, "pay\\minto"} {
+		t.Setenv("POSTGRES_DATABASE", bad)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "POSTGRES_DATABASE") {
+			t.Errorf("Load() with POSTGRES_DATABASE=%q error = %v, want rejection", bad, err)
+		}
+	}
+	t.Setenv("POSTGRES_DATABASE", "  payminto_test  ")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Database.Database != "payminto_test" {
+		t.Errorf("database name not trimmed: %q", cfg.Database.Database)
+	}
+}
+
+func TestDSN_QuotesEveryValue(t *testing.T) {
+	d := DatabaseConfig{Host: "localhost", Port: 5432, Username: "u", Password: `p a'ss\word`, Database: "payminto_test", SSLMode: "disable"}
+	got := d.DSN()
+	want := `host='localhost' port=5432 user='u' password='p a\'ss\\word' dbname='payminto_test' sslmode='disable'`
+	if got != want {
+		t.Fatalf("DSN() = %s\nwant   %s", got, want)
+	}
+}
+
+func TestLoad_GatewayTestDatabaseName(t *testing.T) {
+	t.Setenv("GATEWAY_TEST_DATABASE_NAME", " payminto_staging ")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Gateway.TestDatabaseName != "payminto_staging" || cfg.BootFacts().TestDatabaseAllowName != "payminto_staging" {
+		t.Fatalf("GATEWAY_TEST_DATABASE_NAME = %q", cfg.Gateway.TestDatabaseName)
+	}
+	t.Setenv("GATEWAY_TEST_DATABASE_NAME", "a b")
+	if _, err := Load(); err == nil {
+		t.Fatal("unsafe GATEWAY_TEST_DATABASE_NAME accepted")
+	}
+}
+
+func TestCheckModeMatch_OnlyComparesWhenTheRowExists(t *testing.T) {
+	repo := &modeOnlyRepo{}
+	if err := CheckModeMatch("mainnet", repo); err != nil || repo.set {
+		t.Fatalf("absent row: err %v, wrote %v", err, repo.set)
+	}
+	repo.value = "testnet"
+	if err := CheckModeMatch("mainnet", repo); err == nil {
+		t.Fatal("mismatch accepted")
+	}
+}
+
+type modeOnlyRepo struct {
+	value string
+	set   bool
+}
+
+func (f *modeOnlyRepo) Get(string) (string, error) {
+	if f.value == "" {
+		return "", errors.New("not found")
+	}
+	return f.value, nil
+}
+func (f *modeOnlyRepo) Set(string, string) error { f.set = true; return nil }
