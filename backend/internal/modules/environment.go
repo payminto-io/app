@@ -76,12 +76,12 @@ func (m *EnvironmentModule) VerifySchema(ctx context.Context, db *gorm.DB) error
 	if db == nil {
 		return errors.New("environment: database is nil")
 	}
-	for _, table := range []string{"api_keys", "ledger_accounts", "ledger_journals"} {
-		if !db.Migrator().HasTable(table) {
+	for _, t := range environmentColumns {
+		if !db.Migrator().HasTable(t.table) {
 			continue
 		}
-		if !db.Migrator().HasColumn(table, "environment") {
-			return fmt.Errorf("%w: %s.environment is missing; apply migration 2026100705_environment_isolation", environment.ErrBoot, table)
+		if !db.Migrator().HasColumn(t.table, "environment") {
+			return fmt.Errorf("%w: %s.environment is missing; apply migration %s", environment.ErrBoot, t.table, t.migration)
 		}
 	}
 	if !db.Migrator().HasTable(&environment.StampRow{}) {
@@ -105,6 +105,15 @@ func (m *EnvironmentModule) VerifySchema(ctx context.Context, db *gorm.DB) error
 	return nil
 }
 
+// environmentColumns are the tables whose rows carry an environment, with the migration that adds the column.
+var environmentColumns = []struct{ table, migration string }{
+	{"api_keys", "2026100705_environment_isolation"},
+	{"ledger_accounts", "2026100705_environment_isolation"},
+	{"ledger_journals", "2026100705_environment_isolation"},
+	{"payment_links", "2026100706_links_payment_links"},
+	{"payment_link_payments", "2026100706_links_payment_links"},
+}
+
 // dataTables are the tables whose rows prove a database already holds merchant or money data; any
 // row in any of them means a process must not decide what the database is. One list, tested.
 var dataTables = []string{
@@ -112,6 +121,7 @@ var dataTables = []string{
 	"payment_requests", "deposits", "deposit_addresses", "withdrawals", "sweeps",
 	"wallets", "address_pools", "secrets_vaults",
 	"ledger_accounts", "ledger_journals", "fee_rules",
+	"payment_links", "payment_link_payments",
 }
 
 // DataTables lists the tables Stamp refuses to overlook.

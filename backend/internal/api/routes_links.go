@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,7 @@ func RegisterLinksRoutes(rg *gin.RouterGroup, m *modules.LinksModule, auth Links
 	}
 	pub := rg.Group("/public/links")
 	pub.GET("/:short_code", withGuard(auth.PublicRead, h.render)...)
+	pub.GET("/:short_code/qr.svg", withGuard(auth.PublicRead, h.qr)...)
 	pub.POST("/:short_code/pay", withGuard(auth.PublicPay, h.pay)...)
 }
 
@@ -71,7 +73,16 @@ type linkResponse struct {
 	PublishedAt *time.Time        `json:"published_at"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
+	// FeePreview is set on single-link responses; lists leave it null to avoid pricing every row.
+	FeePreview []links.MethodPreview `json:"fee_preview"`
 	links.Input
+}
+
+// toDetail is toResponse plus the per-method fee preview the form shows before publishing.
+func (h *linksHandler) toDetail(c *gin.Context, l links.Link) linkResponse {
+	r := h.toResponse(l)
+	r.FeePreview = h.port.FeePreview(c.Request.Context(), l)
+	return r
 }
 
 func (h *linksHandler) toResponse(l links.Link) linkResponse {
@@ -123,8 +134,11 @@ func linksStatus(code links.Code) int {
 	case links.CodeArchived, links.CodeExpired:
 		return http.StatusGone
 	case links.CodeInvalidTransition, links.CodePublishedImmutable, links.CodeNotEditable, links.CodeNotDeletable,
-		links.CodeConflict, links.CodePaused, links.CodeUseLimitReached, links.CodeIdempotencyKeyReused, links.CodePaymentInProgress:
+		links.CodeConflict, links.CodePaused, links.CodeUseLimitReached, links.CodeIdempotencyKeyReused, links.CodePaymentInProgress,
+		links.CodeUseLimitBelowUses, links.CodeEnvironmentMismatch:
 		return http.StatusConflict
+	case links.CodeOpenPaymentsLimit:
+		return http.StatusTooManyRequests
 	case links.CodeInvalidRequest, links.CodeIdempotencyKeyRequired:
 		return http.StatusBadRequest
 	case links.CodePaymentCreationFailed:
@@ -149,6 +163,9 @@ func linksError(c *gin.Context, err error) {
 		return
 	}
 	extra := gin.H{}
+	if e.RetryAfter > 0 {
+		c.Header("Retry-After", strconv.Itoa(int((e.RetryAfter+time.Second-1)/time.Second)))
+	}
 	if e.Field != "" {
 		extra["field"] = e.Field
 	}
@@ -221,7 +238,7 @@ func (h *linksHandler) create(c *gin.Context) {
 		linksError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, h.toResponse(l))
+	c.JSON(http.StatusCreated, h.toDetail(c, l))
 }
 
 func (h *linksHandler) list(c *gin.Context) {
@@ -253,7 +270,7 @@ func (h *linksHandler) get(c *gin.Context) {
 		linksError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, h.toResponse(l))
+	c.JSON(http.StatusOK, h.toDetail(c, l))
 }
 
 // update is a top-level merge: each key sent replaces that field whole; keys not sent keep their value.
@@ -277,6 +294,14 @@ func (h *linksHandler) update(c *gin.Context) {
 		linksError(c, err)
 		return
 	}
+	// The merge base's revision guards the save; If-Match pins an older one the client read.
+	revision := cur.Revision
+	if im := strings.Trim(strings.TrimSpace(c.GetHeader("If-Match")), `"`); im != "" {
+		if revision, err = strconv.Atoi(im); err != nil {
+			feesAbort(c, http.StatusBadRequest, "invalid_request", "If-Match must be the link's revision number", gin.H{"field": "If-Match"})
+			return
+		}
+	}
 	baseRaw, err := json.Marshal(cur.Input)
 	if err != nil {
 		linksError(c, err)
@@ -295,12 +320,12 @@ func (h *linksHandler) update(c *gin.Context) {
 	if !decodeOnto(c, mergedRaw, &in) {
 		return
 	}
-	l, err := h.port.Update(ctx, actor.PlatformID, cur.ID, in)
+	l, err := h.port.Update(ctx, actor.PlatformID, cur.ID, revision, in)
 	if err != nil {
 		linksError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, h.toResponse(l))
+	c.JSON(http.StatusOK, h.toDetail(c, l))
 }
 
 func (h *linksHandler) remove(c *gin.Context) {
@@ -325,7 +350,7 @@ func (h *linksHandler) transition(c *gin.Context, do func(ctx *gin.Context, plat
 		linksError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, h.toResponse(l))
+	c.JSON(http.StatusOK, h.toDetail(c, l))
 }
 
 func (h *linksHandler) publish(c *gin.Context) {
@@ -356,7 +381,7 @@ func (h *linksHandler) duplicate(c *gin.Context) {
 		linksError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, h.toResponse(l))
+	c.JSON(http.StatusCreated, h.toDetail(c, l))
 }
 
 func (h *linksHandler) render(c *gin.Context) {
@@ -369,6 +394,23 @@ func (h *linksHandler) render(c *gin.Context) {
 	c.JSON(http.StatusOK, m)
 }
 
+// qr serves the short link as an SVG QR code; only published links have one.
+func (h *linksHandler) qr(c *gin.Context) {
+	m, err := h.port.Render(c.Request.Context(), c.Param("short_code"))
+	if err != nil {
+		linksError(c, err)
+		return
+	}
+	svg, err := links.QRSVG(m.URL)
+	if err != nil {
+		linksError(c, err)
+		return
+	}
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	c.Data(http.StatusOK, "image/svg+xml", []byte(svg))
+}
+
 func (h *linksHandler) pay(c *gin.Context) {
 	raw, ok := readBody(c)
 	if !ok {
@@ -379,6 +421,7 @@ func (h *linksHandler) pay(c *gin.Context) {
 		return
 	}
 	req.IdempotencyKey = c.GetHeader("Idempotency-Key")
+	req.ClientIP = c.ClientIP()
 	res, err := h.port.Pay(c.Request.Context(), c.Param("short_code"), req)
 	if err != nil {
 		linksError(c, err)

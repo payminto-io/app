@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/links"
@@ -19,8 +21,13 @@ func linkCreatorDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Blockchain{}, &models.BlockchainCurrency{}, &models.PaymentRequest{}, &models.Member{}); err != nil {
+	if err := db.AutoMigrate(&models.Blockchain{}, &models.BlockchainCurrency{}, &models.PaymentRequest{}, &models.Member{}, &models.DepositAddress{}); err != nil {
 		t.Fatal(err)
+	}
+	for _, col := range []string{"fee_rule_id integer", "fee_rule_version integer"} {
+		if err := db.Exec(`ALTER TABLE payment_requests ADD COLUMN ` + col).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	return db
 }
@@ -70,27 +77,89 @@ func TestLinkPaymentCreatorOffersOnlyActiveCryptoInUSD(t *testing.T) {
 	}
 }
 
+func linkPayReq(id string) links.PaymentRequest {
+	return links.PaymentRequest{
+		LinkPaymentID: id, MemberID: 4, PlatformID: 9, Method: links.MethodSpec{Method: fees.MethodCrypto, Chain: "SOL", Asset: "USDC"},
+		Amount: decimal.RequireFromString("25"), CustomerTotal: decimal.RequireFromString("25.75"), Currency: "USD",
+		CustomerEmail: "ada@example.test", ReferenceID: "order-42", QuoteExpirySeconds: 600, FeeRuleID: 3, FeeRuleVersion: 2,
+	}
+}
+
 func TestLinkPaymentCreatorCreatesAPaymentRequestForTheCustomerTotal(t *testing.T) {
 	db := linkCreatorDB(t)
 	c := NewLinkPaymentCreator(NewPaymentService(repository.NewPaymentRepository(db)), db, "https://checkout.test")
-	created, err := c.CreatePayment(context.Background(), links.PaymentRequest{
-		MemberID: 4, PlatformID: 9, Method: links.MethodSpec{Method: fees.MethodCrypto, Chain: "SOL", Asset: "USDC"},
-		Amount: decimal.RequireFromString("25"), CustomerTotal: decimal.RequireFromString("25.75"), Currency: "USD",
-		CustomerEmail: "ada@example.test", ReferenceID: "order-42",
-	})
+	before := time.Now()
+	created, err := c.CreatePayment(context.Background(), linkPayReq("lp-1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var pr models.PaymentRequest
-	if err := db.Where("reference_id = ?", created.Reference).First(&pr).Error; err != nil {
+	var pr struct {
+		models.PaymentRequest
+		FeeRuleID      *uint
+		FeeRuleVersion *int
+	}
+	if err := db.Table("payment_requests").Where("reference_id = ?", "pl_lp-1").First(&pr).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !pr.AmountInUSD.Equal(decimal.RequireFromString("25.75")) || pr.MemberID != 4 || pr.ExternalPlatformID != 9 ||
-		*pr.CustomerEmail != "ada@example.test" || *pr.InvoiceID != "order-42" {
-		t.Fatalf("payment request %+v", pr)
+	if created.Reference != "pl_lp-1" || !pr.AmountInUSD.Equal(decimal.RequireFromString("25.75")) || pr.MemberID != 4 || pr.ExternalPlatformID != 9 ||
+		*pr.CustomerEmail != "ada@example.test" || *pr.InvoiceID != "order-42" || *pr.FeeRuleID != 3 || *pr.FeeRuleVersion != 2 {
+		t.Fatalf("payment request %+v fee %v/%v", pr.PaymentRequest, pr.FeeRuleID, pr.FeeRuleVersion)
 	}
-	if created.CheckoutURL != "https://checkout.test/pay/"+created.Reference || created.ExpiresAt == nil {
+	if exp := pr.ExpiresAt.Sub(before); exp < 590*time.Second || exp > 610*time.Second {
+		t.Fatalf("expiry %v, want the link's 600s quote expiry", exp)
+	}
+	if created.CheckoutURL != "https://checkout.test/pay/pl_lp-1" || created.ExpiresAt == nil {
 		t.Fatalf("created %+v", created)
+	}
+}
+
+func TestLinkPaymentCreatorIsIdempotentAndFindsByLinkPaymentID(t *testing.T) {
+	db := linkCreatorDB(t)
+	c := NewLinkPaymentCreator(NewPaymentService(repository.NewPaymentRepository(db)), db, "")
+	ctx := context.Background()
+	if _, found, err := c.FindPayment(ctx, "lp-2"); found || err != nil {
+		t.Fatalf("found before creation: %v %v", found, err)
+	}
+	first, err := c.CreatePayment(ctx, linkPayReq("lp-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := c.CreatePayment(ctx, linkPayReq("lp-2"))
+	if err != nil || again.Reference != first.Reference {
+		t.Fatalf("second call %+v %v", again, err)
+	}
+	var n int64
+	db.Model(&models.PaymentRequest{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("%d payments for one link payment id", n)
+	}
+	got, found, err := c.FindPayment(ctx, "lp-2")
+	if err != nil || !found || got.Reference != first.Reference {
+		t.Fatalf("find %+v %v %v", got, found, err)
+	}
+	db.Model(&models.PaymentRequest{}).Where("reference_id = ?", "pl_lp-2").Update("state", models.PaymentStateCancelled)
+	if _, found, _ := c.FindPayment(ctx, "lp-2"); found {
+		t.Fatal("a cancelled payment counts as created")
+	}
+}
+
+func TestLinkPaymentCreatorReportsNotCreatedOnlyWhenNothingExists(t *testing.T) {
+	db := linkCreatorDB(t)
+	c := NewLinkPaymentCreator(NewPaymentService(repository.NewPaymentRepository(db)), db, "")
+	bad := linkPayReq("lp-3")
+	bad.CustomerTotal = decimal.Zero
+	if _, err := c.CreatePayment(context.Background(), bad); !errors.Is(err, links.ErrNotCreated) {
+		t.Fatalf("refused amount: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.CreatePayment(ctx, linkPayReq("lp-4")); !errors.Is(err, links.ErrNotCreated) {
+		t.Fatalf("cancelled context: %v", err)
+	}
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+	if _, err := c.CreatePayment(context.Background(), linkPayReq("lp-5")); err == nil || errors.Is(err, links.ErrNotCreated) {
+		t.Fatalf("a database that cannot answer must be ambiguous, got %v", err)
 	}
 }
 

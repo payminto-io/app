@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/database"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/links"
+	"github.com/payminto/payminto/backend/internal/links/storetest"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -28,7 +30,18 @@ func d(s string) *decimal.Decimal {
 type creator struct {
 	calls atomic.Int64
 	fail  atomic.Bool
-	delay time.Duration
+	// ambiguous creates the payment and then reports an error, as a timeout after commit would.
+	ambiguous atomic.Bool
+	delay     time.Duration
+	mu        sync.Mutex
+	made      map[string]links.CreatedPayment
+}
+
+func (c *creator) FindPayment(_ context.Context, id string) (links.CreatedPayment, bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	got, ok := c.made[id]
+	return got, ok, nil
 }
 
 func (c *creator) Connectors(_ context.Context, _ links.Environment, _ string, m links.MethodSpec) ([]string, error) {
@@ -42,9 +55,22 @@ func (c *creator) CreatePayment(_ context.Context, req links.PaymentRequest) (li
 	c.calls.Add(1)
 	time.Sleep(c.delay)
 	if c.fail.Load() {
-		return links.CreatedPayment{}, errors.New("processor down")
+		return links.CreatedPayment{}, fmt.Errorf("%w: processor refused", links.ErrNotCreated)
 	}
-	return links.CreatedPayment{Reference: "ref-" + req.LinkPaymentID, CheckoutURL: "https://checkout.test/pay/ref-" + req.LinkPaymentID}, nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if got, ok := c.made[req.LinkPaymentID]; ok {
+		return got, nil
+	}
+	created := links.CreatedPayment{Reference: "ref-" + req.LinkPaymentID, CheckoutURL: "https://checkout.test/pay/ref-" + req.LinkPaymentID}
+	if c.made == nil {
+		c.made = map[string]links.CreatedPayment{}
+	}
+	c.made[req.LinkPaymentID] = created
+	if c.ambiguous.Load() {
+		return links.CreatedPayment{}, errors.New("connection reset after commit")
+	}
+	return created, nil
 }
 
 type stack struct {
@@ -83,7 +109,7 @@ func newStack(t *testing.T, opts ...links.Option) *stack {
 	}
 	c := &creator{}
 	store := links.NewPGStore(db)
-	base := []links.Option{links.WithCheckoutBaseURL("https://checkout.test")}
+	base := []links.Option{links.WithCheckoutBaseURL("https://checkout.test"), links.WithLimits(links.ReserveLimits{})}
 	return &stack{
 		db: db, store: store, creator: c, actor: links.Actor{MemberID: member.ID, PlatformID: platform.ID},
 		svc: links.NewService(store, feeSvc, c, append(base, opts...)...), webhook: hook.ID, ruleID: rule.ID,
@@ -161,7 +187,7 @@ func TestIntegration_LinkRoundTripsEveryField(t *testing.T) {
 	next := got.Input
 	next.Title = "Roastery box v2"
 	next.Questions = next.Questions[:1]
-	updated, err := s.svc.Update(ctx, s.actor.PlatformID, got.ID, next)
+	updated, err := s.svc.Update(ctx, s.actor.PlatformID, got.ID, got.Revision, next)
 	if err != nil || updated.Revision != 2 || len(updated.Questions) != 1 || updated.Title != "Roastery box v2" {
 		t.Fatalf("update %+v %v", updated, err)
 	}
@@ -208,7 +234,7 @@ func TestIntegration_LifecycleAndDuplicate(t *testing.T) {
 	}
 	moved := resumed.Input
 	moved.Currency = "EUR"
-	if _, err := s.svc.Update(ctx, pid, l.ID, moved); links.CodeOf(err) != links.CodePublishedImmutable {
+	if _, err := s.svc.Update(ctx, pid, l.ID, resumed.Revision, moved); links.CodeOf(err) != links.CodePublishedImmutable {
 		t.Fatalf("currency change on a live link: %v", err)
 	}
 	dup, err := s.svc.Duplicate(ctx, s.actor, l.ID)
@@ -302,11 +328,8 @@ func TestIntegration_PayPersistsTheUseWithFeeRuleAndAnswers(t *testing.T) {
 		row.FeeRuleVersion != 1 || !row.Fee.Equal(*d("0.73")) || row.CustomerEmail != "ada@example.test" {
 		t.Fatalf("stored use %+v", row)
 	}
-	if _, err := s.svc.Pay(ctx, l.ShortCode, cardPay("k2", "ada@example.test")); err != nil {
-		t.Fatalf("returning customer asked again: %v", err)
-	}
-	if _, err := s.svc.Pay(ctx, l.ShortCode, cardPay("k3", "bob@example.test")); links.CodeOf(err) != links.CodeAnswerRequired {
-		t.Fatalf("new customer: %v", err)
+	if _, err := s.svc.Pay(ctx, l.ShortCode, cardPay("k2", "ada@example.test")); links.CodeOf(err) != links.CodeAnswerRequired {
+		t.Fatalf("a past payer's email skipped a required question: %v", err)
 	}
 	replay, err := s.svc.Pay(ctx, l.ShortCode, req)
 	if err != nil || !replay.Replayed || replay.PaymentReference != res.PaymentReference || !replay.Fee.Equal(*d("0.73")) {
@@ -380,7 +403,7 @@ func TestIntegration_ConcurrentRetriesOfOneKeyCreateOnePayment(t *testing.T) {
 	}
 }
 
-func TestIntegration_FailedCreationReleasesTheUse(t *testing.T) {
+func TestIntegration_DefinitiveRefusalReleasesTheUse(t *testing.T) {
 	s := newStack(t)
 	ctx := context.Background()
 	l := simpleLink(t, s, nil)
@@ -417,5 +440,57 @@ func TestIntegration_DatabaseRefusesUsesBeyondTheLimit(t *testing.T) {
 	}
 	if err := s.db.Exec(`UPDATE payment_links SET short_code = NULL WHERE id = ?`, single.ID).Error; err == nil {
 		t.Fatal("an active link lost its short code")
+	}
+}
+
+func TestIntegration_StoreContract(t *testing.T) {
+	storetest.Run(t, func(t *testing.T) storetest.Fixture {
+		s := newStack(t)
+		return storetest.Fixture{Store: s.store, Member: s.actor.MemberID, Platform: s.actor.PlatformID, Webhook: s.webhook}
+	})
+}
+
+func TestIntegration_AmbiguousCreationIsResolvedNotDuplicated(t *testing.T) {
+	now := time.Now().UTC()
+	clock := func() time.Time { return now }
+	s := newStack(t, links.WithClock(clock))
+	ctx := context.Background()
+	l := simpleLink(t, s, nil)
+	s.creator.ambiguous.Store(true)
+	if _, err := s.svc.Pay(ctx, l.ShortCode, cardPay("k", "a@example.test")); links.CodeOf(err) != links.CodePaymentInProgress {
+		t.Fatalf("ambiguous: %v", err)
+	}
+	s.creator.ambiguous.Store(false)
+	var pending int64
+	s.db.Raw(`SELECT count(*) FROM payment_link_payments WHERE link_id = ? AND status = 'pending'`, l.ID).Scan(&pending)
+	if pending != 1 {
+		t.Fatalf("pending uses %d", pending)
+	}
+	now = now.Add(links.DefaultLease + time.Second)
+	completed, released, err := s.svc.ResolveExpired(ctx, 10)
+	if err != nil || completed != 1 || released != 0 {
+		t.Fatalf("resolver %d %d %v", completed, released, err)
+	}
+	res, err := s.svc.Pay(ctx, l.ShortCode, cardPay("k", "a@example.test"))
+	if err != nil || !res.Replayed {
+		t.Fatalf("retry %+v %v", res, err)
+	}
+	if s.creator.calls.Load() != 1 {
+		t.Fatalf("creator called %d times for one key", s.creator.calls.Load())
+	}
+}
+
+func TestIntegration_LinksCarryTheGuardsEnvironment(t *testing.T) {
+	live, _ := environment.NewGuard(environment.Live)
+	s := newStack(t, links.WithGuard(live))
+	l := simpleLink(t, s, nil)
+	var env string
+	s.db.Raw(`SELECT environment FROM payment_links WHERE id = ?`, l.ID).Scan(&env)
+	if env != "live" {
+		t.Fatalf("stored environment %q", env)
+	}
+	testSvc := links.NewService(s.store, fees.NewService(s.db, nil, fees.DefaultPolicy()), s.creator)
+	if _, err := testSvc.Pay(context.Background(), l.ShortCode, cardPay("k", "a@example.test")); links.CodeOf(err) != links.CodeEnvironmentMismatch {
+		t.Fatalf("test process paid a live link: %v", err)
 	}
 }

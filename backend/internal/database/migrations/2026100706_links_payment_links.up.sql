@@ -113,6 +113,12 @@ CREATE TABLE IF NOT EXISTS payment_link_payments (
     shipping_address jsonb,
     payment_reference varchar(128),
     processor_response jsonb,
+    -- sha256 of the payer's IP, for the per-client open-payment cap.
+    client_key varchar(64) NOT NULL DEFAULT '',
+    -- The lease of a pending use; the resolver looks the payment up only after it.
+    reserved_until timestamptz NOT NULL,
+    -- When this use stops counting as an open payment: the lease, then the payment's expiry.
+    open_until timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT payment_link_payments_key_key UNIQUE (link_id, idempotency_key),
@@ -122,7 +128,8 @@ CREATE TABLE IF NOT EXISTS payment_link_payments (
     CONSTRAINT payment_link_payments_created_have_ref CHECK (status = 'pending' OR payment_reference IS NOT NULL)
 );
 
-CREATE INDEX IF NOT EXISTS payment_link_payments_link_email_idx ON payment_link_payments (link_id, customer_email);
+CREATE INDEX IF NOT EXISTS payment_link_payments_link_open_idx ON payment_link_payments (link_id, open_until);
+CREATE INDEX IF NOT EXISTS payment_link_payments_pending_idx ON payment_link_payments (reserved_until) WHERE status = 'pending';
 
 CREATE TABLE IF NOT EXISTS payment_link_answers (
     id bigserial PRIMARY KEY,

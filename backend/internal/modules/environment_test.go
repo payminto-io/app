@@ -83,6 +83,17 @@ func TestVerifySchema(t *testing.T) {
 	if err := db.Exec(`DROP TABLE api_keys`).Error; err != nil {
 		t.Fatal(err)
 	}
+	for _, table := range []string{"payment_links", "payment_link_payments"} {
+		if err := db.Exec(`CREATE TABLE ` + table + ` (id integer primary key)`).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := m.VerifySchema(ctx, db); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), table+".environment") || !strings.Contains(err.Error(), "2026100706") {
+			t.Fatalf("%s without environment = %v, want boot refusal naming the links migration", table, err)
+		}
+		if err := db.Exec(`DROP TABLE ` + table).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := db.AutoMigrate(&models.APIKey{}); err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +332,7 @@ func TestStamp_EveryDataTableCountsAsData(t *testing.T) {
 			}
 		})
 	}
-	expected := []string{"members", "external_platforms", "api_keys", "payment_requests", "deposits", "deposit_addresses", "withdrawals", "sweeps", "wallets", "address_pools", "secrets_vaults", "ledger_accounts", "ledger_journals", "fee_rules"}
+	expected := []string{"members", "external_platforms", "api_keys", "payment_requests", "deposits", "deposit_addresses", "withdrawals", "sweeps", "wallets", "address_pools", "secrets_vaults", "ledger_accounts", "ledger_journals", "fee_rules", "payment_links", "payment_link_payments"}
 	if got := DataTables(); strings.Join(got, ",") != strings.Join(expected, ",") {
 		t.Fatalf("DataTables() = %v", got)
 	}

@@ -129,7 +129,7 @@ func TestPublishedLinkKeepsMoneyFields(t *testing.T) {
 				l := f.linkIn(st)
 				in := l.Input
 				tc.edit(&in)
-				_, err := f.svc.Update(context.Background(), merchant.PlatformID, l.ID, in)
+				_, err := f.svc.Update(context.Background(), merchant.PlatformID, l.ID, l.Revision, in)
 				if e, ok := err.(*Error); !ok || e.Code != CodePublishedImmutable || e.Field != tc.field {
 					t.Fatalf("err %v, want link_published_immutable on %s", err, tc.field)
 				}
@@ -146,7 +146,7 @@ func TestPublishedLineItemsAreFixed(t *testing.T) {
 	l := f.published(in)
 	next := l.Input
 	next.LineItems = []LineItem{{Name: "Beans", Quantity: 3, UnitPrice: dec("10")}}
-	_, err := f.svc.Update(context.Background(), merchant.PlatformID, l.ID, next)
+	_, err := f.svc.Update(context.Background(), merchant.PlatformID, l.ID, l.Revision, next)
 	if e, ok := err.(*Error); !ok || e.Field != "line_items" {
 		t.Fatalf("err %v", err)
 	}
@@ -160,14 +160,22 @@ func TestPublishedLinkEditsOtherFieldsAndRevalidates(t *testing.T) {
 	l := f.published(in)
 	next := l.Input
 	next.Title = "Coffee beans, roasted"
-	updated, err := f.svc.Update(ctx, pid, l.ID, next)
+	updated, err := f.svc.Update(ctx, pid, l.ID, l.Revision, next)
 	if err != nil || updated.Title != "Coffee beans, roasted" || updated.Status != StatusActive {
 		t.Fatalf("edit title: %+v %v", updated.Title, err)
 	}
 	next = updated.Input
-	next.FeeBearer = fees.BearerCustomer
-	if _, err := f.svc.Update(ctx, pid, l.ID, next); CodeOf(err) != CodeSurchargeForbidden {
+	next.SettlementOverride = &SettlementOverride{Kind: SettleFiat, DestinationID: "dest_pending"}
+	if _, err := f.svc.Update(ctx, pid, l.ID, updated.Revision, next); CodeOf(err) != CodeDestinationUnverified {
 		t.Fatalf("live edit skipped publish validation: %v", err)
+	}
+	next = updated.Input
+	next.FeeBearer = fees.BearerCustomer
+	if _, err := f.svc.Update(ctx, pid, l.ID, updated.Revision, next); CodeOf(err) != CodePublishedImmutable {
+		t.Fatalf("live fee bearer change: %v", err)
+	}
+	if _, err := f.svc.Update(ctx, pid, l.ID, l.Revision, updated.Input); CodeOf(err) != CodeConflict {
+		t.Fatalf("update against an old revision: %v", err)
 	}
 }
 
@@ -175,7 +183,7 @@ func TestArchivedLinkIsNotEditableAndOnlyDraftsDelete(t *testing.T) {
 	f := newFixture(t)
 	ctx, pid := context.Background(), merchant.PlatformID
 	archived := f.linkIn(StatusArchived)
-	if _, err := f.svc.Update(ctx, pid, archived.ID, archived.Input); CodeOf(err) != CodeNotEditable {
+	if _, err := f.svc.Update(ctx, pid, archived.ID, archived.Revision, archived.Input); CodeOf(err) != CodeNotEditable {
 		t.Fatalf("update archived: %v", err)
 	}
 	for _, st := range []Status{StatusActive, StatusPaused, StatusArchived} {
@@ -196,12 +204,12 @@ func TestStaleUpdateIsAConflict(t *testing.T) {
 	f := newFixture(t)
 	ctx, pid := context.Background(), merchant.PlatformID
 	l := f.create(validInput())
-	if _, err := f.svc.Update(ctx, pid, l.ID, l.Input); err != nil {
+	if _, err := f.svc.Update(ctx, pid, l.ID, l.Revision, l.Input); err != nil {
 		t.Fatal(err)
 	}
 	stale := l
 	stale.Title = "older"
-	if _, err := f.store.Save(ctx, stale); err != errStale {
+	if _, err := f.store.Save(ctx, stale); err != ErrStale {
 		t.Fatalf("save on an old revision: %v", err)
 	}
 }

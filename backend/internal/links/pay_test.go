@@ -3,6 +3,7 @@ package links
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -171,7 +172,7 @@ func TestPayStoresAnswersAndPrefills(t *testing.T) {
 	}
 }
 
-func TestPerCustomerQuestionIsAskedOnce(t *testing.T) {
+func TestRequiredQuestionsAreAskedEveryTimeAndRevealNoPastPayer(t *testing.T) {
 	f := newFixture(t)
 	in := validInput()
 	in.MultiUse = true
@@ -182,13 +183,19 @@ func TestPerCustomerQuestionIsAskedOnce(t *testing.T) {
 	if _, err := f.pay(l.ShortCode, first); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.pay(l.ShortCode, payReq("k2")); err != nil {
-		t.Fatalf("returning customer asked again: %v", err)
+	probe := func(email string) []Code {
+		req := payReq("probe-" + email)
+		req.Customer.Email = strp(email)
+		req.Method = upi
+		_, err := f.pay(l.ShortCode, req)
+		return Codes(err)
 	}
-	stranger := payReq("k3")
-	stranger.Customer.Email = strp("bob@example.test")
-	if _, err := f.pay(l.ShortCode, stranger); CodeOf(err) != CodeAnswerRequired {
-		t.Fatalf("new customer skipped the question: %v", err)
+	past, stranger := probe("ada@example.test"), probe("bob@example.test")
+	if fmt.Sprint(past) != fmt.Sprint(stranger) || !slices.Contains(past, CodeAnswerRequired) {
+		t.Fatalf("a past payer's email changes the refusal: %v vs %v", past, stranger)
+	}
+	if _, err := f.pay(l.ShortCode, payReq("k2")); CodeOf(err) != CodeAnswerRequired {
+		t.Fatalf("a claimed email skipped a required question: %v", err)
 	}
 }
 
@@ -272,7 +279,7 @@ func TestSingleUseAndUseLimits(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t)
+			f := newFixture(t, WithLimits(ReserveLimits{}))
 			in := validInput()
 			tc.edit(&in)
 			l := f.published(in)
@@ -355,22 +362,6 @@ func TestConcurrentRetriesOfOneKeyCreateOnePayment(t *testing.T) {
 	}
 	if f.creator.calls.Load() != 1 {
 		t.Fatalf("creator called %d times for one key", f.creator.calls.Load())
-	}
-}
-
-func TestFailedCreationReleasesTheUse(t *testing.T) {
-	f := newFixture(t)
-	l := f.published(validInput())
-	f.creator.err = errBoom
-	if _, err := f.pay(l.ShortCode, payReq("k1")); CodeOf(err) != CodePaymentCreationFailed {
-		t.Fatalf("err %v", err)
-	}
-	if after, _ := f.svc.Get(context.Background(), merchant.PlatformID, l.ID); after.UsesCount != 0 || len(f.store.Payments(l.ID)) != 0 {
-		t.Fatalf("failed creation kept the use: %d", after.UsesCount)
-	}
-	f.creator.err = nil
-	if _, err := f.pay(l.ShortCode, payReq("k1")); err != nil {
-		t.Fatalf("retry with the same key after a failure: %v", err)
 	}
 }
 

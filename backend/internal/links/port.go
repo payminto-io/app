@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/shopspring/decimal"
 )
@@ -33,11 +34,12 @@ const (
 	AmountLineItems AmountMode = "line_items"
 )
 
-type Environment string
+// Environment is the process environment a link belongs to (internal/environment).
+type Environment = environment.Environment
 
 const (
-	EnvLive Environment = "live"
-	EnvTest Environment = "test"
+	EnvLive = environment.Live
+	EnvTest = environment.Test
 )
 
 type FieldMode string
@@ -260,6 +262,8 @@ type PayRequest struct {
 	BillingAddress  *Address          `json:"billing_address"`
 	ShippingAddress *Address          `json:"shipping_address"`
 	Answers         map[string]string `json:"answers"`
+	// ClientIP is the payer's address as the trusted-proxy policy resolves it; only its hash is stored.
+	ClientIP string `json:"-"`
 }
 
 // PayResult is the outcome of paying a link; replaying the idempotency key returns the same one.
@@ -284,12 +288,15 @@ type Port interface {
 	Create(ctx context.Context, actor Actor, in Input) (Link, error)
 	Get(ctx context.Context, platformID uint, id string) (Link, error)
 	List(ctx context.Context, platformID uint, f ListFilter) ([]Link, int64, error)
-	Update(ctx context.Context, platformID uint, id string, in Input) (Link, error)
+	// Update saves in over the link if its revision is still `revision` (else link_conflict).
+	Update(ctx context.Context, platformID uint, id string, revision int, in Input) (Link, error)
 	Delete(ctx context.Context, platformID uint, id string) error
 	Publish(ctx context.Context, platformID uint, id string) (Link, error)
 	Pause(ctx context.Context, platformID uint, id string) (Link, error)
 	Archive(ctx context.Context, platformID uint, id string) (Link, error)
 	Duplicate(ctx context.Context, actor Actor, id string) (Link, error)
+	// FeePreview prices every method of the link for the merchant: connector, rule and breakdown.
+	FeePreview(ctx context.Context, l Link) []MethodPreview
 	Render(ctx context.Context, shortCode string) (RenderModel, error)
 	Pay(ctx context.Context, shortCode string, req PayRequest) (PayResult, error)
 	URL(shortCode string) string
@@ -305,22 +312,30 @@ type FeeQuoter interface {
 type PaymentCreator interface {
 	// Connectors names the connectors that can take m for currency in env; empty means unavailable, "" is unscoped.
 	Connectors(ctx context.Context, env Environment, currency string, m MethodSpec) ([]string, error)
+	// CreatePayment is idempotent on req.LinkPaymentID: a second call returns the payment the first made.
+	// Only an error wrapping ErrNotCreated, or a *Error, promises that no payment exists; any other error is ambiguous.
 	CreatePayment(ctx context.Context, req PaymentRequest) (CreatedPayment, error)
+	// FindPayment looks a payment up by LinkPaymentID. found=false with a nil error means definitively absent.
+	FindPayment(ctx context.Context, linkPaymentID string) (created CreatedPayment, found bool, err error)
 }
+
+// ErrNotCreated is what a PaymentCreator wraps when it is certain no payment exists; only then is a use released.
+var ErrNotCreated = errors.New("links: payment definitively not created")
 
 // PaymentRequest is one reserved use of a link; LinkPaymentID is unique and stable across retries of the reservation.
 type PaymentRequest struct {
-	LinkID             string
-	LinkPaymentID      string
-	MemberID           uint
-	PlatformID         uint
-	Environment        Environment
-	Method             MethodSpec
-	Connector          string
-	Amount             decimal.Decimal
-	Currency           string
-	CustomerTotal      decimal.Decimal
-	FeeBearer          fees.FeeBearer
+	LinkID        string
+	LinkPaymentID string
+	MemberID      uint
+	PlatformID    uint
+	Environment   Environment
+	Method        MethodSpec
+	Connector     string
+	Amount        decimal.Decimal
+	Currency      string
+	CustomerTotal decimal.Decimal
+	FeeBearer     fees.FeeBearer
+	// FeeRuleID and FeeRuleVersion are the rule the link priced this payment under; zero when none applied.
 	FeeRuleID          uint
 	FeeRuleVersion     int
 	CustomerName       string
@@ -444,6 +459,9 @@ const (
 	CodePaymentInProgress       Code = "payment_in_progress"
 	CodePaymentCreationFailed   Code = "payment_creation_failed"
 	CodeShortCodeExhausted      Code = "short_code_exhausted"
+	CodeUseLimitBelowUses       Code = "use_limit_below_uses"
+	CodeEnvironmentMismatch     Code = "link_environment_mismatch"
+	CodeOpenPaymentsLimit       Code = "open_payments_limit"
 )
 
 // Error is a typed refusal naming the field it concerns; Errors carries every refusal when there are several.
@@ -452,6 +470,8 @@ type Error struct {
 	Field   string
 	Message string
 	Errors  []*Error
+	// RetryAfter is set on payment_in_progress: when the reservation's lease ends and the retry can resolve it.
+	RetryAfter time.Duration
 }
 
 func (e *Error) Error() string {

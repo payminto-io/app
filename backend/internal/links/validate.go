@@ -156,7 +156,11 @@ func validateShape(in Input, p fees.Precision) []*Error {
 		if in.AmountMin != nil || in.AmountMax != nil {
 			add(CodeAmountBoundsNotAllowed, "amount_min", "minimum and maximum apply only to customer-entered amounts")
 		}
-		errs = append(errs, validateLineItems(in.LineItems, places, currencyOK)...)
+		lineErrs := validateLineItems(in.LineItems, places, currencyOK)
+		errs = append(errs, lineErrs...)
+		if len(lineErrs) == 0 && len(in.LineItems) > 0 && !itemsTotals(in.LineItems, places).Total.LessThan(maxMoney) {
+			add(CodeAmountInvalid, "line_items", "the line items sum to more than the largest amount")
+		}
 	default:
 		add(CodeAmountModeInvalid, "amount_mode", "must be fixed, customer or line_items")
 	}
@@ -455,6 +459,8 @@ func immutableDiff(old, next Input) string {
 		return "amount_max"
 	case old.Currency != next.Currency:
 		return "currency"
+	case old.FeeBearer != next.FeeBearer:
+		return "fee_bearer"
 	case !slices.Equal(old.Methods, next.Methods):
 		return "methods"
 	case !slices.EqualFunc(old.LineItems, next.LineItems, func(a, b LineItem) bool {

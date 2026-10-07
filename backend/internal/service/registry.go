@@ -394,7 +394,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 		return nil, fmt.Errorf("wire fees: %w", err)
 	}
 	r.feesModule = feesModule
-	if r.linksModule, err = modules.WireLinks(modules.Deps{DB: db, Config: cfg, Fees: feesModule.Port, LinkPayments: NewLinkPaymentCreator(r.paymentService, db, cfg.Server.CheckoutBaseURL)}); err != nil {
+	if r.linksModule, err = modules.WireLinks(modules.Deps{DB: db, Config: cfg, Fees: feesModule.Port, LinkPayments: NewLinkPaymentCreator(r.paymentService, db, cfg.Server.CheckoutBaseURL), Environment: r.environmentModule}); err != nil {
 		return nil, fmt.Errorf("wire links: %w", err)
 	}
 

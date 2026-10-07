@@ -91,8 +91,11 @@ type RouterConfig struct {
 	// Links is the payment links module (internal/links); nil leaves its /api/v2 routes unmounted.
 	Links *modules.LinksModule
 
-	// Redis backs the public rate limits; nil disables them (middleware.RateLimit).
+	// Redis backs the public link rate limits; without it they fall back to an in-process limiter.
 	Redis *redis.Client
+
+	// TrustedProxies are the proxies whose X-Forwarded-For sets the client IP; empty trusts none.
+	TrustedProxies []string
 }
 
 // processEnvironment is the environment every request is tagged with; there is no default.
@@ -106,6 +109,10 @@ func (cfg RouterConfig) processEnvironment() environment.Environment {
 // NewRouter constructs and returns a configured Gin engine.
 func NewRouter(cfg RouterConfig) *gin.Engine {
 	r := gin.Default()
+	// Client IPs come from the socket unless the peer is a configured proxy (TRUSTED_PROXIES); gin trusts all by default.
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		panic("api: TRUSTED_PROXIES: " + err.Error())
+	}
 
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Environment(cfg.processEnvironment()))
@@ -456,8 +463,8 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 	// ---- Payment links: merchant CRUD (session or API key) and the public checkout, rate limited per IP ----
 	if cfg.Links != nil {
 		auth := LinksAuth{
-			PublicRead: middleware.RateLimitScoped(cfg.Redis, "links:read", linksPublicReadPerMinute, time.Minute),
-			PublicPay:  middleware.RateLimitScoped(cfg.Redis, "links:pay", linksPublicPayPerMinute, time.Minute),
+			PublicRead: middleware.RateLimitStrict(cfg.Redis, "links:read", linksPublicReadPerMinute, time.Minute),
+			PublicPay:  middleware.RateLimitStrict(cfg.Redis, "links:pay", linksPublicPayPerMinute, time.Minute),
 		}
 		if cfg.AuthSvc != nil {
 			auth.Merchant = middleware.JWTOrAPIKey(cfg.AuthSvc)
