@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/observability"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -21,18 +22,43 @@ type Poster interface {
 	PostIn(ctx context.Context, tx *gorm.DB, j ledger.Journal) (ledger.Receipt, error)
 }
 
+// AssetResolver returns the ledger asset of one blockchain_currencies row (service.LedgerAssetResolver).
+type AssetResolver func(tx *gorm.DB, blockchainCurrencyID uint) (string, error)
+
 // Service is the Postgres implementation of Port.
 type Service struct {
-	db     *gorm.DB
-	ledger Poster
-	policy Policy
-	now    func() time.Time
+	db          *gorm.DB
+	ledger      Poster
+	policy      Policy
+	assets      AssetResolver
+	environment string
 }
 
 var _ Port = (*Service)(nil)
 
-func NewService(db *gorm.DB, poster Poster, policy Policy) *Service {
-	return &Service{db: db, ledger: poster, policy: policy, now: time.Now}
+type Option func(*Service)
+
+// WithAssetResolver is required for on-chain snapshots; without it they are refused.
+func WithAssetResolver(r AssetResolver) Option { return func(s *Service) { s.assets = r } }
+
+// WithEnvironment names the environment a fee posting is unique within (one per payment request each).
+func WithEnvironment(env string) Option { return func(s *Service) { s.environment = env } }
+
+func NewService(db *gorm.DB, poster Poster, policy Policy, opts ...Option) *Service {
+	s := &Service{db: db, ledger: poster, policy: policy, environment: "default"}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// dbNow is the transaction's start time; rule windows and snapshots are judged against the database clock.
+func dbNow(tx *gorm.DB) (time.Time, error) {
+	var now time.Time
+	if err := tx.Raw(`SELECT transaction_timestamp()`).Scan(&now).Error; err != nil {
+		return time.Time{}, fmt.Errorf("fees: read database time: %w", err)
+	}
+	return now.UTC(), nil
 }
 
 func toRules(rows []ruleRow) []Rule {
@@ -58,7 +84,11 @@ func candidates(ctx context.Context, db *gorm.DB, q Query) ([]Rule, error) {
 func (s *Service) resolveIn(ctx context.Context, db *gorm.DB, q Query) (Rule, error) {
 	q = q.normalize()
 	if q.At.IsZero() {
-		q.At = s.now()
+		now, err := dbNow(db.WithContext(ctx))
+		if err != nil {
+			return Rule{}, err
+		}
+		q.At = now
 	}
 	rules, err := candidates(ctx, db, q)
 	if err != nil {
@@ -73,7 +103,11 @@ func (s *Service) Resolve(ctx context.Context, q Query) (Rule, error) {
 
 func (s *Service) Preview(ctx context.Context, req PreviewRequest) (Breakdown, error) {
 	req.Query = req.Query.normalize()
-	req.At = s.now()
+	now, err := dbNow(s.db.WithContext(ctx))
+	if err != nil {
+		return Breakdown{}, err
+	}
+	req.At = now
 	rules, err := candidates(ctx, s.db, req.Query)
 	if err != nil {
 		return Breakdown{}, err
@@ -118,12 +152,17 @@ func derefCard(c *CardType) string {
 }
 
 func (s *Service) CreateRule(ctx context.Context, in RuleInput, actor string) (Rule, error) {
-	v, err := validateInput(in, s.policy, s.now())
-	if err != nil {
-		return Rule{}, err
-	}
-	row := newRuleRow(uuid.NewString(), 1, v.Scope, v.minorUnits, v.Pricing, actor)
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var row ruleRow
+	var v validated
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now, err := dbNow(tx)
+		if err != nil {
+			return err
+		}
+		if v, err = validateInput(in, s.policy, now); err != nil {
+			return err
+		}
+		row = newRuleRow(uuid.NewString(), 1, v.Scope, v.minorUnits, v.Pricing, actor)
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
@@ -132,6 +171,10 @@ func (s *Service) CreateRule(ctx context.Context, in RuleInput, actor string) (R
 	if isPgCode(err, "23P01") {
 		return Rule{}, overlapError(ctx, s.db, v.Scope, *v.EffectiveFrom, v.EffectiveTo)
 	}
+	var ve *ValidationError
+	if errors.As(err, &ve) || errors.Is(err, ErrSurchargeForbidden) {
+		return Rule{}, err
+	}
 	if err != nil {
 		return Rule{}, fmt.Errorf("fees: create rule: %w", err)
 	}
@@ -139,18 +182,22 @@ func (s *Service) CreateRule(ctx context.Context, in RuleInput, actor string) (R
 }
 
 // NewVersion inserts version n+1 and, in the same transaction, closes every version of the lineage whose
-// window extends past the new start; ruleID must be the lineage head.
+// window extends past the new start through fee_rules_close_lineage; ruleID must be the lineage head.
 func (s *Service) NewVersion(ctx context.Context, ruleID uint, p Pricing, actor string) (Rule, error) {
 	var created ruleRow
 	var scope Scope
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var prev ruleRow
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&prev, ruleID).Error
+		err := tx.First(&prev, ruleID).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrNotFound
 		}
 		if err != nil {
-			return fmt.Errorf("fees: lock rule %d: %w", ruleID, err)
+			return fmt.Errorf("fees: load rule %d: %w", ruleID, err)
+		}
+		// An advisory lock serialises editors of one lineage without needing UPDATE on fee_rules.
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, "fee_rules:"+prev.LineageID).Error; err != nil {
+			return fmt.Errorf("fees: lock lineage %s: %w", prev.LineageID, err)
 		}
 		var newer int64
 		if err := tx.Model(&ruleRow{}).Where("lineage_id = ? AND version > ?", prev.LineageID, prev.Version).Count(&newer).Error; err != nil {
@@ -159,17 +206,15 @@ func (s *Service) NewVersion(ctx context.Context, ruleID uint, p Pricing, actor 
 		if newer > 0 {
 			return ErrStaleVersion
 		}
-		scope = prev.rule().Scope
-		p, err = validatePricing(p, scope, prev.MinorUnits, s.policy, s.now())
+		now, err := dbNow(tx)
 		if err != nil {
 			return err
 		}
-		if err := tx.Exec(`SET LOCAL fees.closing_version = 'on'`).Error; err != nil {
-			return fmt.Errorf("fees: mark versioning transaction: %w", err)
+		scope = prev.rule().Scope
+		if p, err = validatePricing(p, scope, prev.MinorUnits, s.policy, now); err != nil {
+			return err
 		}
-		if err := tx.Exec(`UPDATE fee_rules SET effective_to = GREATEST(effective_from, ?)
-			WHERE lineage_id = ? AND (effective_to IS NULL OR effective_to > ?)`,
-			*p.EffectiveFrom, prev.LineageID, *p.EffectiveFrom).Error; err != nil {
+		if err := tx.Exec(`SELECT fee_rules_close_lineage(?, ?)`, prev.LineageID, *p.EffectiveFrom).Error; err != nil {
 			return fmt.Errorf("fees: close lineage %s: %w", prev.LineageID, err)
 		}
 		created = newRuleRow(prev.LineageID, prev.Version+1, scope, prev.MinorUnits, p, actor)
@@ -257,24 +302,68 @@ func loadSnapshot(tx *gorm.DB, attemptID string) (snapshotRow, bool, error) {
 	return row, res.RowsAffected == 1, nil
 }
 
+// assetFor is the ledger asset of the snapshot: the bare code for fiat, the ledger resolver's answer for an
+// active blockchain_currencies row otherwise.
+func (s *Service) assetFor(tx *gorm.DB, currency, chain string) (string, error) {
+	if s.policy.Precision.IsFiat(currency) {
+		return fiatAsset(currency, chain)
+	}
+	if chain == "" {
+		return "", invalid("chain", "on-chain asset %s needs its chain", currency)
+	}
+	if s.assets == nil {
+		return "", errors.New("fees: no ledger asset resolver configured; on-chain snapshots need WithAssetResolver")
+	}
+	var ids []uint
+	err := tx.Raw(`SELECT bc.id FROM blockchain_currencies bc JOIN blockchains b ON b.id = bc.blockchain_id
+		WHERE upper(bc.currency_code) = ? AND upper(bc.blockchain_code) = ?
+		  AND bc.deleted_at IS NULL AND b.deleted_at IS NULL AND b.status = 'active' AND bc.deposit_enabled`,
+		currency, chain).Scan(&ids).Error
+	if err != nil {
+		return "", fmt.Errorf("fees: look up %s on %s: %w", currency, chain, err)
+	}
+	switch len(ids) {
+	case 0:
+		return "", invalid("chain", "no active %s on chain %s", currency, chain)
+	case 1:
+	default:
+		return "", fmt.Errorf("fees: %d active blockchain_currencies rows for %s on %s", len(ids), currency, chain)
+	}
+	asset, err := s.assets(tx, ids[0])
+	if err != nil {
+		return "", fmt.Errorf("fees: ledger asset for %s on %s: %w", currency, chain, err)
+	}
+	return asset, nil
+}
+
 func (s *Service) Snapshot(ctx context.Context, tx *gorm.DB, ref AttemptRef, q Query) (Snapshot, error) {
 	if err := ref.validate(); err != nil {
 		return Snapshot{}, err
 	}
 	tx = tx.WithContext(ctx)
+	q = q.normalize()
 	merchant, err := lockPayment(tx, ref.PaymentRequestID)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if existing, ok, err := loadSnapshot(tx, ref.AttemptID); err != nil {
-		return Snapshot{}, err
-	} else if ok {
-		if existing.PaymentRequestID != ref.PaymentRequestID {
-			return Snapshot{}, fmt.Errorf("%w: attempt %s belongs to payment %d", ErrSnapshotConflict, ref.AttemptID, existing.PaymentRequestID)
+	replay := func(existing snapshotRow) (Snapshot, error) {
+		if !existing.samePayload(ref.PaymentRequestID, q) {
+			return Snapshot{}, fmt.Errorf("%w: attempt %s was snapshotted for payment %d with %s/%s/%s/%s/%s/%s",
+				ErrSnapshotConflict, ref.AttemptID, existing.PaymentRequestID, existing.Method, existing.Connector,
+				existing.CardType, existing.Region, existing.Currency, existing.Chain)
 		}
 		return existing.snapshot(), nil
 	}
-	q = q.normalize()
+	if existing, ok, err := loadSnapshot(tx, ref.AttemptID); err != nil {
+		return Snapshot{}, err
+	} else if ok {
+		return replay(existing)
+	}
+	now, err := dbNow(tx)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	q.At = now
 	r, err := s.resolveIn(ctx, tx, q)
 	if err != nil {
 		return Snapshot{}, err
@@ -282,20 +371,39 @@ func (s *Service) Snapshot(ctx context.Context, tx *gorm.DB, ref AttemptRef, q Q
 	if err := s.policy.checkBearer(r.Method, r.FeeBearer); err != nil {
 		return Snapshot{}, err
 	}
-	asset, err := ledgerAsset(s.policy.Precision, r.Currency, q.Chain)
+	asset, err := s.assetFor(tx, r.Currency, q.Chain)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	row := snapshotRow{
 		AttemptID: ref.AttemptID, PaymentRequestID: ref.PaymentRequestID, MerchantID: merchant,
-		FeeRuleID: r.ID, FeeRuleVersion: r.Version, Currency: r.Currency, LedgerAsset: asset, FeeBearer: string(r.FeeBearer),
+		FeeRuleID: r.ID, FeeRuleVersion: r.Version,
+		Method: string(q.Method), Connector: q.Connector, CardType: string(q.CardType), Region: q.Region, Chain: q.Chain,
+		Currency: q.Currency, LedgerAsset: asset, FeeBearer: string(r.FeeBearer), ResolvedAt: now,
 	}
-	if err := tx.Create(&row).Error; err != nil {
-		return Snapshot{}, fmt.Errorf("fees: record snapshot for attempt %s: %w", ref.AttemptID, err)
+	res := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "attempt_id"}}, DoNothing: true}).Create(&row)
+	if res.Error != nil {
+		if isPgCode(res.Error, "23505") {
+			return Snapshot{}, fmt.Errorf("%w: attempt %s: %v", ErrSnapshotConflict, ref.AttemptID, res.Error)
+		}
+		return Snapshot{}, fmt.Errorf("fees: record snapshot for attempt %s: %w", ref.AttemptID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		existing, ok, err := loadSnapshot(tx, ref.AttemptID)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		if !ok {
+			return Snapshot{}, fmt.Errorf("%w: attempt %s raced and vanished", ErrSnapshotConflict, ref.AttemptID)
+		}
+		return replay(existing)
 	}
 	return row.snapshot(), nil
 }
 
+// PostFee prices the attempt from its snapshot. For a merchant-borne rule captured is the base; for a
+// customer-borne rule captured is the gross the customer paid and the fee is computed on captured minus the
+// surcharge (baseFromGross). At most one attempt per payment request is posted (fee_postings).
 func (s *Service) PostFee(ctx context.Context, tx *gorm.DB, ref AttemptRef, captured decimal.Decimal) (Breakdown, error) {
 	if err := ref.validate(); err != nil {
 		return Breakdown{}, err
@@ -327,14 +435,24 @@ func (s *Service) PostFee(ctx context.Context, tx *gorm.DB, ref AttemptRef, capt
 	if err := checkAmount(captured, r.MinorUnits, r.Currency); err != nil {
 		return Breakdown{}, err
 	}
-	b, err := computeChecked(r, captured)
+	base := captured
+	if r.FeeBearer == BearerCustomer {
+		if base, err = baseFromGross(r, captured); err != nil {
+			return Breakdown{}, err
+		}
+	}
+	b, err := computeChecked(r, base)
 	if err != nil {
+		return Breakdown{}, err
+	}
+	if err := s.recordPosting(tx, row, captured, b); err != nil {
 		return Breakdown{}, err
 	}
 	snap := row.snapshot()
 	if j, post, err := feeJournal(snap, b); err != nil {
 		return Breakdown{}, err
 	} else if post {
+		j.Metadata["captured"] = captured.String()
 		if _, err := s.ledger.PostIn(ctx, tx, j); err != nil {
 			return Breakdown{}, fmt.Errorf("fees: post fee journal for attempt %s: %w", ref.AttemptID, err)
 		}
@@ -344,4 +462,34 @@ func (s *Service) PostFee(ctx context.Context, tx *gorm.DB, ref AttemptRef, capt
 		return Breakdown{}, fmt.Errorf("fees: legacy snapshot on payment %d: %w", row.PaymentRequestID, err)
 	}
 	return b, nil
+}
+
+// recordPosting claims the payment's single fee posting for this attempt, or explains why it cannot.
+func (s *Service) recordPosting(tx *gorm.DB, snap snapshotRow, captured decimal.Decimal, b Breakdown) error {
+	p := postingRow{
+		PaymentRequestID: snap.PaymentRequestID, Environment: s.environment, AttemptID: snap.AttemptID,
+		Captured: captured, Base: b.Amount, Fee: b.Fee, Tax: b.Tax,
+	}
+	res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&p)
+	if res.Error != nil {
+		return fmt.Errorf("fees: record posting for attempt %s: %w", snap.AttemptID, res.Error)
+	}
+	if res.RowsAffected == 1 {
+		return nil
+	}
+	var existing postingRow
+	if err := tx.Where("payment_request_id = ? AND environment = ?", snap.PaymentRequestID, s.environment).
+		Or("attempt_id = ?", snap.AttemptID).First(&existing).Error; err != nil {
+		return fmt.Errorf("fees: load posting for payment %d: %w", snap.PaymentRequestID, err)
+	}
+	if existing.AttemptID == snap.AttemptID {
+		if !existing.Captured.Equal(captured) {
+			return fmt.Errorf("%w: attempt %s posted on %s, now %s", ErrPostingConflict, snap.AttemptID, existing.Captured, captured)
+		}
+		return nil
+	}
+	observability.Logger().Error("fees: second successful attempt on one payment refused",
+		"payment_request_id", snap.PaymentRequestID, "environment", s.environment,
+		"posted_attempt", existing.AttemptID, "refused_attempt", snap.AttemptID, "refused_captured", captured.String())
+	return fmt.Errorf("%w: payment %d already has attempt %s posted", ErrFeeAlreadyPosted, snap.PaymentRequestID, existing.AttemptID)
 }

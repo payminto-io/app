@@ -71,23 +71,11 @@ func TestFeeJournalRefusesABreakdownFromAnotherRule(t *testing.T) {
 	}
 }
 
-func TestLedgerAsset(t *testing.T) {
-	p := DefaultPrecision()
-	cases := []struct {
-		currency, chain, want string
-		ok                    bool
-	}{
-		{"USD", "", "USD", true},
-		{"USD", "BASE", "", false}, // fiat has no chain
-		{"USDC", "solana", "USDC.SOLANA", true},
-		{"USDC", "", "", false}, // on-chain asset needs its chain
-		{"USDC", "BAD CHAIN", "", false},
-		{"PYUSD", "ETHEREUMMAINNET", "", false}, // longer than the ledger's 16 characters
+func TestFiatAssetIsTheBareCodeAndTakesNoChain(t *testing.T) {
+	if a, err := fiatAsset("USD", ""); err != nil || a != "USD" {
+		t.Fatalf("USD = %q %v", a, err)
 	}
-	for _, tc := range cases {
-		got, err := ledgerAsset(p, tc.currency, tc.chain)
-		if (err == nil) != tc.ok || got != tc.want {
-			t.Errorf("ledgerAsset(%s,%s) = %q,%v want %q ok=%v", tc.currency, tc.chain, got, err, tc.want, tc.ok)
-		}
+	if _, err := fiatAsset("USD", "BASE"); err == nil {
+		t.Fatal("a chain on fiat accepted")
 	}
 }

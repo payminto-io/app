@@ -364,7 +364,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 
 	// Phase F.1: LedgerService (depends on accountRepo); dual-writes into internal/ledger
 	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db), blockchainCurrencyAssetResolver()))
-	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: ledger.New(db)})
+	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: ledger.New(db), LedgerAsset: LedgerAssetResolver()})
 	if err != nil {
 		return nil, fmt.Errorf("wire fees: %w", err)
 	}
@@ -701,6 +701,15 @@ func blockchainCurrencyAssetResolver() AssetResolver {
 			return Assets{}, fmt.Errorf("chain %s native currency row: %w", bc.BlockchainCode, err)
 		}
 		return Assets{Asset: asset, Native: chainAsset(native.CurrencyCode, native.BlockchainCode)}, nil
+	}
+}
+
+// LedgerAssetResolver exposes the ledger's asset for one blockchain_currencies row to modules that post journals.
+func LedgerAssetResolver() func(tx *gorm.DB, blockchainCurrencyID uint) (string, error) {
+	resolve := blockchainCurrencyAssetResolver()
+	return func(tx *gorm.DB, blockchainCurrencyID uint) (string, error) {
+		a, err := resolve(tx, blockchainCurrencyID)
+		return a.Asset, err
 	}
 }
 

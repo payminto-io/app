@@ -20,14 +20,22 @@ Typed errors: `*ValidationError` (with `Field`), `*OverlapError` and `*Ambiguous
 Both calls run in the caller's transaction and are made by the switch (ticket 05).
 
 1. **At attempt creation:** `Snapshot(ctx, tx, AttemptRef{PaymentRequestID, AttemptID}, Query{method, connector, card_type, region, currency, chain})`.
-   Fees resolves the rule itself, reads the merchant from `payment_requests.member_id` (locking the row, refusing a soft-deleted payment), derives the ledger asset, and stores one `fee_snapshots` row per attempt.
+   Fees resolves the rule itself at the database's transaction time (`Query.At` is ignored), reads the merchant from `payment_requests.member_id` (locking the row, refusing a soft-deleted payment), and stores one append-only `fee_snapshots` row per attempt with the query it was given.
+   The ledger asset is the bare ISO code for fiat; for an on-chain asset the chain must name an active `blockchain_currencies` row (not deleted, chain `status = 'active'`, `deposit_enabled`), and the asset comes from the ledger's own resolver (`service.LedgerAssetResolver`, injected with `WithAssetResolver`), never from string concatenation.
    A retry on another connector is a new attempt with its own snapshot.
-   Calling it again for the same attempt returns the stored snapshot; the same attempt id on another payment is `ErrSnapshotConflict`.
-2. **When the attempt succeeds or is captured:** `PostFee(ctx, tx, AttemptRef, capturedAmount)`.
-   The fee is recomputed from the snapshotted rule version on the captured amount; merchant, currency and ledger asset come from the stored rows, never from the caller.
-   It posts one fee journal keyed `fee:attempt:<attempt id>` and sets the legacy `payment_requests.fee_rule_id/fee_rule_version` to that attempt's rule (the latest successful attempt wins).
-   Replaying with the same amount is a no-op; a different amount is refused by the ledger (`ledger.ErrIdempotencyConflict`).
-   A fee plus tax above the captured amount is `ErrFeeExceedsAmount`.
+   Calling it again for the same attempt with the same query returns the stored snapshot; the same attempt id with any other query or payment is `ErrSnapshotConflict`, including when two calls race.
+2. **When the attempt succeeds or is captured:** `PostFee(ctx, tx, AttemptRef, captured)`.
+   The fee is recomputed from the snapshotted rule version; merchant, currency and ledger asset come from the stored rows, never from the caller.
+   - Merchant-borne rule: `captured` is the base amount and the fee is computed on it.
+   - Customer-borne rule: `captured` is the gross the customer paid (base plus fee plus tax). Fees finds the base (`baseFromGross`) and computes the fee on it, so there is no fee on the surcharge and the result matches the preview for that base. A gross that no base produces is `ErrGrossMismatch`. Rules whose customer total would fall above a slab bound are refused at write time, so a gross never has two bases.
+   It posts one fee journal keyed `fee:attempt:<attempt id>` and sets the legacy `payment_requests.fee_rule_id/fee_rule_version`.
+   Replaying the same attempt with the same amount is a no-op; with a different amount it is `ErrPostingConflict`.
+   A fee plus tax above the base is `ErrFeeExceedsAmount`.
+
+**At most one fee per payment.** `fee_postings` is unique on `(payment_request_id, environment)`, and a zero fee still takes the slot.
+`PostFee` for a second attempt of a payment that already has a posting returns `ErrFeeAlreadyPosted` and logs an error-level anomaly (`fees: second successful attempt on one payment refused`, with both attempt ids) instead of posting.
+The switch must treat that error as "this payment is already settled for fees": it signals a duplicate success (a late callback on a timed-out attempt, or a switch bug) to reconcile, not a retry.
+The environment is the server's (`SERVER`, lowercased) until ticket 13 introduces live/test modes.
 
 Nothing is posted for an attempt that never succeeds, so an expired or cancelled payment carries no fee.
 
@@ -50,16 +58,23 @@ Nothing is posted for an attempt that never succeeds, so an expired or cancelled
 | `effective_from`, `effective_to` | active window `[from, to)`; `to` null means open |
 | `created_by` | `member:<id>` of the admin who wrote the version |
 
-`fee_snapshots`: `attempt_id` (unique), `payment_request_id`, `merchant_id`, `fee_rule_id`, `fee_rule_version` (composite FK to `fee_rules`), `currency`, `ledger_asset`, `fee_bearer`, `created_at`. Append-only by trigger.
+`fee_snapshots`: `attempt_id` (unique), `payment_request_id`, `merchant_id`, `fee_rule_id`, `fee_rule_version` (composite FK to `fee_rules`), the query (`method`, `connector`, `card_type`, `region`, `chain`, `currency`), `ledger_asset`, `fee_bearer`, `resolved_at` (database time), `created_at`. Append-only by trigger.
+
+`fee_postings`: one row per posted attempt, unique on `attempt_id` and on `(payment_request_id, environment)`, with `captured`, `base`, `fee`, `tax`. Append-only by trigger.
 
 `payment_requests` gains nullable `fee_rule_id` and `fee_rule_version` (composite FK, both-or-neither check), kept for compatibility and set by `PostFee`.
 
 ## Rules are never mutated
 
-A trigger rejects `DELETE`, `TRUNCATE` and any `UPDATE` other than moving `effective_to` earlier, and refuses closing a version into the past unless the transaction set `fees.closing_version` (only `NewVersion` does).
-`NewVersion` locks the head row, refuses a rule that is not the lineage head (`ErrStaleVersion`), closes every version of the lineage whose window extends past the new start at `GREATEST(effective_from, new start)`, and inserts n+1 in one transaction.
+A trigger rejects `DELETE`, `TRUNCATE` and any `UPDATE` other than moving `effective_to` earlier, and never into the past (`transaction_timestamp()`).
+Closing is reserved to `fee_rules_close_lineage(lineage, at)`, a `SECURITY DEFINER` function with a pinned `search_path` that refuses `at` in the past and closes every version of the lineage whose window extends past `at` at `GREATEST(effective_from, at)`.
+The trigger allows an `effective_to` change only when `current_user` is that function's owner, which inside the function is the owner itself.
+The migration hands the function to `ledger_owner` when it can (as it does the ledger tables); the application role is not a member of `ledger_owner` (the ledger's boot check refuses it), so neither direct `UPDATE`s nor session settings can close a version.
+Where the migrator cannot hand it over, the function stays with the migrator and a NOTICE says so; if the server then runs as that same role, the owner check passes for it too, and only the never-in-the-past rule still holds (see `docs/OPERATIONS.md`, "Fee rules").
+
+`NewVersion` takes an advisory lock on the lineage, refuses a rule that is not the lineage head (`ErrStaleVersion`), calls the close function and inserts n+1 in one transaction.
 A superseded version that had not started yet becomes an empty window.
-`effective_from` defaults to now and may not be backdated.
+`effective_from` defaults to the database's transaction time and may not be earlier than it.
 A version body carries pricing only; scope and currency belong to the lineage.
 
 ## No overlap
@@ -152,4 +167,4 @@ None yet.
 
 ## Tests
 
-Unit tests next to the code; `integration_test.go` (`-tags=integration`) covers versioning atomicity, superseding a scheduled version, concurrent edits, overlap refusal (service, direct SQL and concurrent creates), append-only enforcement including retroactive closes and snapshots, exact decimal round trips, snapshot per attempt with retry on another connector, fee posted on the captured amount from the snapshotted version, chain-qualified assets, and soft-deleted payments.
+Unit tests next to the code; `integration_test.go` (`-tags=integration`) covers versioning atomicity, superseding a scheduled version, concurrent edits, overlap refusal (service, direct SQL and concurrent creates), append-only enforcement including retroactive closes and snapshots, exact decimal round trips, snapshot per attempt with retry on another connector, fee posted on the captured amount from the snapshotted version, chain-qualified assets, soft-deleted payments, chains checked against active `blockchain_currencies`, replay and concurrent reuse of an attempt id, one posting per payment, the close function as the only way to close a version (as a narrowed application role after the real migrations), and database-time snapshots with a customer-borne gross.

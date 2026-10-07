@@ -13,4 +13,6 @@ type Deps struct {
 	DB     *gorm.DB
 	Config *config.Config
 	Ledger *ledger.Service
+	// LedgerAsset is the ledger's asset for a blockchain_currencies row (service.LedgerAssetResolver).
+	LedgerAsset func(tx *gorm.DB, blockchainCurrencyID uint) (string, error)
 }

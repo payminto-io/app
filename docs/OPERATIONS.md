@@ -109,8 +109,19 @@ role that has it, then rerun `cmd/migrate`:
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 ```
 
-The application role needs `SELECT, INSERT, UPDATE` on `fee_rules` (triggers allow only closing
-`effective_to`), `SELECT, INSERT` on `fee_snapshots`, and `UPDATE` on `payment_requests` for the
+Versions are closed only through `fee_rules_close_lineage`, a `SECURITY DEFINER` function the migration
+gives to `ledger_owner` (and grants `ledger_owner` `SELECT, UPDATE` on `fee_rules`) when the migrator can
+`SET ROLE ledger_owner`; the `fee_rules` trigger accepts an `effective_to` change only from that owner.
+If the migration logs `fees: fee_rules_close_lineage stays owned by ...`, hand it over by hand once the
+ledger roles exist:
+
+```sql
+GRANT SELECT, UPDATE ON fee_rules TO ledger_owner;
+ALTER FUNCTION fee_rules_close_lineage(uuid, timestamptz) OWNER TO ledger_owner;
+```
+
+The application role needs `SELECT, INSERT` on `fee_rules`, `fee_snapshots` and `fee_postings` (no
+`UPDATE` on `fee_rules`), `EXECUTE` on `fee_rules_close_lineage`, and `UPDATE` on `payment_requests` for the
 legacy `fee_rule_id`/`fee_rule_version` columns.
 Fee rule management is limited to the platform in `FEES_OPERATOR_PLATFORM_ID`; in staging and
 production the admin routes answer 403 until it is set.

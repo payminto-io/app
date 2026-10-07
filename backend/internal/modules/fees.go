@@ -29,7 +29,8 @@ func WireFees(deps Deps) (*FeesModule, error) {
 	env := strings.ToUpper(strings.TrimSpace(deps.Config.Server.Environment))
 	live := env == config.EnvironmentStaging || env == config.EnvironmentProduction
 	return &FeesModule{
-		Port:               fees.NewService(deps.DB, deps.Ledger, policy),
+		Port: fees.NewService(deps.DB, deps.Ledger, policy,
+			fees.WithAssetResolver(deps.LedgerAsset), fees.WithEnvironment(strings.ToLower(env))),
 		OperatorPlatformID: cfg.OperatorPlatformID,
 		AdminEnabled:       cfg.OperatorPlatformID != 0 || !live,
 	}, nil

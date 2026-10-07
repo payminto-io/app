@@ -170,13 +170,39 @@ type snapshotRow struct {
 	MerchantID       uint
 	FeeRuleID        uint
 	FeeRuleVersion   int
+	Method           string
+	Connector        string
+	CardType         string
+	Region           string
+	Chain            string
 	Currency         string
 	LedgerAsset      string
 	FeeBearer        string
+	ResolvedAt       time.Time
 	CreatedAt        time.Time
 }
 
 func (snapshotRow) TableName() string { return "fee_snapshots" }
+
+// samePayload reports whether q (normalized) asks for exactly what the stored snapshot recorded.
+func (r snapshotRow) samePayload(paymentRequestID uint, q Query) bool {
+	return r.PaymentRequestID == paymentRequestID && r.Method == string(q.Method) && r.Connector == q.Connector &&
+		r.CardType == string(q.CardType) && r.Region == q.Region && r.Chain == q.Chain && r.Currency == q.Currency
+}
+
+type postingRow struct {
+	ID               uint `gorm:"primarykey"`
+	PaymentRequestID uint
+	Environment      string
+	AttemptID        string
+	Captured         decimal.Decimal `gorm:"type:numeric(38,18)"`
+	Base             decimal.Decimal `gorm:"type:numeric(38,18)"`
+	Fee              decimal.Decimal `gorm:"type:numeric(38,18)"`
+	Tax              decimal.Decimal `gorm:"type:numeric(38,18)"`
+	CreatedAt        time.Time
+}
+
+func (postingRow) TableName() string { return "fee_postings" }
 
 func (r snapshotRow) snapshot() Snapshot {
 	return Snapshot{

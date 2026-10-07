@@ -69,3 +69,60 @@ func computeChecked(r Rule, amount decimal.Decimal) (Breakdown, error) {
 	}
 	return b, nil
 }
+
+// baseFromGross finds the base amount whose customer total under r is gross: the inverse of a customer-borne
+// surcharge. Each pricing regime (every slab's or the rule's percent+flat, the min clamp, the max clamp) gives an
+// estimate; grid points around it are checked exactly with Compute. Exactly one base must match.
+func baseFromGross(r Rule, gross decimal.Decimal) (decimal.Decimal, error) {
+	unit := decimal.New(1, -r.MinorUnits)
+	taxRate := decimal.Zero
+	if r.Taxable {
+		taxRate = r.TaxPercent.Shift(-2)
+	}
+	one := decimal.NewFromInt(1)
+	withTax := one.Add(taxRate)
+	var estimates []decimal.Decimal
+	linear := func(percent, flat decimal.Decimal) {
+		// gross = A + (A*p + flat) * (1 + t)  =>  A = (gross - flat*(1+t)) / (1 + p*(1+t))
+		den := one.Add(percent.Shift(-2).Mul(withTax))
+		estimates = append(estimates, gross.Sub(flat.Mul(withTax)).DivRound(den, r.MinorUnits+4))
+	}
+	constant := func(fee decimal.Decimal) {
+		f := roundHalfUp(fee, r.MinorUnits)
+		estimates = append(estimates, gross.Sub(f).Sub(roundHalfUp(f.Mul(taxRate), r.MinorUnits)))
+	}
+	if len(r.Slabs) > 0 {
+		for _, s := range r.Slabs {
+			linear(s.Percent, s.Flat)
+		}
+	} else {
+		linear(r.Percent, r.Flat)
+	}
+	if r.MinFee != nil {
+		constant(*r.MinFee)
+	}
+	if r.MaxFee != nil {
+		constant(*r.MaxFee)
+	}
+	var found []decimal.Decimal
+	for _, e := range estimates {
+		center := e.Round(r.MinorUnits)
+		for k := int64(-3); k <= 3; k++ {
+			a := center.Add(unit.Mul(decimal.NewFromInt(k)))
+			if !a.IsPositive() || Compute(r, a).CustomerTotal.Cmp(gross) != 0 {
+				continue
+			}
+			dup := false
+			for _, f := range found {
+				dup = dup || f.Equal(a)
+			}
+			if !dup {
+				found = append(found, a)
+			}
+		}
+	}
+	if len(found) != 1 {
+		return decimal.Zero, fmt.Errorf("%w: %d base amounts give %s %s", ErrGrossMismatch, len(found), gross, r.Currency)
+	}
+	return found[0], nil
+}

@@ -255,6 +255,9 @@ func validatePricing(p Pricing, s Scope, places int32, policy Policy, now time.T
 	if err := policy.checkBearer(s.Method, p.FeeBearer); err != nil {
 		return p, err
 	}
+	if err := checkInvertible(p, places); err != nil {
+		return p, err
+	}
 	now = now.UTC().Truncate(time.Microsecond)
 	if p.EffectiveFrom == nil {
 		p.EffectiveFrom = &now
@@ -334,4 +337,20 @@ func preview(candidates []Rule, req PreviewRequest, policy Policy) (Breakdown, e
 		return Breakdown{}, err
 	}
 	return computeChecked(r, req.Amount)
+}
+
+// checkInvertible keeps a customer-borne total strictly increasing across slab bounds, so PostFee can recover
+// the base from the captured gross (baseFromGross) without ambiguity.
+func checkInvertible(p Pricing, places int32) error {
+	if p.FeeBearer != BearerCustomer || len(p.Slabs) < 2 {
+		return nil
+	}
+	r := Rule{MinorUnits: places, Slabs: p.Slabs, MinFee: p.MinFee, MaxFee: p.MaxFee, Taxable: p.Taxable, TaxPercent: p.TaxPercent, FeeBearer: BearerCustomer}
+	unit := decimal.New(1, -places)
+	for _, s := range p.Slabs[:len(p.Slabs)-1] {
+		if !Compute(r, s.UpTo.Add(unit)).CustomerTotal.GreaterThan(Compute(r, *s.UpTo).CustomerTotal) {
+			return invalid("slabs", "a customer-borne rule must not lower the customer total above up_to %s", s.UpTo)
+		}
+	}
+	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/models"
+	"github.com/payminto/payminto/backend/internal/service"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -28,7 +29,32 @@ func newService(t *testing.T) (*fees.Service, *ledger.Service, *gorm.DB) {
 	db, cleanup := database.NewTestDB(t)
 	t.Cleanup(cleanup)
 	l := ledger.New(db)
-	return fees.NewService(db, l, fees.DefaultPolicy()), l, db
+	return fees.NewService(db, l, fees.DefaultPolicy(), fees.WithAssetResolver(service.LedgerAssetResolver()), fees.WithEnvironment("test")), l, db
+}
+
+// seedChain adds an active chain carrying currency, as the payment path's blockchain_currencies rows.
+func seedChain(t *testing.T, db *gorm.DB, chainCode, currency string, active bool) {
+	t.Helper()
+	family := models.BlockchainFamily{Name: chainCode + " family", Code: strings.ToLower(chainCode) + "-fam"}
+	if err := db.Create(&family).Error; err != nil {
+		t.Fatal(err)
+	}
+	status := "active"
+	if !active {
+		status = "inactive"
+	}
+	chain := models.Blockchain{Code: chainCode, Name: chainCode, BlockchainFamilyID: family.ID, Status: status}
+	if err := db.Create(&chain).Error; err != nil {
+		t.Fatal(err)
+	}
+	cur := models.Currency{Name: currency + " on " + chainCode, Code: currency + "_" + chainCode, Type: "crypto"}
+	if err := db.Create(&cur).Error; err != nil {
+		t.Fatal(err)
+	}
+	bc := models.BlockchainCurrency{CurrencyCode: currency, BlockchainCode: chainCode, Standard: "erc20", CurrencyID: cur.ID, BlockchainID: chain.ID, DepositEnabled: true}
+	if err := db.Create(&bc).Error; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func scopeInput(method fees.Method, currency, percent string) fees.RuleInput {
@@ -309,7 +335,7 @@ func TestIntegration_DecimalsRoundTripExactly(t *testing.T) {
 	in := fees.RuleInput{
 		Scope: fees.Scope{Method: fees.MethodCrypto, Currency: "USDC"},
 		Pricing: fees.Pricing{
-			Slabs:  []fees.Slab{{UpTo: &upTo, Percent: d("1.5")}, {Percent: d("1.123456"), Flat: d("0.25")}},
+			Slabs:  []fees.Slab{{UpTo: &upTo, Percent: d("1.5")}, {Percent: d("1.623456"), Flat: d("0.25")}},
 			MinFee: &minFee, MaxFee: &maxFee,
 			Taxable: true, TaxPercent: d("18"),
 			FeeBearer: fees.BearerCustomer,
@@ -323,7 +349,7 @@ func TestIntegration_DecimalsRoundTripExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.MinorUnits != 6 || len(got.Slabs) != 2 || !got.Slabs[1].Percent.Equal(d("1.123456")) || got.Slabs[1].UpTo != nil ||
+	if got.MinorUnits != 6 || len(got.Slabs) != 2 || !got.Slabs[1].Percent.Equal(d("1.623456")) || got.Slabs[1].UpTo != nil ||
 		!got.MinFee.Equal(minFee) || !got.MaxFee.Equal(maxFee) || !got.TaxPercent.Equal(d("18")) {
 		t.Fatalf("round trip = %+v", got)
 	}
@@ -449,9 +475,9 @@ func TestIntegration_SnapshotPerAttemptAndPostFeeOnCapture(t *testing.T) {
 		t.Fatalf("merchant accounts = %+v err %v, want a 2.4 debit in USD", accounts, err)
 	}
 
-	// A replay with another captured amount is refused by the ledger, not silently re-priced.
+	// A replay with another captured amount is refused, not silently re-priced.
 	err = inTx(t, l, func(tx *gorm.DB) error { _, err := svc.PostFee(ctx, tx, second, d("81")); return err })
-	if !errors.Is(err, ledger.ErrIdempotencyConflict) {
+	if !errors.Is(err, fees.ErrPostingConflict) {
 		t.Fatalf("different captured amount on replay: err = %v", err)
 	}
 	// Same attempt id on another payment is a conflict, not a second snapshot.
@@ -477,11 +503,6 @@ func TestIntegration_SnapshotPerAttemptAndPostFeeOnCapture(t *testing.T) {
 	if !errors.Is(err, fees.ErrSnapshotNotFound) {
 		t.Fatalf("unknown attempt: err = %v", err)
 	}
-	// A fee above the captured amount is refused (stripe: 2% of 0.01 is 0, so use a min fee rule).
-	err = inTx(t, l, func(tx *gorm.DB) error { _, err := svc.PostFee(ctx, tx, first, d("0.01")); return err })
-	if err != nil {
-		t.Fatalf("tiny capture with no min fee: %v", err)
-	}
 }
 
 func TestIntegration_CryptoFeePostsInTheChainQualifiedAsset(t *testing.T) {
@@ -493,6 +514,7 @@ func TestIntegration_CryptoFeePostsInTheChainQualifiedAsset(t *testing.T) {
 	if _, err := svc.CreateRule(ctx, in, "member:1"); err != nil {
 		t.Fatal(err)
 	}
+	seedChain(t, db, "BASE", "USDC", true)
 	pr := seedPayment(t, db, "ref-c")
 	ref := fees.AttemptRef{PaymentRequestID: pr.ID, AttemptID: "att_c"}
 	err := inTx(t, l, func(tx *gorm.DB) error {
@@ -553,5 +575,291 @@ func TestIntegration_SoftDeletedPaymentsAreRefused(t *testing.T) {
 	})
 	if !errors.Is(err, fees.ErrPaymentNotFound) {
 		t.Fatalf("snapshot on a deleted payment: err = %v", err)
+	}
+}
+
+// N1: the chain must be an active blockchain_currencies row, and the asset comes from the ledger's resolver.
+func TestIntegration_SnapshotChainMustBeAnActiveBlockchainCurrency(t *testing.T) {
+	svc, l, db := newService(t)
+	ctx := context.Background()
+	if _, err := svc.CreateRule(ctx, scopeInput(fees.MethodCrypto, "USDC", "1"), "member:1"); err != nil {
+		t.Fatal(err)
+	}
+	seedChain(t, db, "BASE", "USDC", true)
+	seedChain(t, db, "OLDNET", "USDC", false)
+	pr := seedPayment(t, db, "ref-n1")
+	for i, chain := range []string{"NOTACHAIN", "OLDNET", "ETH"} {
+		err := inTx(t, l, func(tx *gorm.DB) error {
+			_, err := svc.Snapshot(ctx, tx, fees.AttemptRef{PaymentRequestID: pr.ID, AttemptID: "n1_" + strconv.Itoa(i)}, fees.Query{Method: "crypto", Currency: "USDC", Chain: chain})
+			return err
+		})
+		var ve *fees.ValidationError
+		if !errors.As(err, &ve) || ve.Field != "chain" {
+			t.Errorf("chain %s: err = %v, want a chain ValidationError", chain, err)
+		}
+	}
+	var s fees.Snapshot
+	if err := inTx(t, l, func(tx *gorm.DB) error {
+		var err error
+		s, err = svc.Snapshot(ctx, tx, fees.AttemptRef{PaymentRequestID: pr.ID, AttemptID: "n1_ok"}, fees.Query{Method: "crypto", Currency: "USDC", Chain: "base"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if s.LedgerAsset != "USDC.BASE" {
+		t.Fatalf("asset = %s", s.LedgerAsset)
+	}
+	// Without the ledger's resolver an on-chain snapshot is refused rather than concatenated.
+	bare := fees.NewService(db, l, fees.DefaultPolicy())
+	err := inTx(t, l, func(tx *gorm.DB) error {
+		_, err := bare.Snapshot(ctx, tx, fees.AttemptRef{PaymentRequestID: pr.ID, AttemptID: "n1_bare"}, fees.Query{Method: "crypto", Currency: "USDC", Chain: "BASE"})
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "resolver") {
+		t.Fatalf("no resolver: err = %v", err)
+	}
+}
+
+// N2 + N3: an attempt id names one snapshot payload; anything else is ErrSnapshotConflict, never a raw unique violation.
+func TestIntegration_SnapshotReplayAndConcurrentReuse(t *testing.T) {
+	svc, l, db := newService(t)
+	ctx := context.Background()
+	if _, err := svc.CreateRule(ctx, cardDefault("2"), "member:1"); err != nil {
+		t.Fatal(err)
+	}
+	adyen := cardDefault("3")
+	adyen.Connector = sp("adyen")
+	if _, err := svc.CreateRule(ctx, adyen, "member:1"); err != nil {
+		t.Fatal(err)
+	}
+	pr := seedPayment(t, db, "ref-n3")
+	ref := fees.AttemptRef{PaymentRequestID: pr.ID, AttemptID: "n3"}
+	snap := func(q fees.Query) (fees.Snapshot, error) {
+		var s fees.Snapshot
+		err := inTx(t, l, func(tx *gorm.DB) error {
+			var err error
+			s, err = svc.Snapshot(ctx, tx, ref, q)
+			return err
+		})
+		return s, err
+	}
+	first, err := snap(fees.Query{Method: "card", Currency: "USD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := snap(fees.Query{Method: "CARD", Currency: "usd"})
+	if err != nil || again.ID != first.ID {
+		t.Fatalf("same payload replay = %+v, %v; want the original", again, err)
+	}
+	for name, q := range map[string]fees.Query{
+		"other connector": {Method: "card", Connector: "adyen", Currency: "USD"},
+		"other card type": {Method: "card", CardType: "debit", Currency: "USD"},
+		"other method":    {Method: "bank", Currency: "USD"},
+		"other currency":  {Method: "card", Currency: "EUR"},
+	} {
+		if _, err := snap(q); !errors.Is(err, fees.ErrSnapshotConflict) {
+			t.Errorf("%s: err = %v, want ErrSnapshotConflict", name, err)
+		}
+	}
+
+	// Two payments race one new attempt id.
+	a, b := seedPayment(t, db, "ref-n2a"), seedPayment(t, db, "ref-n2b")
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i, p := range []models.PaymentRequest{a, b} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = inTx(t, l, func(tx *gorm.DB) error {
+				_, err := svc.Snapshot(ctx, tx, fees.AttemptRef{PaymentRequestID: p.ID, AttemptID: "n2"}, fees.Query{Method: "card", Currency: "USD"})
+				return err
+			})
+		}()
+	}
+	wg.Wait()
+	ok, conflict := 0, 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, fees.ErrSnapshotConflict):
+			conflict++
+		default:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 || conflict != 1 {
+		t.Fatalf("ok=%d conflict=%d, want 1 and 1", ok, conflict)
+	}
+}
+
+// N4: at most one fee is posted per payment request.
+func TestIntegration_OneFeePostingPerPayment(t *testing.T) {
+	svc, l, db := newService(t)
+	ctx := context.Background()
+	if _, err := svc.CreateRule(ctx, cardDefault("2"), "member:1"); err != nil {
+		t.Fatal(err)
+	}
+	pr := seedPayment(t, db, "ref-n4")
+	refs := []fees.AttemptRef{{PaymentRequestID: pr.ID, AttemptID: "n4_a"}, {PaymentRequestID: pr.ID, AttemptID: "n4_b"}}
+	for _, ref := range refs {
+		if err := inTx(t, l, func(tx *gorm.DB) error {
+			_, err := svc.Snapshot(ctx, tx, ref, fees.Query{Method: "card", Currency: "USD"})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := inTx(t, l, func(tx *gorm.DB) error { _, err := svc.PostFee(ctx, tx, refs[0], d("100")); return err }); err != nil {
+		t.Fatal(err)
+	}
+	err := inTx(t, l, func(tx *gorm.DB) error { _, err := svc.PostFee(ctx, tx, refs[1], d("100")); return err })
+	if !errors.Is(err, fees.ErrFeeAlreadyPosted) {
+		t.Fatalf("second successful attempt: err = %v, want ErrFeeAlreadyPosted", err)
+	}
+	accounts, err := l.AccountBalances(ctx, ledger.OwnerMember, strconv.FormatUint(uint64(pr.MemberID), 10))
+	if err != nil || len(accounts) != 1 || !accounts[0].Signed.Equal(d("2")) {
+		t.Fatalf("merchant debited %+v, %v; want one 2.00 fee", accounts, err)
+	}
+	// The same attempt still replays.
+	if err := inTx(t, l, func(tx *gorm.DB) error { _, err := svc.PostFee(ctx, tx, refs[0], d("100")); return err }); err != nil {
+		t.Fatalf("replay of the posted attempt: %v", err)
+	}
+	// A zero fee still counts as the payment's posting.
+	pr2 := seedPayment(t, db, "ref-n4z")
+	zero := []fees.AttemptRef{{PaymentRequestID: pr2.ID, AttemptID: "n4_z1"}, {PaymentRequestID: pr2.ID, AttemptID: "n4_z2"}}
+	for _, ref := range zero {
+		if err := inTx(t, l, func(tx *gorm.DB) error {
+			_, err := svc.Snapshot(ctx, tx, ref, fees.Query{Method: "card", Currency: "USD"})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := inTx(t, l, func(tx *gorm.DB) error { _, err := svc.PostFee(ctx, tx, zero[0], d("0.01")); return err }); err != nil {
+		t.Fatal(err)
+	}
+	err = inTx(t, l, func(tx *gorm.DB) error { _, err := svc.PostFee(ctx, tx, zero[1], d("0.01")); return err })
+	if !errors.Is(err, fees.ErrFeeAlreadyPosted) {
+		t.Fatalf("second success after a zero fee: err = %v", err)
+	}
+	var postings int64
+	db.Raw(`SELECT count(*) FROM fee_postings WHERE payment_request_id IN (?, ?)`, pr.ID, pr2.ID).Scan(&postings)
+	if postings != 2 {
+		t.Fatalf("postings = %d, want 2", postings)
+	}
+}
+
+// N5: closing a version is reserved to the SECURITY DEFINER close function; nothing can close into the past.
+func TestIntegration_VersionCloseIsReservedToTheCloseFunction(t *testing.T) {
+	owner, cleanup := database.NewTestDB(t)
+	t.Cleanup(cleanup)
+	if _, err := database.ApplyMigrations(context.Background(), owner); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`CREATE ROLE fees_app LOGIN PASSWORD 'fees_app_pw'`,
+		`GRANT USAGE ON SCHEMA public TO fees_app`,
+		`GRANT ALL ON ALL TABLES IN SCHEMA public TO fees_app`,
+		`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO fees_app`,
+	} {
+		if err := owner.Exec(stmt).Error; err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	if err := ledger.GrantAppRole(owner, "fees_app"); err != nil {
+		t.Fatal(err)
+	}
+	var fnOwner string
+	owner.Raw(`SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE proname = 'fee_rules_close_lineage'`).Scan(&fnOwner)
+	if fnOwner != "ledger_owner" {
+		t.Fatalf("close function owned by %q, want ledger_owner", fnOwner)
+	}
+	app := database.ConnectTestDBAs(t, owner, "fees_app", "fees_app_pw")
+	ctx := context.Background()
+	svc := fees.NewService(app, ledger.New(app), fees.DefaultPolicy())
+
+	v1, err := svc.CreateRule(ctx, cardDefault("2"), "member:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := svc.NewVersion(ctx, v1.ID, pricing("3", time.Now().Add(time.Hour)), "member:1")
+	if err != nil {
+		t.Fatalf("app role must be able to version: %v", err)
+	}
+	if got, _ := svc.GetRule(ctx, v1.ID); got.EffectiveTo == nil || !got.EffectiveTo.Equal(v2.EffectiveFrom) {
+		t.Fatalf("v1 not closed at v2's start: %+v", got)
+	}
+	refused := map[string][]string{
+		"direct close by the app role (even with UPDATE granted)": {`UPDATE fee_rules SET effective_to = effective_from WHERE id = ?`},
+		"the old GUC bypass": {`SET LOCAL fees.closing_version = 'on'`, `UPDATE fee_rules SET effective_to = effective_from WHERE id = ?`},
+	}
+	for name, stmts := range refused {
+		err := app.Transaction(func(tx *gorm.DB) error {
+			for _, stmt := range stmts {
+				var err error
+				if strings.Contains(stmt, "?") {
+					err = tx.Exec(stmt, v2.ID).Error
+				} else {
+					err = tx.Exec(stmt).Error
+				}
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "append-only") {
+			t.Errorf("%s: err = %v, want the append-only refusal", name, err)
+		}
+	}
+	err = app.Exec(`SELECT fee_rules_close_lineage(?, now() - interval '1 day')`, v2.LineageID).Error
+	if err == nil || !strings.Contains(err.Error(), "past") {
+		t.Errorf("close function with a past instant: err = %v", err)
+	}
+	// The owner role (superuser here) is refused too: only the function's owner may close.
+	err = owner.Exec(`UPDATE fee_rules SET effective_to = now() + interval '1 day' WHERE id = ?`, v2.ID).Error
+	if err == nil || !strings.Contains(err.Error(), "append-only") {
+		t.Errorf("direct close by the table owner: err = %v", err)
+	}
+}
+
+// N6: Snapshot resolves at database time; a customer-borne capture is the gross and the fee is on the base.
+func TestIntegration_SnapshotTimeAndCustomerBorneGross(t *testing.T) {
+	svc, l, db := newService(t)
+	ctx := context.Background()
+	in := cardDefault("2")
+	in.FeeBearer, in.Taxable, in.TaxPercent = fees.BearerCustomer, true, d("10")
+	v1, err := svc.CreateRule(ctx, in, "member:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(48 * time.Hour)
+	if _, err := svc.NewVersion(ctx, v1.ID, fees.Pricing{Percent: d("5"), FeeBearer: fees.BearerCustomer, EffectiveFrom: &later}, "member:1"); err != nil {
+		t.Fatal(err)
+	}
+	pr := seedPayment(t, db, "ref-n6")
+	ref := fees.AttemptRef{PaymentRequestID: pr.ID, AttemptID: "n6"}
+	var s fees.Snapshot
+	if err := inTx(t, l, func(tx *gorm.DB) error {
+		var err error
+		s, err = svc.Snapshot(ctx, tx, ref, fees.Query{Method: "card", Currency: "USD", At: later.Add(time.Hour)})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if s.RuleID != v1.ID {
+		t.Fatalf("snapshot used rule %d; a caller-supplied At must not pick a future version", s.RuleID)
+	}
+	var b fees.Breakdown
+	if err := inTx(t, l, func(tx *gorm.DB) error {
+		var err error
+		b, err = svc.PostFee(ctx, tx, ref, d("102.20")) // the customer paid 100 + 2.00 fee + 0.20 tax
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.Amount.Equal(d("100")) || !b.Fee.Equal(d("2")) || !b.Tax.Equal(d("0.2")) || !b.CustomerTotal.Equal(d("102.2")) || !b.MerchantNet.Equal(d("100")) {
+		t.Fatalf("breakdown = %+v, want the fee on the 100 base", b)
 	}
 }

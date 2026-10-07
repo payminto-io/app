@@ -1,6 +1,7 @@
 package fees
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -114,4 +115,56 @@ func TestComputeRoundingHalfUpPerCurrency(t *testing.T) {
 		r.MinorUnits, _ = DefaultPrecision().MinorUnits(tc.currency)
 		assertDec(t, tc.currency+" "+tc.amount, Compute(r, d(tc.amount)).Fee, tc.fee)
 	}
+}
+
+func TestBaseFromGrossInvertsTheCustomerSurcharge(t *testing.T) {
+	linear := usdRule()
+	linear.FeeBearer, linear.Percent, linear.Flat, linear.Taxable, linear.TaxPercent = BearerCustomer, d("2"), d("0.30"), true, d("10")
+	clamped := usdRule()
+	clamped.FeeBearer, clamped.Percent, clamped.MinFee, clamped.MaxFee = BearerCustomer, d("1"), dp("0.50"), dp("10")
+	slabbed := usdRule()
+	slabbed.FeeBearer = BearerCustomer
+	slabbed.Slabs = []Slab{{UpTo: dp("100"), Percent: d("2")}, {Percent: d("3")}}
+	jpy := usdRule()
+	jpy.Currency, jpy.MinorUnits, jpy.FeeBearer, jpy.Percent = "JPY", 0, BearerCustomer, d("3.6")
+
+	cases := []struct {
+		name string
+		r    Rule
+		base string
+	}{
+		{"linear with tax", linear, "100"},
+		{"linear odd cents", linear, "123.45"},
+		{"min clamp", clamped, "10"},
+		{"between clamps", clamped, "500"},
+		{"max clamp", clamped, "5000"},
+		{"first slab at its bound", slabbed, "100"},
+		{"second slab", slabbed, "100.01"},
+		{"zero-decimal currency", jpy, "1999"},
+	}
+	for _, tc := range cases {
+		gross := Compute(tc.r, d(tc.base)).CustomerTotal
+		got, err := baseFromGross(tc.r, gross)
+		if err != nil || !got.Equal(d(tc.base)) {
+			t.Errorf("%s: base for gross %s = %s, %v; want %s", tc.name, gross, got, err, tc.base)
+		}
+	}
+	// A tier that lowers the rate above a bound makes some totals reachable from two bases; never pick one.
+	lowering := slabbed
+	lowering.Slabs = []Slab{{UpTo: dp("100"), Percent: d("3")}, {Percent: d("2")}}
+	if _, err := baseFromGross(lowering, d("103")); !errors.Is(err, ErrGrossMismatch) {
+		t.Errorf("ambiguous gross: err = %v, want ErrGrossMismatch", err)
+	}
+	// Fee rounding makes the total skip a cent now and then; such a gross has no base.
+	cent := d("0.01")
+	for a := d("100"); a.LessThan(d("120")); a = a.Add(cent) {
+		lo, hi := Compute(linear, a).CustomerTotal, Compute(linear, a.Add(cent)).CustomerTotal
+		if hi.Sub(lo).GreaterThan(cent) {
+			if _, err := baseFromGross(linear, lo.Add(cent)); !errors.Is(err, ErrGrossMismatch) {
+				t.Errorf("gross %s with no base: err = %v, want ErrGrossMismatch", lo.Add(cent), err)
+			}
+			return
+		}
+	}
+	t.Fatal("no skipped total found; the test needs another range")
 }

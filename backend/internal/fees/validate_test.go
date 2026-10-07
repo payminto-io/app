@@ -134,3 +134,20 @@ func TestParsePolicyReadsPrecision(t *testing.T) {
 		t.Fatal("fiat override accepted")
 	}
 }
+
+func TestCustomerBorneSlabsMustNotLowerTheTotal(t *testing.T) {
+	in := validInput()
+	in.Percent, in.Flat = d("0"), d("0")
+	in.Slabs = []Slab{{UpTo: dp("100"), Percent: d("3")}, {Percent: d("2")}}
+	in.FeeBearer = BearerMerchant
+	if _, err := validateInput(in, DefaultPolicy(), t0); err != nil {
+		t.Fatalf("merchant-borne lowering tiers are fine: %v", err)
+	}
+	in.FeeBearer = BearerCustomer
+	_, err := validateInput(in, DefaultPolicy(), t0)
+	wantField(t, err, "slabs")
+	in.Slabs = []Slab{{UpTo: dp("100"), Percent: d("2")}, {Percent: d("3")}}
+	if _, err := validateInput(in, DefaultPolicy(), t0); err != nil {
+		t.Fatalf("customer-borne rising tiers are fine: %v", err)
+	}
+}

@@ -89,26 +89,10 @@ func (p Precision) MinorUnits(code string) (int32, bool) {
 	return n, ok
 }
 
-var chainCode = regexp.MustCompile(`^[A-Z0-9]{2,12}$`)
-
-// ledgerAsset names the ledger asset: bare code for fiat, CODE.CHAIN for on-chain assets (ledger ticket 01).
-func ledgerAsset(p Precision, currency, chain string) (string, error) {
-	chain = strings.ToUpper(strings.TrimSpace(chain))
-	if _, ok := p.MinorUnits(currency); !ok {
-		return "", invalid("currency", "unknown currency %q", currency)
+// fiatAsset is the ledger asset of a fiat currency: the bare ISO code, with no chain.
+func fiatAsset(currency, chain string) (string, error) {
+	if strings.TrimSpace(chain) != "" {
+		return "", invalid("chain", "fiat currency %s has no chain", currency)
 	}
-	if p.IsFiat(currency) {
-		if chain != "" {
-			return "", invalid("chain", "fiat currency %s has no chain", currency)
-		}
-		return currency, nil
-	}
-	if !chainCode.MatchString(chain) {
-		return "", invalid("chain", "on-chain asset %s needs a chain code matching %s", currency, chainCode)
-	}
-	asset := currency + "." + chain
-	if len(asset) > 16 {
-		return "", invalid("chain", "ledger asset %s is longer than 16 characters", asset)
-	}
-	return asset, nil
+	return currency, nil
 }

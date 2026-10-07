@@ -192,9 +192,11 @@ type Port interface {
 	NewVersion(ctx context.Context, ruleID uint, p Pricing, actor string) (Rule, error)
 	GetRule(ctx context.Context, id uint) (Rule, error)
 	ListRules(ctx context.Context, f RuleFilter) ([]Rule, error)
-	// Snapshot resolves the rule for q and records it against the attempt, in the caller's transaction, at attempt creation.
+	// Snapshot resolves the rule for q at database time (q.At is ignored) and records it against the attempt,
+	// in the caller's transaction, at attempt creation.
 	Snapshot(ctx context.Context, tx *gorm.DB, ref AttemptRef, q Query) (Snapshot, error)
-	// PostFee recomputes the fee from the attempt's snapshot on the captured amount and posts it, in the caller's transaction.
+	// PostFee recomputes the fee from the attempt's snapshot and posts it, in the caller's transaction. captured is
+	// the base for a merchant-borne rule and the customer's gross for a customer-borne one (README "Payment path").
 	PostFee(ctx context.Context, tx *gorm.DB, ref AttemptRef, captured decimal.Decimal) (Breakdown, error)
 }
 
@@ -207,6 +209,9 @@ var (
 	ErrPaymentNotFound    = errors.New("fees: payment request not found")
 	ErrSnapshotNotFound   = errors.New("fees: no fee snapshot for this attempt")
 	ErrFeeExceedsAmount   = errors.New("fees: fee and tax exceed the amount")
+	ErrGrossMismatch      = errors.New("fees: captured gross is not base plus surcharge under the snapshotted rule")
+	ErrFeeAlreadyPosted   = errors.New("fees: a fee is already posted for this payment by another attempt")
+	ErrPostingConflict    = errors.New("fees: attempt already posted with a different captured amount")
 )
 
 // ValidationError names the offending field so the API can point at it.
