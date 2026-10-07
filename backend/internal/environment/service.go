@@ -65,7 +65,8 @@ func Resolve(ctx context.Context, env, fallback Environment) Environment {
 const MockProvider = "mock"
 
 // KnownSlots are the slot modules of docs/architecture/MODULES.md, each configured as <SLOT>_PROVIDER.
-var KnownSlots = []string{"custody", "connectors", "conversion", "payout", "kyc", "fraud", "bridge"}
+// cre is optional: config resolves it to "none" when CRE_ENABLED=false, which live accepts; "mock" it refuses.
+var KnownSlots = []string{"custody", "connectors", "conversion", "payout", "kyc", "fraud", "bridge", "cre"}
 
 // ResolveProvider applies the module contract's default: an unset slot is the mock in test and
 // nothing in live. Wire<Slot> functions resolve through this and then call RequireProvider.

@@ -126,6 +126,7 @@ type ServiceRegistry struct {
 	// Phase F: Sweep + ledger services
 	ledgerService               *LedgerService
 	feesModule                  *modules.FeesModule
+	creModule                   *modules.CREModule
 	linksModule                 *modules.LinksModule
 	sweepService                *SweepService
 	sweepTransactionService     *SweepTransactionService
@@ -477,6 +478,11 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 	// Phase G.3: EventEmitterService
 	r.eventEmitterService = NewEventEmitterService(r.eeEventRepo)
 
+	// Attestation module (ticket 21); provider none is a no-op core with no routes and no worker.
+	if r.creModule, err = modules.WireCRE(modules.Deps{DB: db, Config: cfg, Ledger: journal, Environment: r.environmentModule, EmitEvent: r.eventEmitterService.EmitDomain}, modules.CREOptions{}); err != nil {
+		return nil, fmt.Errorf("wire cre: %w", err)
+	}
+
 	// Phase G.4: EmailService (loads templates at startup). Delivery transport
 	// is SMTP when configured, else a no-op logger.
 	r.emailService = NewEmailService(transport.New(transport.Config{
@@ -586,6 +592,9 @@ func (r *ServiceRegistry) NetworkType() string { return r.networkType }
 
 // FeesModule returns the wired fee rules module.
 func (r *ServiceRegistry) FeesModule() *modules.FeesModule { return r.feesModule }
+
+// CREModule returns the wired attestation module.
+func (r *ServiceRegistry) CREModule() *modules.CREModule { return r.creModule }
 
 // LinksModule returns the wired payment links module.
 func (r *ServiceRegistry) LinksModule() *modules.LinksModule { return r.linksModule }

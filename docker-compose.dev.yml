@@ -40,6 +40,14 @@ services:
     environment:
       # Test money only: a test process refuses a remote database not named *_test (ticket 13).
       GATEWAY_ENVIRONMENT: test
+      # Attestations (docs/cre/SPEC.md): off by default; set CRE_ENABLED=true CRE_PROVIDER=mock with --profile cre.
+      # Tokens must be at least 32 characters (openssl rand -hex 32).
+      CRE_ENABLED: ${CRE_ENABLED:-false}
+      CRE_PROVIDER: ${CRE_PROVIDER:-none}
+      CRE_PUBLIC_BASE_URL: ${CRE_PUBLIC_BASE_URL:-http://backend:8080}
+      CRE_READ_TOKEN_SOLVENCY: ${CRE_READ_TOKEN_SOLVENCY:-}
+      CRE_READ_TOKEN_DEPOSIT_FINALITY: ${CRE_READ_TOKEN_DEPOSIT_FINALITY:-}
+      CRE_READ_TOKEN_CONVERSION_REFERENCE: ${CRE_READ_TOKEN_CONVERSION_REFERENCE:-}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DATABASE: payminto_test
@@ -63,5 +71,22 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+  # Attestation simulator: the real CRE workflows run locally with `cre workflow simulate` against
+  # the backend (mock provider). Excluded from the default stack.
+  # Start with: CRE_ENABLED=true CRE_PROVIDER=mock docker compose --profile cre up
+  cre-simulator:
+    profiles: ["cre"]
+    build: ./docker/cre-simulator
+    environment:
+      CRE_PUBLIC_BASE_URL: http://backend:8080
+      CRE_SIMULATE_INTERVAL: ${CRE_SIMULATE_INTERVAL:-300}
+      CRE_READ_TOKEN_SOLVENCY: ${CRE_READ_TOKEN_SOLVENCY:-}
+      CRE_READ_TOKEN_DEPOSIT_FINALITY: ${CRE_READ_TOKEN_DEPOSIT_FINALITY:-}
+      CRE_READ_TOKEN_CONVERSION_REFERENCE: ${CRE_READ_TOKEN_CONVERSION_REFERENCE:-}
+    volumes:
+      - ./cre:/workspace/cre:ro
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:

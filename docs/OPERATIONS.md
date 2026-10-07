@@ -48,6 +48,9 @@ Optional / feature flags:
   rules (see Fee rules below and `backend/internal/fees/README.md`).
 - `SMTP_HOST/PORT/USERNAME/PASSWORD/FROM` — enables real email; otherwise emails
   are logged (no-op transport).
+- `CRE_ENABLED` (default `false`), `CRE_PROVIDER=none|mock|chainlink` and the `CRE_*` keys - the
+  optional Chainlink CRE attestation module. Off leaves the gateway byte-for-byte unchanged; see
+  Attestations below and `docs/cre/OPERATIONS.md`.
 
 ### Client IPs behind a proxy
 
@@ -199,6 +202,15 @@ The application role needs `SELECT, INSERT` on `fee_rules`, `fee_snapshots` and 
 legacy `fee_rule_id`/`fee_rule_version` columns.
 Fee rule management is limited to the platform in `FEES_OPERATOR_PLATFORM_ID`; in staging and
 production the admin routes answer 403 until it is set.
+
+### Attestations (Chainlink CRE)
+
+Optional, off by default. `CRE_PROVIDER=mock` is refused in staging, production and under
+`GATEWAY_ENVIRONMENT=live`; `chainlink` with a missing key refuses to boot there and names the key,
+and degrades to `mock` in development. `docker compose --profile cre up` with `CRE_ENABLED=true
+CRE_PROVIDER=mock` starts the mock provider and the `cre-simulator` service. The trigger-signing key
+is referenced (`CRE_TRIGGER_SIGNER=keyring://...`), never held by the API process. Full runbook:
+`docs/cre/OPERATIONS.md`.
 
 ## Observability
 

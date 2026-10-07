@@ -1,6 +1,6 @@
 # 20 CRE install-time option, configuration and dashboard settings
 
-Status: ready-for-agent
+Status: done
 Owner: DevOps (Opus) with Frontend engineer (Opus)
 Blocked by: 19
 
@@ -19,3 +19,5 @@ Config tests for every rule above. Boot with no `CRE_*` set is byte-identical in
 ## Comments
 
 Ruling 2026-10-07 (coordinator): unblocked from 15. Add the `cre` profile to the existing compose files now; ticket 15 folds it into the new compose and CI.
+
+Done 2026-10-07 (Chainlink engineer, branch `cre-module`): commits eda090a (config rules), fd599f5 (compose profile, .env.example, docs), 8f3f23c (settings page, preview, screenshots). `CRE_*` section in `config/cre_config.go` with every rule tested; `cre` registered in `environment.KnownSlots` and the slot carries the resolved provider only while enabled, so `GATEWAY_ENVIRONMENT=live` refuses mock through the same gate as other slots and an installation with CRE off is unchanged (`api.TestRouterUnchangedWhenCREIsOff` compares the route table and asserts no worker). `cre` profile in both compose files with `docker/cre-simulator` (runs `cre workflow simulate` only; idles until tickets 23 to 25 add workflows); `.env.example`; `docs/cre/OPERATIONS.md` and a section in `docs/OPERATIONS.md`. `GET /api/v1/cre/status` exists only when enabled; the dashboard treats 404 as off. Settings page `/dashboard/settings/attestations` with copy in `frontend/lib/copy/attestations.ts`; screenshots `docs/design/screens/pages/settings-attestations-{,off-}{390,1440}-{light,dark}.png`. Deviation: migrations are a fixed manifest, so the empty `cre_*` tables exist when the module is off; nothing reads them.

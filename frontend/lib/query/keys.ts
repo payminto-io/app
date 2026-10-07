@@ -101,6 +101,9 @@ export const qk = {
   apiKeys: {
     list: (s: PlatformScope) => [...base(s), "api-keys", "list"] as const,
   },
+  attestations: {
+    status: (s: PlatformScope) => [...base(s), "attestations", "status"] as const,
+  },
   onramper: {
     list: (s: PlatformScope, filters?: Record<string, unknown>) =>
       [...base(s), "onramper", "list", filters ?? {}] as const,

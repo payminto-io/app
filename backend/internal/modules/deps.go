@@ -34,4 +34,6 @@ type Deps struct {
 	Records      paymentswitch.PaymentRecords
 	// Environment is the process environment module (ticket 13); the switch's guard and the connectors slot check.
 	Environment *EnvironmentModule
+	// EmitEvent publishes a named, versioned event through the gateway's emitter (MODULES.md rule 9).
+	EmitEvent func(eventType string, payload any) error
 }

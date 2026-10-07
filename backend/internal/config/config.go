@@ -26,6 +26,7 @@ type Config struct {
 	Modules    ModulesConfig
 	Fees       FeesConfig
 	Links      LinksConfig
+	CRE        CREConfig
 }
 
 // LinksConfig holds LINKS_* keys; internal/links/README.md "Configuration" documents them.
@@ -188,6 +189,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	cre, err := loadCRE()
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
 		Server: ServerConfig{
 			Port:            envInt("API_PORT", 8080),
@@ -263,6 +268,7 @@ func Load() (*Config, error) {
 			MaxOpenPaymentsPerClient: envInt("LINKS_MAX_OPEN_PAYMENTS_PER_CLIENT", 3),
 			LeaseSeconds:             envInt("LINKS_LEASE_SECONDS", 300),
 		},
+		CRE: cre,
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -316,6 +322,18 @@ func (c *Config) validate() error {
 	}
 	c.Database.SSLMode = sslMode
 
+	if err := c.CRE.validate(environment); err != nil {
+		return err
+	}
+	// The environment gate judges the resolved CRE provider, never the raw CRE_PROVIDER string;
+	// with the module off the slot is absent, exactly as before the module existed.
+	delete(c.Modules.Providers, "cre")
+	if c.CRE.Enabled {
+		if c.Modules.Providers == nil {
+			c.Modules.Providers = map[string]string{}
+		}
+		c.Modules.Providers["cre"] = c.CRE.Provider
+	}
 	if c.Security.CustodyEnabled && !isStrongSecret(c.Security.VaultPassphrase, 24) {
 		return fmt.Errorf("VAULT_PASSPHRASE is required when CUSTODY_ENABLED=true and must contain at least 24 non-placeholder characters")
 	}
@@ -443,6 +461,8 @@ func isKnownDevSecret(value string) bool {
 	value = strings.TrimSpace(value)
 	return slices.Contains(knownDevSecrets, value) || !isStrongSecret(value, 32)
 }
+
+func envStrRaw(key string) string { return os.Getenv(key) }
 
 func envStr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {

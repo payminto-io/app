@@ -90,6 +90,11 @@ type RouterConfig struct {
 	// Fees is the fee rules module (internal/fees); nil leaves its routes unmounted.
 	Fees *modules.FeesModule
 
+	// CRE is the attestation module (internal/cre); nil or disabled mounts nothing (docs/cre/SPEC.md).
+	CRE *modules.CREModule
+	// RateLimit throttles the cre and public attestation routes; nil applies none (no Redis).
+	RateLimit gin.HandlerFunc
+
 	// Links is the payment links module (internal/links); nil leaves its /api/v2 routes unmounted.
 	Links *modules.LinksModule
 
@@ -481,6 +486,18 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 			auth.Merchant = middleware.JWTOrAPIKey(cfg.AuthSvc)
 		}
 		RegisterLinksRoutes(r.Group("/api/v2"), cfg.Links, auth)
+	}
+
+	// ---- Attestations: workflow pulls and pushes, dashboard status, public verification ----
+	if cfg.CRE != nil {
+		auth := CREAuth{RateLimit: cfg.RateLimit}
+		if cfg.AuthSvc != nil {
+			auth.Session = middleware.JWTAuth(cfg.AuthSvc)
+			if cfg.MEPRoleSvc != nil {
+				auth.Owner = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
+			}
+		}
+		RegisterCRERoutes(v1, cfg.CRE, auth)
 	}
 
 	return r
