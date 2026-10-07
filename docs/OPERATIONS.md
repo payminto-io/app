@@ -49,6 +49,20 @@ Optional / feature flags:
 - `SMTP_HOST/PORT/USERNAME/PASSWORD/FROM` — enables real email; otherwise emails
   are logged (no-op transport).
 
+### Client IPs behind a proxy
+
+The backend takes the client IP from the TCP peer unless that peer is listed in `TRUSTED_PROXIES` (comma-separated IPs or CIDRs); only then does it read `X-Forwarded-For`.
+The default is empty, so a forged header can never mint new clients.
+
+**Warning:** behind a reverse proxy, load balancer or CDN, an unset `TRUSTED_PROXIES` makes every request appear to come from the proxy.
+All payers then share one rate-limit budget (20 link payments and 120 link reads per minute for the whole server), one per-client open-payment cap, and one address in activity logs; one busy checkout can lock out every other.
+Set it to the proxy's address, as narrowly as possible (a single address, not the whole network: the host's port mapping and other containers share the network).
+The backend logs `X-Forwarded-For received from an untrusted peer` once per process when it sees forwarded requests from an untrusted peer; treat that line as a misconfiguration.
+
+- `docker-compose.yml` pins nginx (profile `local-tls`) to `172.29.86.10` on a fixed `172.29.86.0/24` network and sets `TRUSTED_PROXIES` to that address.
+- `docker-compose.dev.yml` has no proxy and sets it empty.
+- Behind a managed load balancer, set it to the balancer's documented source ranges.
+
 ## Database migrations
 
 The development stacks explicitly select `POSTGRES_SCHEMA_MODE=auto-migrate`.
@@ -243,6 +257,7 @@ the development Compose file into a production deployment merely by changing
       reconciled mainnet database.
 - [ ] At least 2 healthy RPC nodes per chain (`rpc_nodes.status='healthy'`).
 - [ ] `CORS_ALLOWED_ORIGINS` set to the real dashboard origin.
+- [ ] `TRUSTED_PROXIES` set to the proxy or load balancer in front of the backend (see "Client IPs behind a proxy"); unset behind a proxy, every client is one IP.
 - [ ] `SMTP_*` configured; `SENTRY_DSN` set; Prometheus scraping `/metrics`.
 - [ ] Cold-wallet destinations configured and verified.
 - [ ] On-chain signing/broadcast (M1) completed and exercised end-to-end.

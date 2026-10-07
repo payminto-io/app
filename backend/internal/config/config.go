@@ -25,6 +25,17 @@ type Config struct {
 	Gateway    GatewayConfig
 	Modules    ModulesConfig
 	Fees       FeesConfig
+	Links      LinksConfig
+}
+
+// LinksConfig holds LINKS_* keys; internal/links/README.md "Configuration" documents them.
+type LinksConfig struct {
+	// MaxOpenPayments caps unpaid payments open at once on one multi-use link; 0 disables the cap.
+	MaxOpenPayments int
+	// MaxOpenPaymentsPerClient caps them per payer IP on one link; 0 disables the cap.
+	MaxOpenPaymentsPerClient int
+	// LeaseSeconds is how long a pending use is held before the resolver looks its payment up.
+	LeaseSeconds int
 }
 
 // SwitchConfig configures the payment switch (internal/paymentswitch) and which connectors every merchant
@@ -94,6 +105,8 @@ type ServerConfig struct {
 	// credentialed cross-origin requests. Empty means "any origin, no
 	// credentials" (safe public-API default).
 	AllowedOrigins []string
+	// TrustedProxies lists the proxy IPs or CIDRs whose X-Forwarded-For is believed (TRUSTED_PROXIES); empty trusts none.
+	TrustedProxies []string
 }
 
 // DatabaseConfig holds PostgreSQL connection parameters.
@@ -181,6 +194,7 @@ func Load() (*Config, error) {
 			Environment:     environment,
 			CheckoutBaseURL: strings.TrimRight(envStr("CHECKOUT_BASE_URL", "http://localhost:3002"), "/"),
 			AllowedOrigins:  envCSV("CORS_ALLOWED_ORIGINS"),
+			TrustedProxies:  envCSV("TRUSTED_PROXIES"),
 		},
 		Database: DatabaseConfig{
 			Host:               envStr("POSTGRES_HOST", "localhost"),
@@ -244,6 +258,11 @@ func Load() (*Config, error) {
 			AssetPrecision:            envStr("FEES_ASSET_PRECISION", ""),
 			OperatorPlatformID:        feesOperator,
 		},
+		Links: LinksConfig{
+			MaxOpenPayments:          envInt("LINKS_MAX_OPEN_PAYMENTS", 100),
+			MaxOpenPaymentsPerClient: envInt("LINKS_MAX_OPEN_PAYMENTS_PER_CLIENT", 3),
+			LeaseSeconds:             envInt("LINKS_LEASE_SECONDS", 300),
+		},
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -257,6 +276,13 @@ func (c *Config) validate() error {
 		return err
 	}
 	c.Server.Environment = environment
+	for _, p := range c.Server.TrustedProxies {
+		if net.ParseIP(p) == nil {
+			if _, _, err := net.ParseCIDR(p); err != nil {
+				return fmt.Errorf("TRUSTED_PROXIES: %q is neither an IP nor a CIDR", p)
+			}
+		}
+	}
 
 	gatewayEnv, err := environmentpkg.Parse(c.Gateway.Environment)
 	if err != nil {

@@ -148,6 +148,9 @@ func main() {
 	// and flips their payment to FILLED, publishing a real-time event.
 	mgr.Register(worker.NewDepositProcessor(db, broker))
 
+	// Payment links: settle uses whose lease ended without a known outcome.
+	mgr.Register(worker.NewLinkReservationResolver(reg.LinksModule().Service, 30*time.Second))
+
 	// Native-EVM sweep: consolidates confirmed deposits to cold storage. Only
 	// runs when an EVM cold wallet is configured.
 	if cfg.Security.CustodyEnabled && cfg.Blockchain.ColdWalletETH != "" {
@@ -255,6 +258,9 @@ func main() {
 		APIKeyRepo:           reg.APIKeyRepo(),
 		Environment:          reg.EnvironmentModule(),
 		Fees:                 reg.FeesModule(),
+		Links:                reg.LinksModule(),
+		Redis:                reg.Redis(),
+		TrustedProxies:       cfg.Server.TrustedProxies,
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
