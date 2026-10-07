@@ -1,6 +1,7 @@
 package solana
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -99,5 +100,17 @@ func TestSweepInstructions_RejectsEmptyAndZero(t *testing.T) {
 	p := SweepParams{FeePayer: o.PublicKey(), HotWalletOwner: o.PublicKey(), Mint: fxUSDC, TokenProgram: TokenProgram, Items: []SweepItem{{Owner: o.PublicKey(), TokenAccount: ata}}}
 	if _, _, err := SweepInstructions(p); err == nil {
 		t.Fatal("zero amount accepted")
+	}
+}
+
+// R3-L4: only errors that prove the node refused the transaction are rejections.
+func TestIsRejectionAllowList(t *testing.T) {
+	for code, want := range map[int]bool{-32002: true, -32003: true, -32602: true, -32603: false, -32005: false, -32004: false} {
+		if got := IsRejection(&RPCError{Code: code, Message: "x"}); got != want {
+			t.Fatalf("code %d: rejection=%v, want %v", code, got, want)
+		}
+	}
+	if IsRejection(errors.New("context deadline exceeded")) {
+		t.Fatal("transport error treated as rejection")
 	}
 }

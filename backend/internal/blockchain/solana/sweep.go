@@ -259,10 +259,15 @@ func SendSigned(ctx context.Context, c *Client, s Signed) error {
 	return nil
 }
 
-// IsRejection reports a JSON-RPC error: the node refused the transaction, it was never forwarded.
+// rejectionCodes are sendTransaction JSON-RPC errors that mean the node refused the transaction before
+// forwarding it: preflight failure, signature verification, signature count, unsupported version,
+// malformed request, unknown method, bad params. Any other error may hide a forwarded transaction.
+var rejectionCodes = map[int]bool{-32002: true, -32003: true, -32013: true, -32015: true, -32600: true, -32601: true, -32602: true}
+
+// IsRejection reports a sendTransaction error that proves the transaction was never forwarded.
 func IsRejection(err error) bool {
 	var rpcErr *RPCError
-	return errors.As(err, &rpcErr)
+	return errors.As(err, &rpcErr) && rejectionCodes[rpcErr.Code]
 }
 
 // SendOnce is SignForSend then SendSigned for callers that do not persist between the two (tests, tools).

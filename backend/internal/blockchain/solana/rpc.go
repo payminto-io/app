@@ -446,6 +446,62 @@ func (c *Client) GetTransactionFromDistinctNodes(ctx context.Context, signature,
 	return nil, reached, nil
 }
 
+// ExpiredOnDistinctNodes is per-endpoint expiry evidence for a signature: an endpoint counts only when
+// its own finalized block height is past lastValid (skipped when lastValid is 0) and it has no record of
+// the transaction at finalized. It stops at want endpoints, or returns the transaction when one has it.
+// A transport that cannot address endpoints evidences nothing.
+func (c *Client) ExpiredOnDistinctNodes(ctx context.Context, signature string, lastValid uint64, want int) (tx *ParsedTransaction, evidenced []uint, err error) {
+	nc, ok := c.caller.(NodeCaller)
+	if !ok {
+		return nil, nil, nil
+	}
+	params := []any{signature, map[string]any{"encoding": "jsonParsed", "commitment": CommitmentFinalized, "maxSupportedTransactionVersion": 0}}
+	var lastErr error
+	for _, id := range nc.NodeIDs() {
+		if len(evidenced) >= max(want, 1) {
+			break
+		}
+		if lastValid > 0 {
+			var h uint64
+			if err := nc.CallOn(ctx, id, "getBlockHeight", []any{map[string]any{"commitment": CommitmentFinalized}}, &h); err != nil {
+				lastErr = err
+				continue
+			}
+			if h <= lastValid {
+				continue
+			}
+		}
+		var out *ParsedTransaction
+		if err := nc.CallOn(ctx, id, "getTransaction", params, &out); err != nil {
+			lastErr = err
+			continue
+		}
+		if out != nil {
+			return out, evidenced, nil
+		}
+		evidenced = append(evidenced, id)
+	}
+	if len(evidenced) == 0 && lastErr != nil {
+		return nil, nil, lastErr
+	}
+	return nil, evidenced, nil
+}
+
+// GetTokenAccountBalanceOn is GetTokenAccountBalance on one endpoint; without a NodeCaller it uses the pool.
+func (c *Client) GetTokenAccountBalanceOn(ctx context.Context, nodeID uint, tokenAccount, commitment string) (TokenAmount, error) {
+	nc, ok := c.caller.(NodeCaller)
+	if !ok || nodeID == 0 {
+		return c.GetTokenAccountBalance(ctx, tokenAccount, commitment)
+	}
+	var out contextValue[TokenAmount]
+	err := nc.CallOn(ctx, nodeID, "getTokenAccountBalance", []any{tokenAccount, map[string]any{"commitment": commitment}}, &out)
+	var rpcErr *RPCError
+	if errors.As(err, &rpcErr) && strings.Contains(rpcErr.Message, "could not find account") {
+		return TokenAmount{}, ErrAccountNotFound
+	}
+	return out.Value, err
+}
+
 // MultipleAccount is one entry of getMultipleAccounts; nil when the account does not exist.
 type MultipleAccount struct {
 	Lamports uint64          `json:"lamports"`

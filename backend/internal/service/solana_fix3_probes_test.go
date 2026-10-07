@@ -143,7 +143,6 @@ func TestProbe2_ProcessingSweepWithoutAttemptIsStuck(t *testing.T) {
 	must(t, f.db.Create(&models.SweepTransaction{Amount: deps[0].Amount, FromAddress: ata, ToAddress: "hot", Status: SweepTxStatusPending, SweepID: sweep.ID, BlockchainCurrencyID: f.usdc.ID}).Error)
 	must(t, f.db.Create(&models.SolanaSweepDeposit{SweepID: sweep.ID, DepositID: deps[0].ID}).Error)
 	must(t, f.db.Create(&models.SolanaSweepLock{TokenAccount: ata, SweepID: sweep.ID}).Error)
-	f.db.Model(&models.Deposit{}).Where("id = ?", deps[0].ID).Update("status", models.DepositStatusSwept)
 	ctx := context.Background()
 	f.svc.TrackConfirmations(ctx)
 	if f.sweepStatus(sweep.ID) != SweepStatusProcessing {
@@ -183,7 +182,6 @@ func TestProbe2_RecoveredAttemptThatDroppedNeverRebuildsOrFails(t *testing.T) {
 	must(t, f.db.Create(&models.SolanaSweepDeposit{SweepID: sweep.ID, DepositID: deps[0].ID}).Error)
 	must(t, f.db.Create(&models.SolanaSweepLock{TokenAccount: ata, SweepID: sweep.ID}).Error)
 	must(t, f.db.Create(&models.SolanaSweepAttempt{SweepID: sweep.ID, Signature: "SIGR", Blockhash: "unknown", LastValidBlockHeight: 0, Status: models.SolanaSweepAttemptSent}).Error)
-	f.db.Model(&models.Deposit{}).Where("id = ?", deps[0].ID).Update("status", models.DepositStatusSwept)
 	f.unknownEverywhere()
 	f.rpc.Result("getBlockHeight", 600)
 	ctx := context.Background()

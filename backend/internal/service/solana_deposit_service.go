@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/big"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -394,6 +395,7 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 	// The new balance is persisted only once the signature poll explained the movement; an
 	// unexplained movement keeps re-triggering the poll under its own budget (NEW-C2).
 	explained := !balanceMoved
+	pollFailed := false
 	if balanceMoved || acct.HeldSignature != "" || late || acct.BalanceHoldAttempts > 0 {
 		n, cursor, listed, err := s.pollAddress(ctx, acct, watch, acct.TokenAccount, acct.TokenAccountCursor, seen)
 		recorded += n
@@ -441,13 +443,18 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 		}
 		// Listed signatures or a transient hold explain the movement; nothing listed and no error
 		// means the node that reported the balance and the node that listed signatures disagree. A
-		// failed poll explains nothing, so a moved balance keeps the next poll alive under its budget.
+		// failed poll explains nothing and spends no budget (below).
 		explained = explained || (!failed && (listed > 0 || held != ""))
+		pollFailed = failed
 	}
-	if explained {
+	switch {
+	case explained:
 		updates["last_balance_raw"] = balance
 		updates["balance_hold_attempts"] = 0
-	} else {
+	case pollFailed:
+		// The poll failed: no evidence either way, so the hold budget is not spent; the balance stays
+		// unpersisted and the next tick polls again.
+	default:
 		holdAttempts := acct.BalanceHoldAttempts + 1
 		updates["balance_hold_attempts"] = holdAttempts
 		if holdAttempts >= s.cfg.MaxHeldAttempts {
@@ -787,14 +794,20 @@ func switchOwnsPayment(tx *gorm.DB, paymentRequestID *uint) (bool, error) {
 		return false, nil
 	}
 	var p models.PaymentRequest
-	if err := tx.Select("id", "invoice_id").First(&p, *paymentRequestID).Error; err != nil {
+	if err := tx.Select("id", "invoice_id", "member_id", "reference_id").First(&p, *paymentRequestID).Error; err != nil {
 		return false, err
 	}
 	if p.InvoiceID == nil || *p.InvoiceID == "" || !tx.Migrator().HasTable("switch_payment_attempts") {
 		return false, nil
 	}
+	// The invoice id is merchant input on the legacy route, so a string match is not proof: the attempt
+	// must be a chaindeposit attempt of this merchant whose connector transaction, once recorded, is this
+	// payment (it is empty only between the open and the attempt's write).
 	var n int64
-	if err := tx.Table("switch_payment_attempts").Where("id = ?", *p.InvoiceID).Count(&n).Error; err != nil {
+	if err := tx.Table("switch_payment_attempts").
+		Where("id = ? AND connector_code = ? AND merchant_id = ?", *p.InvoiceID, "chaindeposit", strconv.FormatUint(uint64(p.MemberID), 10)).
+		Where("connector_transaction_id IS NULL OR connector_transaction_id = ?", p.ReferenceID).
+		Count(&n).Error; err != nil {
 		return false, err
 	}
 	return n > 0, nil

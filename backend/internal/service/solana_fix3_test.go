@@ -13,6 +13,7 @@ import (
 )
 
 // NEW2-C1, unheld case: a moved balance whose signature poll fails is not persisted, so the next tick polls again.
+// R3-L2: and the failed polls do not spend the balance-hold budget.
 func TestSolanaDeposit_TransportErrorKeepsMovedBalanceUnexplained(t *testing.T) {
 	f := newSolanaFixture(t)
 	pr, acct := f.newPayment("25", f.usdc, fxOwner, fxUSDCATA)
@@ -27,10 +28,16 @@ func TestSolanaDeposit_TransportErrorKeepsMovedBalanceUnexplained(t *testing.T) 
 		return list(p)
 	})
 	ctx := context.Background()
-	f.svc.PollOnce(ctx)
+	// R3-L2: an outage longer than the hold budget spends none of it and writes no anomaly.
+	for i := 0; i <= f.svc.cfg.MaxHeldAttempts; i++ {
+		f.svc.PollOnce(ctx)
+	}
 	got, _ := f.accounts.GetByDepositAddressID(acct.DepositAddressID)
-	if got.LastBalanceRaw == "25000000" || got.BalanceHoldAttempts != 1 {
-		t.Fatalf("a failed poll explained the movement: last_balance_raw=%q hold=%d", got.LastBalanceRaw, got.BalanceHoldAttempts)
+	if got.LastBalanceRaw == "25000000" || got.BalanceHoldAttempts != 0 {
+		t.Fatalf("failed polls explained the movement or spent the budget: last_balance_raw=%q hold=%d", got.LastBalanceRaw, got.BalanceHoldAttempts)
+	}
+	if missed, _ := f.missed.ListUnresolved(); len(missed) != 0 {
+		t.Fatalf("anomaly during an outage: %+v", missed)
 	}
 	failing = false
 	if f.mustPoll(ctx) != 1 || len(f.depositsFor(pr)) != 1 {
@@ -108,7 +115,6 @@ func (f *sweepFixture) processingSweepRows(ata string, dep models.Deposit) model
 	must(f.t, f.db.Create(&models.SweepTransaction{Amount: dep.Amount, FromAddress: ata, ToAddress: "hot", Status: SweepTxStatusPending, SweepID: sweep.ID, BlockchainCurrencyID: f.usdc.ID}).Error)
 	must(f.t, f.db.Create(&models.SolanaSweepDeposit{SweepID: sweep.ID, DepositID: dep.ID}).Error)
 	must(f.t, f.db.Create(&models.SolanaSweepLock{TokenAccount: ata, SweepID: sweep.ID}).Error)
-	f.db.Model(&models.Deposit{}).Where("id = ?", dep.ID).Update("status", models.DepositStatusSwept)
 	f.db.Model(&models.Sweep{}).Where("id = ?", sweep.ID).Update("created_at", f.now.Add(-time.Hour))
 	return sweep
 }
@@ -280,19 +286,20 @@ func TestSolanaSweep_ConcurrentRebuildAndFailedSweepSendNothing(t *testing.T) {
 	})
 	ctx := context.Background()
 	f.svc.SweepConfirmed(ctx)
-	// Another worker already persisted attempt 2.
+	// Another worker already persisted attempt 2 (its persist bumps the sweep's version).
 	must(t, f.db.Create(&models.SolanaSweepAttempt{SweepID: 1, AttemptNo: 2, Signature: "OTHER", Blockhash: "x", LastValidBlockHeight: 900, Status: models.SolanaSweepAttemptSigned}).Error)
+	sweep := models.Sweep{}
+	must(t, f.db.First(&sweep, 1).Error)
+	must(t, f.db.Model(&models.Sweep{}).Where("id = ?", 1).Update("version", sweep.Version+1).Error)
 	f.unknownEverywhere()
 	f.rpc.Result("getBlockHeight", 600)
 	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "7pWqF1vXjQ2nD4sT8kL6mB3cR5yH9wE2aG7uN1xP4zV8", "lastValidBlockHeight": 750}))
-	sweep := models.Sweep{}
-	must(t, f.db.First(&sweep, 1).Error)
 	att := f.attempts(1)
-	if err := f.svc.rebuildOrFail(ctx, &sweep, att[:1]); err == nil || sent != 1 {
+	if err := f.svc.rebuildOrFail(ctx, &sweep, att[:1], 0); err == nil || sent != 1 {
 		t.Fatalf("duplicate attempt number sent: err=%v sends=%d", err, sent)
 	}
 	must(t, f.sweepSvc.MarkFailed(1))
-	if err := f.svc.rebuildOrFail(ctx, &sweep, f.attempts(1)[:1]); err == nil || sent != 1 || f.sweepStatus(1) != SweepStatusFailed {
+	if err := f.svc.rebuildOrFail(ctx, &sweep, f.attempts(1)[:1], 0); err == nil || sent != 1 || f.sweepStatus(1) != SweepStatusFailed {
 		t.Fatalf("failed sweep revived by a rebuild: err=%v sends=%d status=%s", err, sent, f.sweepStatus(1))
 	}
 }

@@ -81,3 +81,6 @@ CREATE TABLE IF NOT EXISTS solana_sweep_locks (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_sweep_locks_token_account ON solana_sweep_locks (token_account);
 CREATE INDEX IF NOT EXISTS idx_solana_sweep_locks_sweep_id ON solana_sweep_locks (sweep_id);
+
+-- Solana sweep transitions compare-and-set on (status, version).
+ALTER TABLE sweeps ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 0;

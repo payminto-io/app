@@ -68,7 +68,9 @@ func TestProbe3_NoAttemptFailRacesALateSigner(t *testing.T) {
 			persisted = true
 			// Worker A's signAndSend persist transaction commits here, between B's attempt read and B's failSweep.
 			must(t, f.db.Transaction(func(tx *gorm.DB) error {
-				res := tx.Model(&models.Sweep{}).Where("id = ? AND status IN ?", sweep.ID, []string{SweepStatusProcessing, SweepStatusPending}).Update("status", SweepStatusPending)
+				// Round 4: the signer's persist is a compare-and-set on (status, version) and bumps the version.
+				res := tx.Model(&models.Sweep{}).Where("id = ? AND status = ? AND version = ?", sweep.ID, SweepStatusProcessing, 0).
+					Updates(map[string]any{"status": SweepStatusPending, "version": gorm.Expr("version + 1")})
 				if res.Error != nil || res.RowsAffected != 1 {
 					return errors.New("not in flight")
 				}
@@ -120,8 +122,15 @@ func TestProbe3_NoAttemptFailRacesALateSigner(t *testing.T) {
 	f.db.Table("ledger_journals").Where("reference_type = ?", "sweep").Count(&journals)
 	var locks []models.SolanaSweepLock
 	f.db.Find(&locks)
-	t.Logf("3h later: sweep1=%s sweep2=%s deposit=%s sweep journals=%d locks=%+v anomalies=%v", f.sweepStatus(sweep.ID), f.sweepStatus(sweep.ID+1), f.depositStatus(deps[0].ID), journals, locks, reasons)
-	if f.sweepStatus(sweep.ID) != SweepStatusCompleted && f.sweepStatus(sweep.ID+1) != SweepStatusCompleted {
-		t.Fatalf("LANDED SWEEP NEVER BOOKED: SIGA moved 25 USDC to the hot wallet, sweep 1 is %s, sweep 2 is %s holding the lock, deposit %s", f.sweepStatus(sweep.ID), f.sweepStatus(sweep.ID+1), f.depositStatus(deps[0].ID))
+	status := func(id uint) string {
+		var sw models.Sweep
+		if f.db.First(&sw, id).Error != nil {
+			return "none"
+		}
+		return sw.Status
+	}
+	t.Logf("3h later: sweep1=%s sweep2=%s deposit=%s sweep journals=%d locks=%+v anomalies=%v", status(sweep.ID), status(sweep.ID+1), f.depositStatus(deps[0].ID), journals, locks, reasons)
+	if status(sweep.ID) != SweepStatusCompleted && status(sweep.ID+1) != SweepStatusCompleted {
+		t.Fatalf("LANDED SWEEP NEVER BOOKED: SIGA moved 25 USDC to the hot wallet, sweep 1 is %s, sweep 2 is %s holding the lock, deposit %s", status(sweep.ID), status(sweep.ID+1), f.depositStatus(deps[0].ID))
 	}
 }

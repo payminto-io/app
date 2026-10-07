@@ -10,6 +10,8 @@ type Sweep struct {
 	TotalAmount  decimal.Decimal `gorm:"type:numeric(38,18)" json:"totalAmount"`
 	TotalGasFee  decimal.Decimal `gorm:"type:numeric(38,18)" json:"totalGasFee"`
 	BlockchainID uint            `gorm:"not null" json:"blockchainID"`
+	// Version is bumped by every Solana sweep transition; transitions compare-and-set on it (service/SOLANA_SWEEPS.md).
+	Version int `gorm:"not null;default:0" json:"version"`
 
 	Blockchain        *Blockchain        `gorm:"foreignKey:BlockchainID" json:"blockchain,omitempty"`
 	SweepTransactions []SweepTransaction `gorm:"foreignKey:SweepID" json:"sweepTransactions,omitempty"`

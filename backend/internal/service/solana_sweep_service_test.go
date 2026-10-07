@@ -156,10 +156,17 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 		}
 	}
 
+	// In flight the deposits stay confirmed; the links and the lock are the claim (SOLANA_SWEEPS.md).
 	for _, d := range append(depsA, depsB...) {
-		if f.depositStatus(d.ID) != models.DepositStatusSwept {
-			t.Fatalf("deposit %d = %s, want swept", d.ID, f.depositStatus(d.ID))
+		if f.depositStatus(d.ID) != models.DepositStatusConfirmed {
+			t.Fatalf("deposit %d = %s, want confirmed while in flight", d.ID, f.depositStatus(d.ID))
 		}
+	}
+	var links, locks int64
+	f.db.Model(&models.SolanaSweepDeposit{}).Where("sweep_id = ?", 1).Count(&links)
+	f.db.Model(&models.SolanaSweepLock{}).Where("sweep_id = ?", 1).Count(&locks)
+	if links != 3 || locks != 2 {
+		t.Fatalf("links = %d locks = %d", links, locks)
 	}
 	var sweeps []models.Sweep
 	must(t, f.db.Find(&sweeps).Error)
@@ -273,8 +280,10 @@ func TestSolanaSweep_ExpiredWithoutLandingReleasesDeposits(t *testing.T) {
 	if n, err := f.svc.SweepConfirmed(context.Background()); err != nil || n != 1 {
 		t.Fatalf("sweep: %d %v", n, err)
 	}
-	if f.depositStatus(deps[0].ID) != models.DepositStatusSwept {
-		t.Fatal("not claimed")
+	var links int64
+	f.db.Model(&models.SolanaSweepDeposit{}).Where("deposit_id = ?", deps[0].ID).Count(&links)
+	if links != 1 || f.depositStatus(deps[0].ID) != models.DepositStatusConfirmed {
+		t.Fatal("not claimed through a link")
 	}
 	// Unknown everywhere while the blockhash is still valid: nothing happens.
 	f.rpc.On("getSignatureStatuses", func([]any) (any, error) { return solana.ContextValue(1, []any{nil}), nil })
