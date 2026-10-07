@@ -32,9 +32,36 @@ const customers = Array.from({ length: 6 }, (_, i) => ({
   updatedAt: iso(-i * DAY),
 }));
 
+const volume = Array.from({ length: 14 }, (_, i) => {
+  const d = new Date(NOW - (13 - i) * DAY);
+  const v = [420, 980, 610, 0, 1520, 2210, 880, 1340, 760, 1990, 2480, 1120, 1730, 2050][i];
+  return {
+    Bucket: d.toISOString().slice(0, 10),
+    BucketLabel: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    Volume: `${v}.50`,
+    PaymentCount: Math.round(v / 90),
+  };
+});
+
 type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: URLSearchParams) => unknown; empty?: unknown };
 
 const ROUTES: Route[] = [
+  {
+    method: "GET",
+    pattern: /^\/analytics\/summary$/,
+    body: () => ({
+      summary: { TotalPayments: 134, FilledPayments: 97, TotalVolume: "18210.75", TotalSweeps: 12, TotalWithdrawals: 8, ActiveWebhooks: 2 },
+    }),
+    empty: {
+      summary: { TotalPayments: 0, FilledPayments: 0, TotalVolume: "0", TotalSweeps: 0, TotalWithdrawals: 0, ActiveWebhooks: 0 },
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/analytics\/volume$/,
+    body: () => ({ volume }),
+    empty: { volume: [] },
+  },
   {
     method: "GET",
     pattern: /^\/payments$/,

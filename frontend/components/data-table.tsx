@@ -34,7 +34,7 @@ export type DataTableProps<T> = {
   getRowId?: (row: T, index: number) => string | number
   /** Server total when the rows are one page of a longer list. */
   total?: number
-  /** Replaces the result count under the table, e.g. with `Pagination`. */
+  /** Replaces the result count under the table, e.g. with `Pagination`; `null` hides it. */
   footer?: React.ReactNode
 }
 
@@ -112,9 +112,11 @@ export function DataTable<T>({
           })}
         </TableBody>
       </Table>
-      <div className="num border-t border-line px-3 py-2 text-caption text-ink-soft">
-        {footer ?? `${total ?? rows.length} ${(total ?? rows.length) === 1 ? "result" : "results"}`}
-      </div>
+      {footer !== null ? (
+        <div className="num border-t border-line px-3 py-2 text-caption text-ink-soft">
+          {footer ?? `${total ?? rows.length} ${(total ?? rows.length) === 1 ? "result" : "results"}`}
+        </div>
+      ) : null}
     </div>
   )
 }
