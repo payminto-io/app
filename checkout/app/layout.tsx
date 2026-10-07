@@ -18,8 +18,8 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Secure checkout | Payminto",
-  description: "Pay by card or stablecoin.",
+  title: "Checkout | Payminto",
+  description: "Pay by card or USDC.",
   robots: { index: false, follow: false },
 };
 
