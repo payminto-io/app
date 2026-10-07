@@ -19,6 +19,7 @@ type Config struct {
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
 	Fees       FeesConfig
+	CRE        CREConfig
 }
 
 // FeesConfig holds FEES_* keys; internal/fees/README.md "Configuration" documents them.
@@ -131,6 +132,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	cre, err := loadCRE()
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
 		Server: ServerConfig{
 			Port:            envInt("API_PORT", 8080),
@@ -184,6 +189,7 @@ func Load() (*Config, error) {
 			AssetPrecision:            envStr("FEES_ASSET_PRECISION", ""),
 			OperatorPlatformID:        feesOperator,
 		},
+		CRE: cre,
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -210,6 +216,9 @@ func (c *Config) validate() error {
 	}
 	c.Database.SSLMode = sslMode
 
+	if err := c.CRE.validate(environment); err != nil {
+		return err
+	}
 	if c.Security.CustodyEnabled && !isStrongSecret(c.Security.VaultPassphrase, 24) {
 		return fmt.Errorf("VAULT_PASSPHRASE is required when CUSTODY_ENABLED=true and must contain at least 24 non-placeholder characters")
 	}
@@ -286,6 +295,8 @@ func (d DatabaseConfig) DSN() string {
 		" dbname=" + d.Database +
 		" sslmode=" + d.SSLMode
 }
+
+func envStrRaw(key string) string { return os.Getenv(key) }
 
 func envStr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
