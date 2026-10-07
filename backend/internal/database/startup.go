@@ -82,6 +82,7 @@ var currentSchemaManifest = []schemaTable{
 	{name: "secrets_vault_activities"},
 	{name: "secrets_vaults", requiredColumns: []string{"label", "ciphertext", "secret_type"}},
 	{name: "seeder_logs"},
+	{name: "solana_deposit_accounts", requiredColumns: []string{"deposit_address_id", "owner_address", "token_account"}},
 	{name: "sweep_transactions"},
 	{name: "sweeps"},
 	{name: "tags"},

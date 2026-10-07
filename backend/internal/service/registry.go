@@ -11,6 +11,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/blockchain"
 	btcAdapter "github.com/payminto/payminto/backend/internal/blockchain/bitcoin"
 	ethAdapter "github.com/payminto/payminto/backend/internal/blockchain/ethereum"
+	solAdapter "github.com/payminto/payminto/backend/internal/blockchain/solana"
 	tronAdapter "github.com/payminto/payminto/backend/internal/blockchain/tron"
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/email/transport"
@@ -89,6 +90,11 @@ type ServiceRegistry struct {
 
 	// blockchain adapter registry
 	adapterRegistry *blockchain.AdapterRegistry
+
+	// Solana (ticket 09): owner/ATA records, signature watcher, sponsored sweeps
+	solanaDepositAccountRepo repository.SolanaDepositAccountRepository
+	solanaDepositService     *SolanaDepositService
+	solanaSweepService       *SolanaSweepService
 
 	// services (existing — Phase A.9 will refactor these to take repos)
 	authService         *AuthService
@@ -225,6 +231,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 	r.walletSCWRepo = repository.NewWalletSCWRepository(db)
 	r.addressRepo = repository.NewAddressRepository(db)
 	r.missedDepositRepo = repository.NewMissedDepositRepository(db)
+	r.solanaDepositAccountRepo = repository.NewSolanaDepositAccountRepository(db)
 
 	// Phase F: Sweep, UTXO, InternalBlockchainTx, AddressDeployment, Account repos
 	r.sweepRepo = repository.NewSweepRepository(db)
@@ -268,7 +275,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 				log.Printf("[registry] no RPC nodes for %s, skipping adapter", chain.Code)
 				continue
 			}
-			switch chain.Family {
+			switch familyOfChain(chain) {
 			case "ETH_Family":
 				chainID := int64(0)
 				if chain.ChainID != nil {
@@ -293,6 +300,11 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 				adapter := tronAdapter.NewAdapter(pool, tronNet)
 				_ = r.adapterRegistry.Register(adapter)
 				log.Printf("[registry] registered TRX adapter for %s (%s, %d RPC nodes)", chain.Code, tronNet, pool.Len())
+			case "SOL_Family":
+				cluster := solanaCluster(cfg)
+				adapter := solAdapter.NewAdapter(pool, cluster)
+				_ = r.adapterRegistry.Register(adapter)
+				log.Printf("[registry] registered SOLANA adapter for %s (%s, %d RPC nodes)", chain.Code, cluster, pool.Len())
 			default:
 				log.Printf("[registry] no adapter impl for family %s (chain %s), skipping", chain.Family, chain.Code)
 			}
@@ -349,7 +361,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		r.blockchainCurrencyRepo,
 		r.walletService,
 		r.addressPoolService,
-	)
+	).WithSolanaDepositAccounts(r.solanaDepositAccountRepo)
 
 	// Phase D.6: DepositService
 	r.depositService = NewDepositService(
@@ -399,6 +411,11 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		r.sweepService,
 		NewAdapterConfirmationChecker(r.adapterRegistry),
 	)
+
+	// Ticket 09: Solana watcher and sweeper, only when the SOLANA chain has an adapter.
+	if err := r.wireSolana(cfg); err != nil {
+		return nil, err
+	}
 
 	// Phase F.4: UTXOService
 	r.utxoService = NewUTXOService(r.utxoRepo)
@@ -658,6 +675,17 @@ func (r *ServiceRegistry) WalletSCWRepo() repository.WalletSCWRepository {
 }
 func (r *ServiceRegistry) AddressRepo() repository.AddressRepository {
 	return r.addressRepo
+}
+
+// SolanaDepositService returns the Solana signature watcher, or nil when SOLANA has no adapter.
+func (r *ServiceRegistry) SolanaDepositService() *SolanaDepositService { return r.solanaDepositService }
+
+// SolanaSweepService returns the Solana sweeper, or nil when sweeping is not configured.
+func (r *ServiceRegistry) SolanaSweepService() *SolanaSweepService { return r.solanaSweepService }
+
+// SolanaDepositAccountRepo returns the owner/ATA repository.
+func (r *ServiceRegistry) SolanaDepositAccountRepo() repository.SolanaDepositAccountRepository {
+	return r.solanaDepositAccountRepo
 }
 
 // MissedDepositRepo returns the MissedDeposit repository.

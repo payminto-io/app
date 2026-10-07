@@ -144,6 +144,8 @@ func chainCodeForFamily(familyCode string) (string, error) {
 		return "BTC", nil
 	case "trx", "TRX":
 		return "TRX", nil
+	case "sol", "SOL", "SOL_Family":
+		return "SOLANA", nil
 	}
 	return "", fmt.Errorf("unsupported blockchain family %q", familyCode)
 }

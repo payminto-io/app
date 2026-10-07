@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/api"
+	"github.com/payminto/payminto/backend/internal/blockchain/solana"
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/database"
 	"github.com/payminto/payminto/backend/internal/observability"
@@ -136,6 +137,12 @@ func main() {
 		log.Printf("[server] EVM sweep worker disabled (COLD_WALLET_ETH not set)")
 	}
 
+	// Solana sweeps: sponsored batched SPL transfers to the hot wallet (ticket 09).
+	if cfg.Security.CustodyEnabled && reg.SolanaSweepService() != nil {
+		mgr.Register(worker.NewSolanaSweepWorker(reg.SolanaSweepService(), time.Duration(cfg.Solana.SweepIntervalSeconds)*time.Second))
+		log.Printf("[server] Solana sweep worker enabled (hot=%s)", cfg.Solana.HotWalletAddress)
+	}
+
 	// Register per-chain block processors for deposit detection.
 	// Each active blockchain with a registered adapter gets its own processor
 	// that scans blocks, detects deposits, and tracks confirmations.
@@ -155,6 +162,15 @@ func main() {
 		}
 		if chain.Status != "active" {
 			log.Printf("[server] skip block processor for %s: status=%s", code, chain.Status)
+			continue
+		}
+		if code == solana.ChainCode {
+			// Solana deposits are found per address, not per slot.
+			if svc := reg.SolanaDepositService(); svc != nil {
+				poll := time.Duration(cfg.Solana.PollIntervalSeconds) * time.Second
+				mgr.Register(worker.NewSolanaDepositWatcher(svc, poll, poll))
+				log.Printf("[server] registered Solana deposit watcher (confirmations=%d, poll=%s)", chain.MinConfirmations, poll)
+			}
 			continue
 		}
 		mgr.Register(worker.NewBlockchainProcessor(

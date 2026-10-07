@@ -235,6 +235,36 @@ func (s *LedgerService) RecordPaymentDepositIn(ctx context.Context, tx *gorm.DB,
 	})
 }
 
+// RecordDepositIn is RecordPaymentDepositIn keyed by the deposit rather than the payment, so a
+// payment filled by several deposits gets one journal per deposit instead of an idempotency conflict.
+func (s *LedgerService) RecordDepositIn(ctx context.Context, tx *gorm.DB, depositID uint, blockchainCurrencyID uint, amount decimal.Decimal) error {
+	refID := depositID
+	entries := repository.LedgerEntries{
+		Assets: []models.Asset{{
+			Code:        "crypto_assets",
+			Debit:       amount,
+			Credit:      decimal.Zero,
+			CurrencyID:  blockchainCurrencyID,
+			ReferenceID: &refID,
+			Reference:   "deposit",
+		}},
+		Liabilities: []models.Liability{{
+			Code:        "merchant_balance",
+			Debit:       decimal.Zero,
+			Credit:      amount,
+			CurrencyID:  blockchainCurrencyID,
+			ReferenceID: &refID,
+			Reference:   "deposit",
+		}},
+	}
+	return s.record(ctx, tx, blockchainCurrencyID, entries, func(a Assets) (ledger.Journal, error) {
+		return newJournal(ledger.KindPayment, "deposit", depositID, blockchainCurrencyID, []ledger.Line{
+			line("crypto_assets", a.Asset, ledger.KindAsset, amount),
+			line("merchant_balance", a.Asset, ledger.KindLiability, amount.Neg()),
+		}, nil, nil)
+	})
+}
+
 // RecordSweep records a SmartSweep batch moving coins from deposit addresses
 // to cold storage.
 //

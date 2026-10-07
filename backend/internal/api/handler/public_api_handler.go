@@ -69,6 +69,9 @@ func (h *PublicAPIHandler) GetPaymentByReference(c *gin.Context) {
 				resp["blockchainCode"] = da.BlockchainCurrency.BlockchainCode
 				resp["currencyCode"] = da.BlockchainCurrency.CurrencyCode
 			}
+			if owner, ok := h.depositAddressSvc.SolanaOwnerAddress(da.ID); ok {
+				resp["depositOwnerAddress"] = owner
+			}
 		}
 	}
 
@@ -154,6 +157,9 @@ func (h *PublicAPIHandler) AssignDepositAddress(c *gin.Context) {
 				resp["blockchainCode"] = da.BlockchainCurrency.BlockchainCode
 				resp["currencyCode"] = da.BlockchainCurrency.CurrencyCode
 			}
+			if owner, ok := h.depositAddressSvc.SolanaOwnerAddress(da.ID); ok {
+				resp["ownerAddress"] = owner
+			}
 			c.JSON(http.StatusOK, resp)
 			return
 		}
@@ -181,6 +187,9 @@ func (h *PublicAPIHandler) AssignDepositAddress(c *gin.Context) {
 	if da.BlockchainCurrency != nil {
 		resp["blockchainCode"] = da.BlockchainCurrency.BlockchainCode
 		resp["currencyCode"] = da.BlockchainCurrency.CurrencyCode
+	}
+	if owner, ok := h.depositAddressSvc.SolanaOwnerAddress(da.ID); ok {
+		resp["ownerAddress"] = owner
 	}
 	c.JSON(http.StatusOK, resp)
 }

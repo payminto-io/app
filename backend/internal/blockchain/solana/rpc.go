@@ -194,9 +194,17 @@ func (s SignatureInfo) Failed() bool { return len(s.Err) > 0 && string(s.Err) !=
 
 // GetSignaturesForAddress lists signatures touching address, newest first, stopping at until (exclusive).
 func (c *Client) GetSignaturesForAddress(ctx context.Context, address string, until string, limit int, commitment string) ([]SignatureInfo, error) {
+	return c.GetSignaturesForAddressPage(ctx, address, until, "", limit, commitment)
+}
+
+// GetSignaturesForAddressPage is GetSignaturesForAddress starting below `before` for paging.
+func (c *Client) GetSignaturesForAddressPage(ctx context.Context, address, until, before string, limit int, commitment string) ([]SignatureInfo, error) {
 	opts := map[string]any{"commitment": commitment, "limit": limit}
 	if until != "" {
 		opts["until"] = until
+	}
+	if before != "" {
+		opts["before"] = before
 	}
 	var out []SignatureInfo
 	err := c.caller.Call(ctx, "getSignaturesForAddress", []any{address, opts}, &out)

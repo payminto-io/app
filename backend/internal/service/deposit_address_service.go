@@ -32,6 +32,8 @@ type DepositAddressService struct {
 	blockchainCurRepo  repository.BlockchainCurrencyRepository
 	walletService      *WalletService
 	addressPoolService *AddressPoolService
+	// solanaAccounts is set by WithSolanaDepositAccounts; SOLANA tokens deposit into an ATA, not the owner.
+	solanaAccounts repository.SolanaDepositAccountRepository
 }
 
 func NewDepositAddressService(
@@ -104,6 +106,13 @@ func (s *DepositAddressService) AssignForPayment(
 
 	// Step 5: create the DepositAddress row
 	paymentID := payment.ID
+	if isSolanaToken(bc) {
+		da, err := s.createSolanaDepositAddress(bc, pool.Address, payment.MemberID, &paymentID)
+		if err != nil {
+			return nil, err
+		}
+		return s.depositAddressRepo.GetByAddress(da.Address, bc.ID)
+	}
 	da := &models.DepositAddress{
 		Address:              pool.Address,
 		BlockchainCurrencyID: bc.ID,

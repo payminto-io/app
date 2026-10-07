@@ -240,6 +240,13 @@ func (s *WalletService) DeriveNextAddress(memberID, walletID uint, chainCode str
 			return "", 0, derr
 		}
 		address = addr
+	case "SOLANA":
+		addr, _, derr := crypto.DeriveSolanaAddress(seed, uint32(next))
+		if derr != nil {
+			s.logFunc(walletID, &memberID, "derive_address", false, derr.Error())
+			return "", 0, derr
+		}
+		address = addr
 	default:
 		return "", 0, fmt.Errorf("unsupported chain code %q", chainCode)
 	}
@@ -330,6 +337,8 @@ func hdPathForFamily(familyCode string) string {
 		return "m/84'/0'/0'"
 	case "trx", "TRX":
 		return "m/44'/195'/0'"
+	case "sol", "SOL", "SOL_Family":
+		return "m/44'/501'"
 	default:
 		return "m/44'/60'/0'"
 	}
