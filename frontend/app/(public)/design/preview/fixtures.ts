@@ -102,6 +102,106 @@ const deliveries = Array.from({ length: 8 }, (_, i) => ({
 type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: URLSearchParams) => unknown; empty?: unknown };
 
 const ROUTES: Route[] = [
+  {
+    method: "GET",
+    pattern: /^\/admin\/configurations$/,
+    body: () => ({
+      configurations: [
+        { key: "sweep.min_usd", value: "50", category: "Sweeps", description: "Smallest balance worth sweeping.", updatedAt: iso(-3 * DAY) },
+        { key: "sweep.interval_seconds", value: "300", category: "Sweeps", updatedAt: iso(-3 * DAY) },
+        { key: "payment.expiry_minutes", value: "60", category: "Payments", updatedAt: iso(-12 * DAY) },
+        { key: "payment.confirmations.eth", value: "12", category: "Payments", updatedAt: iso(-12 * DAY) },
+        { key: "webhook.max_attempts", value: "5", category: "Webhooks", updatedAt: iso(-30 * DAY) },
+      ],
+    }),
+    empty: { configurations: [] },
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/system\/health$/,
+    body: () => ({ status: "healthy", dbStatus: "up", workers: [], version: "0.1.0-sample", commit: "a1b2c3d4e5f6", mode: "testnet" }),
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/system\/workers$/,
+    body: () => ({
+      workers: [
+        { name: "payment-watcher", running: true, startedAt: iso(-2 * DAY) },
+        { name: "sweeper", running: true, startedAt: iso(-2 * DAY) },
+        { name: "webhook-dispatcher", running: false, startedAt: iso(-5 * DAY), stoppedAt: iso(-DAY), error: "sample: connection refused to RPC endpoint" },
+      ],
+    }),
+    empty: { workers: [] },
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/members$/,
+    body: () => [
+      { id: 1, email: "owner@example.com", name: "Sample Owner", memberType: "admin", active: true, createdAt: iso(-200 * DAY), updatedAt: iso(-DAY) },
+      { id: 2, email: "ops@example.com", name: "Sample Operator", memberType: "operator", active: true, createdAt: iso(-60 * DAY), updatedAt: iso(-DAY) },
+      { id: 3, email: "former@example.com", name: "Sample Former", memberType: "viewer", active: false, createdAt: iso(-150 * DAY), updatedAt: iso(-20 * DAY) },
+    ],
+    empty: [],
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/roles$/,
+    body: () => ({
+      roles: [
+        { id: 1, name: "Admin", description: "Everything, including members and keys.", builtIn: true, permissions: ["payments.read", "payments.write", "members.write", "system.admin"] },
+        { id: 2, name: "Operator", description: "Payments and withdrawals, no settings.", builtIn: true, permissions: ["payments.read", "payments.write"] },
+        { id: 3, name: "Sample auditor", builtIn: false, permissions: ["payments.read"] },
+      ],
+    }),
+    empty: { roles: [] },
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/missed-deposits$/,
+    body: (_m, q) => {
+      const rows = (["pending", "pending", "resolved", "dismissed"] as const).map((status, i) => ({
+        id: 50 + i,
+        blockchainCode: i % 2 ? "TRX" : "ETH",
+        currencyCode: i % 2 ? "USDT" : "USDC",
+        address: `0x8c${hex(i * 1201)}d4e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5`,
+        amount: ["12.5", "300", "49.99", "0.01"][i],
+        transactionHash: `0x${hex(i * 7919)}f00dcafe1234abcd5678ef90abcdef1234567890abcdef1234567890ab${hex(i)}`,
+        status,
+        createdAt: iso(-i * DAY * 2),
+      }));
+      const st = q.get("status");
+      return { missedDeposits: st ? rows.filter((r) => r.status === st) : rows };
+    },
+    empty: { missedDeposits: [] },
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/external-platforms$/,
+    body: () => ({
+      platforms: [
+        { id: 1, name: "Sample store", websiteURL: "https://store.example.com", active: true, createdAt: iso(-90 * DAY), updatedAt: iso(-2 * DAY) },
+        { id: 2, name: "Sample marketplace", active: false, createdAt: iso(-20 * DAY), updatedAt: iso(-20 * DAY) },
+      ],
+    }),
+    empty: { platforms: [] },
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/external-platforms\/(\d+)$/,
+    body: () => ({ id: 1, name: "Sample store", websiteURL: "https://store.example.com", active: true, createdAt: iso(-90 * DAY), updatedAt: iso(-2 * DAY) }),
+  },
+  {
+    method: "GET",
+    pattern: /^\/admin\/external-platforms\/(\d+)\/currencies$/,
+    body: () => ({
+      currencies: [
+        { id: 1, externalPlatformID: 1, blockchainCode: "ETH", currencyCode: "USDC", active: true, autoApproveThreshold: "500", hourlyCap: "5000", dailyCap: "50000", minAmount: "1", maxAmount: "25000" },
+        { id: 2, externalPlatformID: 1, blockchainCode: "TRX", currencyCode: "USDT", active: true, autoApproveThreshold: "250", dailyCap: "20000", minAmount: "1" },
+        { id: 3, externalPlatformID: 1, blockchainCode: "BTC", currencyCode: "BTC", active: false },
+      ],
+    }),
+    empty: { currencies: [] },
+  },
   { method: "GET", pattern: /^\/referrals\/code$/, body: () => ({ referralCode: "SAMPLE-7KQ2" }) },
   {
     method: "GET",

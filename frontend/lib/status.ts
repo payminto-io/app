@@ -44,6 +44,14 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   available: { label: "Available", tone: "note", glyph: "circle" },
   used: { label: "Used", tone: "mute", glyph: "check" },
   locked: { label: "Locked", tone: "wait", glyph: "clock" },
+  // system
+  running: { label: "Running", tone: "ok", glyph: "check" },
+  stopped: { label: "Stopped", tone: "mute", glyph: "minus" },
+  healthy: { label: "Healthy", tone: "ok", glyph: "check" },
+  ok: { label: "Healthy", tone: "ok", glyph: "check" },
+  up: { label: "Up", tone: "ok", glyph: "check" },
+  degraded: { label: "Degraded", tone: "wait", glyph: "clock" },
+  down: { label: "Down", tone: "bad", glyph: "x" },
   // generic
   active: { label: "Active", tone: "ok", glyph: "check" },
   inactive: { label: "Inactive", tone: "mute", glyph: "minus" },

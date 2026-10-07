@@ -9,8 +9,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField, TextInput } from "@/components/ui/form-field";
+import { CurrencyDisplay } from "@/components/currency-display";
+import { chainName } from "@/lib/chains";
 import { Button } from "@/components/ui/button";
 import { useDismissMissedDeposit } from "@/lib/query/hooks/use-admin";
 import type { MissedDeposit } from "@/lib/query/hooks/use-admin";
@@ -37,28 +38,23 @@ export function DismissDialog({
   return (
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent>
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>Dismiss Missed Deposit</DialogTitle>
+            <DialogTitle>Dismiss deposit</DialogTitle>
             <DialogDescription>
-              Deposit of{" "}
-              <span className="font-medium tabular-nums">{deposit.amount}</span>{" "}
-              {deposit.currencyCode} on {deposit.blockchainCode}
+              <CurrencyDisplay amount={deposit.amount} currency={deposit.currencyCode} size="sm" /> on{" "}
+              {chainName(deposit.blockchainCode)}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2">
-            <Label htmlFor="dismiss-reason">Reason</Label>
-            <Input
+          <FormField label="Reason" htmlFor="dismiss-reason" hint="Optional">
+            <TextInput
               id="dismiss-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. duplicate, test transaction"
+              placeholder="Duplicate test transfer"
             />
-            <p className="text-[11px] text-muted-foreground">
-              Optional. Provide a reason for dismissing.
-            </p>
-          </div>
+          </FormField>
 
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>
