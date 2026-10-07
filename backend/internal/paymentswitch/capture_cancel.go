@@ -20,6 +20,14 @@ func (s *Service) claimAttempt(ctx context.Context, intent IntentRow, attempt At
 		return err
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Lock order: intent first, then the attempt (I10); the version check keeps the claim compare-and-set.
+		current, err := loadIntent(lockIfPostgres(tx), intent.MerchantID, intent.ID)
+		if err != nil {
+			return err
+		}
+		if current.Version != intent.Version {
+			return fmt.Errorf("%w: intent %s", ErrConcurrentUpdate, intent.ID)
+		}
 		updates := map[string]any{"status": to, "error_code": "", "error_message": "", "version": attempt.Version + 1, "updated_at": s.now()}
 		if amountToCapture != nil {
 			updates["amount_to_capture"] = *amountToCapture

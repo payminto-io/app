@@ -141,26 +141,32 @@ func TestIntegration_ConcurrentWebhookDeliveries_PostOnce(t *testing.T) {
 	h, body := f.mock.SignWebhook(mock.Event{EventID: "evt_once", TransactionID: a.ConnectorTransactionID, Status: string(mock.StatusCaptured)})
 	const deliveries = 10
 	var wg sync.WaitGroup
-	errs := make(chan error, deliveries)
+	type outcome struct {
+		res paymentswitch.WebhookResult
+		err error
+	}
+	outcomes := make(chan outcome, deliveries)
 	for range deliveries {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := f.svc.HandleWebhook(f.ctx, mock.Code, h, body)
-			errs <- err
+			res, err := f.svc.HandleWebhook(f.ctx, mock.Code, h, body)
+			outcomes <- outcome{res, err}
 		}()
 	}
 	wg.Wait()
-	close(errs)
+	close(outcomes)
 	var ok, replays int
-	for err := range errs {
+	for o := range outcomes {
 		switch {
-		case err == nil:
-			ok++
-		case errors.Is(err, paymentswitch.ErrWebhookReplay):
+		case o.err != nil:
+			t.Fatalf("unexpected error: %v", o.err)
+		case o.res.Ignored && o.res.IgnoreWhy == "replay":
 			replays++
+		case !o.res.Ignored:
+			ok++
 		default:
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("unexpected ignore: %+v", o.res)
 		}
 	}
 	if ok != 1 || replays != deliveries-1 {
