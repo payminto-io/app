@@ -5,7 +5,7 @@ Owns database connectivity and schema migration for the Payminto backend. Expose
 ## Files
 
 - `database.go` — `Connect` and `AutoMigrate` for runtime use.
-- `startup.go` — `PrepareSchema` and `MigrateExpandSchema` (migration-managed tables such as `internal/ledger`, kept out of the manifest).
+- `startup.go` — `PrepareSchema` and `MigrateExpandSchema` (migration-managed tables such as `internal/ledger` and `internal/paymentswitch`, kept out of the manifest).
 - `testdb.go` — `NewTestDB` testcontainer helper, gated by `//go:build integration`.
 
 ## See also
