@@ -23,6 +23,8 @@ If a task would change one of those three folders, stop: the work belongs here.
 
 ## Rules that outrank the rest
 
+- This machine's Docker also runs other projects (Hyperswitch, originpost, HoppOn). Never run `docker system/container/image/volume prune`, `docker rm`, or stop containers you did not start; if the disk is full, stop and report it.
+
 - Every number shown is a ledger line or a connector or chain receipt. No placeholders, no inferred statuses.
 - No card data on these servers; tokenised or hosted fields only.
 - Live and test are isolated at boot; the development keystore refuses to run live.
