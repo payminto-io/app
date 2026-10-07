@@ -219,6 +219,17 @@ func (c *Config) validate() error {
 	}
 	c.Gateway.Environment = string(gatewayEnv)
 
+	c.Database.Database = strings.TrimSpace(c.Database.Database)
+	c.Database.TestDatabase = strings.TrimSpace(c.Database.TestDatabase)
+	for name, value := range map[string]string{"POSTGRES_DATABASE": c.Database.Database, "POSTGRES_TEST_DATABASE": c.Database.TestDatabase, "POSTGRES_HOST": c.Database.Host, "POSTGRES_USERNAME": c.Database.Username} {
+		if value == "" {
+			return fmt.Errorf("%s must not be empty", name)
+		}
+		if strings.ContainsAny(value, dsnUnsafe) {
+			return fmt.Errorf("%s must not contain whitespace, quotes, backslashes or '='; got %q", name, value)
+		}
+	}
+
 	schemaMode := strings.ToLower(strings.TrimSpace(c.Database.SchemaMode))
 	if schemaMode != SchemaModeValidate && schemaMode != SchemaModeAutoMigrate {
 		return fmt.Errorf("POSTGRES_SCHEMA_MODE must be %q or %q; got %q", SchemaModeValidate, SchemaModeAutoMigrate, c.Database.SchemaMode)
@@ -298,14 +309,23 @@ func isStrongSecret(value string, minimumLength int) bool {
 	return true
 }
 
-// DSN constructs a PostgreSQL DSN string from the DatabaseConfig fields.
+// dsnUnsafe are the characters a connection parameter must never carry: each one would end or
+// escape a keyword/value token and point the process at another database or option.
+const dsnUnsafe = " \t\r\n=\\'\""
+
+// DSN constructs a PostgreSQL keyword/value DSN; every value is quoted so it cannot inject parameters.
 func (d DatabaseConfig) DSN() string {
-	return "host=" + d.Host +
+	return "host=" + dsnValue(d.Host) +
 		" port=" + strconv.Itoa(d.Port) +
-		" user=" + d.Username +
-		" password=" + d.Password +
-		" dbname=" + d.Database +
-		" sslmode=" + d.SSLMode
+		" user=" + dsnValue(d.Username) +
+		" password=" + dsnValue(d.Password) +
+		" dbname=" + dsnValue(d.Database) +
+		" sslmode=" + dsnValue(d.SSLMode)
+}
+
+// dsnValue single-quotes a keyword/value parameter, escaping backslashes and quotes (libpq syntax).
+func dsnValue(v string) string {
+	return "'" + strings.NewReplacer(`\`, `\`, `'`, `\'`).Replace(v) + "'"
 }
 
 // envSlotProviders reads <SLOT>_PROVIDER for every slot module; absent slots are left out.

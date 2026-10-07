@@ -66,14 +66,22 @@ func main() {
 		log.Fatalf("database: %v", err)
 	}
 
-	if err := database.PrepareSchema(db, cfg.Server.Environment, cfg.Database.SchemaMode); err != nil {
-		log.Fatalf("schema startup: %v", err)
-	}
+	// The database itself is the authority: its reported name and stamp are checked before any
+	// schema work, and the stamp is written once the schema is ready.
 	if err := envModule.VerifyDatabase(context.Background(), db); err != nil {
 		log.Fatalf("environment: %v", err)
 	}
+	if err := database.PrepareSchema(db, cfg.Server.Environment, cfg.Database.SchemaMode); err != nil {
+		log.Fatalf("schema startup: %v", err)
+	}
+	if err := envModule.VerifySchema(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
+	if err := envModule.Stamp(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
 
-	reg, err := service.NewServiceRegistry(db, nil, cfg)
+	reg, err := service.NewServiceRegistry(db, nil, cfg, service.WithEnvironmentModule(envModule))
 	if err != nil {
 		log.Fatalf("service registry: %v", err)
 	}

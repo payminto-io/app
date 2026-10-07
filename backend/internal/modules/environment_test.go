@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/payminto/payminto/backend/internal/config"
@@ -49,17 +50,23 @@ func TestWireEnvironment_TestDefaultsAndGuard(t *testing.T) {
 	}
 }
 
-func TestVerifyDatabase(t *testing.T) {
+func sqliteDB(t *testing.T) *gorm.DB {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+func TestVerifySchema(t *testing.T) {
+	db := sqliteDB(t)
 	m := &EnvironmentModule{Environment: environment.Live}
 	ctx := context.Background()
 	if err := db.Exec(`CREATE TABLE api_keys (id integer primary key, key text)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := m.VerifyDatabase(ctx, db); !environment.IsBootRefusal(err) {
+	if err := m.VerifySchema(ctx, db); !environment.IsBootRefusal(err) {
 		t.Fatalf("missing column = %v, want boot refusal", err)
 	}
 	if err := db.Exec(`DROP TABLE api_keys`).Error; err != nil {
@@ -68,19 +75,72 @@ func TestVerifyDatabase(t *testing.T) {
 	if err := db.AutoMigrate(&models.APIKey{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&models.APIKey{Key: "a", ExternalPlatformID: 1, Environment: environment.Live, Prefix: "sk_live_abcd"}).Error; err != nil {
+	if err := m.VerifySchema(ctx, db); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "gateway_environment") {
+		t.Fatalf("missing stamp table = %v, want boot refusal", err)
+	}
+	if err := db.AutoMigrate(&environment.StampRow{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&models.APIKey{Key: "b", ExternalPlatformID: 1}).Error; err != nil {
-		t.Fatal(err)
+	rows := []models.APIKey{
+		{Key: "a", ExternalPlatformID: 1, Environment: environment.Live, Prefix: "sk_live_abcd"},
+		{Key: "b", ExternalPlatformID: 1},
+		{Key: "adopted", ExternalPlatformID: 1, Environment: environment.Live},
+		{Key: "pk", ExternalPlatformID: 1, Environment: environment.Test, Prefix: "pk_test_abcd"},
 	}
-	if err := m.VerifyDatabase(ctx, db); err != nil {
+	for i := range rows {
+		if err := db.Create(&rows[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.VerifySchema(ctx, db); err != nil {
 		t.Fatalf("consistent rows refused: %v", err)
 	}
-	if err := db.Create(&models.APIKey{Key: "c", ExternalPlatformID: 1, Environment: environment.Live, Prefix: "sk_test_abcd"}).Error; err != nil {
+	for _, bad := range []models.APIKey{
+		{Key: "c", ExternalPlatformID: 1, Environment: environment.Live, Prefix: "sk_test_abcd"},
+		{Key: "d", ExternalPlatformID: 1, Environment: environment.Test, Prefix: "sktest_ab"}, // contains "test" but is not a prefix
+	} {
+		if err := db.Create(&bad).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := m.VerifySchema(ctx, db); !environment.IsBootRefusal(err) {
+			t.Fatalf("prefix %q = %v, want boot refusal", bad.Prefix, err)
+		}
+		db.Unscoped().Delete(&bad)
+	}
+}
+
+func TestVerifyDatabaseAndStamp(t *testing.T) {
+	ctx := context.Background()
+	db := sqliteDB(t)
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "gateway", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	test := &EnvironmentModule{Environment: environment.Test, databaseName: "gateway", databaseHost: "localhost", testDatabase: "payminto_test"}
+	if err := live.VerifyDatabase(ctx, db); err != nil {
+		t.Fatalf("new database refused: %v", err)
+	}
+	if err := live.Stamp(ctx, db); !environment.IsBootRefusal(err) {
+		t.Fatalf("stamp without the table = %v, want boot refusal", err)
+	}
+	if err := db.AutoMigrate(&environment.StampRow{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.VerifyDatabase(ctx, db); !environment.IsBootRefusal(err) {
-		t.Fatalf("prefix mismatch = %v, want boot refusal", err)
+	if err := live.Stamp(ctx, db); err != nil {
+		t.Fatalf("first stamp: %v", err)
+	}
+	if err := live.Stamp(ctx, db); err != nil {
+		t.Fatalf("stamp is not idempotent: %v", err)
+	}
+	if err := live.VerifyDatabase(ctx, db); err != nil {
+		t.Fatalf("live on live-stamped database refused: %v", err)
+	}
+	if err := test.VerifyDatabase(ctx, db); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "stamped live") {
+		t.Fatalf("test process on a live-stamped loopback database = %v, want refusal", err)
+	}
+	if err := test.Stamp(ctx, db); !environment.IsBootRefusal(err) {
+		t.Fatalf("test stamp over live = %v, want refusal", err)
+	}
+	var n int64
+	db.Model(&environment.StampRow{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("stamp rows = %d, want 1", n)
 	}
 }

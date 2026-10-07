@@ -1,6 +1,16 @@
 -- Live and test isolation: api_keys and ledger_accounts carry an environment.
 -- Additive and idempotent; existing rows are test money. Design: .scratch/payments-v1/issues/13-environments.md
 
+CREATE TABLE IF NOT EXISTS gateway_environment (
+    id smallint PRIMARY KEY,
+    environment varchar(8) NOT NULL,
+    stamped_at timestamptz NOT NULL,
+    adopted_from varchar(8),
+    adopted_at timestamptz,
+    CONSTRAINT gateway_environment_singleton CHECK (id = 1),
+    CONSTRAINT gateway_environment_environment_check CHECK (environment IN ('test', 'live'))
+);
+
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS environment varchar(8) NOT NULL DEFAULT 'test';
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS prefix varchar(16) NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_api_keys_environment ON api_keys (environment);

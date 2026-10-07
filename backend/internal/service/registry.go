@@ -184,7 +184,15 @@ type ServiceRegistry struct {
 //
 // If pass 2 ever fails, return a detailed error so deployment catches the
 // misconfiguration early.
-func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*ServiceRegistry, error) {
+// RegistryOption adjusts construction; main passes the modules it already wired.
+type RegistryOption func(*ServiceRegistry)
+
+// WithEnvironmentModule reuses the module main wired at the boot gate instead of wiring a second one.
+func WithEnvironmentModule(m *modules.EnvironmentModule) RegistryOption {
+	return func(r *ServiceRegistry) { r.environmentModule = m }
+}
+
+func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts ...RegistryOption) (*ServiceRegistry, error) {
 	if db == nil {
 		return nil, fmt.Errorf("service registry: db is nil")
 	}
@@ -199,9 +207,14 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		networkType: cfg.Blockchain.NetworkType,
 	}
 
+	for _, opt := range opts {
+		opt(r)
+	}
 	var err error
-	if r.environmentModule, err = modules.WireEnvironment(modules.Deps{Config: cfg, DB: db}); err != nil {
-		return nil, err
+	if r.environmentModule == nil {
+		if r.environmentModule, err = modules.WireEnvironment(modules.Deps{Config: cfg, DB: db}); err != nil {
+			return nil, err
+		}
 	}
 
 	// Construct adapter registry and register one adapter per active blockchain.

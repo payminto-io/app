@@ -111,17 +111,18 @@ func CheckBoot(facts BootFacts) error {
 	var reasons []string
 	refuse := func(format string, args ...any) { reasons = append(reasons, fmt.Sprintf(format, args...)) }
 
+	// The configured name is checked before connecting; VerifyDatabase repeats the policy on
+	// what Postgres reports plus the stamp, which is the authority.
+	if err := CheckDatabase(facts.Environment, facts.DatabaseName, facts.TestDatabaseName, facts.DatabaseHost, ""); err != nil {
+		var boot *BootError
+		if errors.As(err, &boot) {
+			reasons = append(reasons, boot.Reasons...)
+		} else {
+			refuse("%v", err)
+		}
+	}
 	switch facts.Environment {
 	case Live:
-		if facts.DatabaseName == "" {
-			refuse("database name is empty")
-		}
-		if facts.TestDatabaseName != "" && facts.DatabaseName == facts.TestDatabaseName {
-			refuse("database %q is the test database", facts.DatabaseName)
-		}
-		if strings.HasSuffix(facts.DatabaseName, "_test") {
-			refuse("database %q ends in _test", facts.DatabaseName)
-		}
 		if facts.DevKeystore {
 			refuse("development keystore or local vault master key is configured (unset AES_KEY and DEV_KEYSTORE)")
 		}
@@ -149,11 +150,6 @@ func CheckBoot(facts BootFacts) error {
 			refuse("JWT_SECRET is a development default or shorter than 32 bytes; sessions would be forgeable")
 		}
 	case Test:
-		if facts.DatabaseName == "" {
-			refuse("database name is empty")
-		} else if !strings.HasSuffix(facts.DatabaseName, "_test") && !isLoopbackHost(facts.DatabaseHost) {
-			refuse("database %q on %q is neither named *_test nor local; test money needs its own database", facts.DatabaseName, facts.DatabaseHost)
-		}
 		if strings.EqualFold(facts.NetworkType, "mainnet") {
 			refuse("BLOCKCHAIN_NETWORK_TYPE must not be mainnet for test money")
 		}
@@ -162,6 +158,55 @@ func CheckBoot(facts BootFacts) error {
 		return nil
 	}
 	return &BootError{Environment: facts.Environment, Reasons: reasons}
+}
+
+// NormalizeDatabaseName is how every database name is compared: trimmed and case-folded.
+func NormalizeDatabaseName(name string) string { return strings.ToLower(strings.TrimSpace(name)) }
+
+// CheckDatabase is the database policy for env. name is the database (configured, or as Postgres
+// reports it), stamp is the environment the database is stamped with ("" when new or unstamped).
+// A test process may use a non-*_test name only on a loopback host and only when the stamp says
+// test or the database is new; a stamp never agrees with the other environment.
+func CheckDatabase(env Environment, name, testName, host string, stamp Environment) error {
+	if !env.Valid() {
+		return fmt.Errorf("%w: %q", ErrInvalid, env)
+	}
+	var reasons []string
+	refuse := func(format string, args ...any) { reasons = append(reasons, fmt.Sprintf(format, args...)) }
+	name, testName = NormalizeDatabaseName(name), NormalizeDatabaseName(testName)
+	if name == "" {
+		refuse("database name is empty")
+	}
+	if stamp != "" && !stamp.Valid() {
+		refuse("database carries an unknown environment stamp %q", stamp)
+	}
+	if stamp.Valid() && stamp != env {
+		refuse("database %q is stamped %s; a %s process must not open it", name, stamp, env)
+	}
+	switch env {
+	case Live:
+		if name != "" && testName != "" && name == testName {
+			refuse("database %q is the test database", name)
+		}
+		if strings.HasSuffix(name, "_test") {
+			refuse("database %q ends in _test", name)
+		}
+	case Test:
+		if name != "" && !strings.HasSuffix(name, "_test") {
+			switch {
+			case !isLoopbackHost(host):
+				refuse("database %q on %q is neither named *_test nor local; test money needs its own database", name, host)
+			case stamp == "":
+				// New or unstamped on loopback: allowed, and the process stamps it test.
+			case stamp != Test:
+				refuse("database %q on a loopback host is stamped %s", name, stamp)
+			}
+		}
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	return &BootError{Environment: env, Reasons: reasons}
 }
 
 func sortedSlots(providers map[string]string) []string {

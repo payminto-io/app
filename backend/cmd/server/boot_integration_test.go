@@ -178,13 +178,7 @@ func TestIntegration_LiveProcessBootsAndRefusesTestKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env := databaseEnv(liveCfg)
-	env["GATEWAY_ENVIRONMENT"] = "live"
-	env["SERVER"] = "production"
-	env["POSTGRES_ALLOW_INSECURE_LOCAL"] = "true"
-	env["JWT_SECRET"] = "a-strong-jwt-secret-value-with-32-plus-chars"
-	env["BLOCKCHAIN_NETWORK_TYPE"] = "mainnet"
-	base, _ := runServer(t, env)
+	base, _ := runServer(t, liveProcessEnv(liveCfg))
 
 	code, body := getEnvironment(t, base, keys[environment.Live])
 	if code != http.StatusOK || body["environment"] != "live" {
@@ -198,14 +192,80 @@ func TestIntegration_LiveProcessBootsAndRefusesTestKeys(t *testing.T) {
 	}
 }
 
-func TestIntegration_LiveRefusesTheTestDatabaseEvenWhenReachable(t *testing.T) {
-	dbCfg, stop := database.NewTestDBConfig(t)
-	defer stop()
-	env := databaseEnv(dbCfg)
+// stampedDatabase creates and migrates a database named name in the container and stamps it env.
+func stampedDatabase(t *testing.T, dbCfg config.DatabaseConfig, name string, env environment.Environment) config.DatabaseConfig {
+	t.Helper()
+	admin, err := database.Connect(dbCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec(`CREATE DATABASE ` + name).Error; err != nil {
+		t.Fatal(err)
+	}
+	cfg := dbCfg
+	cfg.Database = name
+	db, err := database.Connect(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateExpandSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&environment.StampRow{ID: environment.StampID, Environment: env, StampedAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func liveProcessEnv(cfg config.DatabaseConfig) map[string]string {
+	env := databaseEnv(cfg)
 	env["GATEWAY_ENVIRONMENT"] = "live"
 	env["SERVER"] = "production"
 	env["POSTGRES_ALLOW_INSECURE_LOCAL"] = "true"
 	env["JWT_SECRET"] = "a-strong-jwt-secret-value-with-32-plus-chars"
 	env["BLOCKCHAIN_NETWORK_TYPE"] = "mainnet"
-	requireRefusal(t, env, "is the test database")
+	return env
+}
+
+func TestIntegration_LiveRefusesAReachableDatabaseStampedTest(t *testing.T) {
+	dbCfg, stop := database.NewTestDBConfig(t)
+	defer stop()
+	// The name passes every string check; only what the database itself says can refuse it.
+	liveCfg := stampedDatabase(t, dbCfg, "payminto_prod", environment.Test)
+	requireRefusal(t, liveProcessEnv(liveCfg), `database "payminto_prod" is stamped test`)
+}
+
+func TestIntegration_TestProcessRefusesALoopbackDatabaseStampedLive(t *testing.T) {
+	dbCfg, stop := database.NewTestDBConfig(t)
+	defer stop()
+	liveCfg := stampedDatabase(t, dbCfg, "payminto", environment.Live)
+	env := databaseEnv(liveCfg)
+	env["GATEWAY_ENVIRONMENT"] = "test"
+	env["SERVER"] = "development"
+	env["POSTGRES_SCHEMA_MODE"] = "auto-migrate"
+	env["JWT_SECRET"] = "dev-jwt-secret"
+	requireRefusal(t, env, "stamped live")
+}
+
+func TestIntegration_FirstBootStampsTheDatabase(t *testing.T) {
+	dbCfg, stop := database.NewTestDBConfig(t)
+	defer stop()
+	env := databaseEnv(dbCfg)
+	env["GATEWAY_ENVIRONMENT"] = "test"
+	env["SERVER"] = "development"
+	env["POSTGRES_SCHEMA_MODE"] = "auto-migrate"
+	env["JWT_SECRET"] = "dev-jwt-secret"
+	_, stopServer := runServer(t, env)
+	stopServer()
+	db, err := database.Connect(dbCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row environment.StampRow
+	if err := db.First(&row, environment.StampID).Error; err != nil || row.Environment != environment.Test {
+		t.Fatalf("stamp after first boot = %+v, %v", row, err)
+	}
 }

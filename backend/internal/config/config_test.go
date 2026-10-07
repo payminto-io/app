@@ -102,7 +102,7 @@ func TestLoad_DatabaseSSLModeIsConfigurable(t *testing.T) {
 	if cfg.Database.SSLMode != "verify-full" {
 		t.Errorf("Database.SSLMode = %q, want verify-full", cfg.Database.SSLMode)
 	}
-	if !strings.Contains(cfg.Database.DSN(), "sslmode=verify-full") {
+	if !strings.Contains(cfg.Database.DSN(), "sslmode='verify-full'") {
 		t.Errorf("Database.DSN() = %q, want configured SSL mode", cfg.Database.DSN())
 	}
 }
@@ -397,5 +397,31 @@ func TestBootFacts_FlagsDevelopmentJWTSecrets(t *testing.T) {
 		if got := cfg.BootFacts().JWTSecretWeak; got != weak {
 			t.Errorf("JWTSecretWeak(%q) = %v, want %v", secret, got, weak)
 		}
+	}
+}
+
+func TestLoad_RejectsDatabaseNamesThatCouldEscapeTheDSN(t *testing.T) {
+	for _, bad := range []string{"payminto_test sslmode=verify-full", "payminto_test=", "pay'minto", `pay"minto`, "pay\\minto"} {
+		t.Setenv("POSTGRES_DATABASE", bad)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "POSTGRES_DATABASE") {
+			t.Errorf("Load() with POSTGRES_DATABASE=%q error = %v, want rejection", bad, err)
+		}
+	}
+	t.Setenv("POSTGRES_DATABASE", "  payminto_test  ")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Database.Database != "payminto_test" {
+		t.Errorf("database name not trimmed: %q", cfg.Database.Database)
+	}
+}
+
+func TestDSN_QuotesEveryValue(t *testing.T) {
+	d := DatabaseConfig{Host: "localhost", Port: 5432, Username: "u", Password: `p a'ss\\word`, Database: "payminto_test", SSLMode: "disable"}
+	got := d.DSN()
+	want := `host='localhost' port=5432 user='u' password='p a\'ss\\word' dbname='payminto_test' sslmode='disable'`
+	if got != want {
+		t.Fatalf("DSN() = %s\nwant   %s", got, want)
 	}
 }

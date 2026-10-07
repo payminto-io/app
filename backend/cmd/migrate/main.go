@@ -14,6 +14,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/database"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"gorm.io/gorm"
 )
 
@@ -37,9 +38,17 @@ func main() {
 		log.Fatalf("invalid --network %q, must be testnet or mainnet", mode)
 	}
 
+	envModule, err := modules.WireEnvironment(modules.Deps{Config: cfg})
+	if err != nil {
+		log.Fatalf("environment: %v", err)
+	}
+
 	db, err := database.Connect(cfg.Database)
 	if err != nil {
 		log.Fatalf("database: %v", err)
+	}
+	if err := envModule.VerifyDatabase(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
 	}
 
 	action := "up"
@@ -58,6 +67,13 @@ func main() {
 			for _, result := range results {
 				log.Printf("  applied %d %s (%s)", result.Version, result.Name, result.Checksum)
 			}
+			if err := envModule.VerifySchema(context.Background(), db); err != nil {
+				log.Fatalf("environment: %v", err)
+			}
+			if err := envModule.Stamp(context.Background(), db); err != nil {
+				log.Fatalf("environment: %v", err)
+			}
+			log.Printf("  environment: database stamped %s", envModule.Environment)
 			if role := cmp.Or(*appRole, cfg.Database.LedgerAppRole); role != "" {
 				if err := ledger.GrantAppRole(db, role); err != nil {
 					log.Fatalf("ledger app role: %v", err)
