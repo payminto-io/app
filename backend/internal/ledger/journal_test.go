@@ -1,0 +1,122 @@
+package ledger
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/shopspring/decimal"
+)
+
+func key(owner OwnerType, id, asset string, kind AccountKind) AccountKey {
+	return AccountKey{OwnerType: owner, OwnerID: id, Asset: asset, Kind: kind}
+}
+
+func dec(s string) decimal.Decimal { return decimal.RequireFromString(s) }
+
+func balancedJournal() Journal {
+	return Journal{
+		Kind:           KindPayment,
+		Reference:      Reference{Type: "payment", ID: "p1"},
+		IdempotencyKey: "payment:p1",
+		Lines: []Line{
+			{Account: key(OwnerPlatform, "hot", "USDC", KindAsset), Amount: dec("10")},
+			{Account: key(OwnerMember, "m1", "USDC", KindLiability), Amount: dec("-10")},
+		},
+	}
+}
+
+func TestValidate_BalancedJournalPasses(t *testing.T) {
+	if err := balancedJournal().Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+}
+
+func TestValidate_UnbalancedJournalRejected(t *testing.T) {
+	j := balancedJournal()
+	j.Lines[1].Amount = dec("-9.5")
+	err := j.Validate()
+	if !errors.Is(err, ErrUnbalanced) {
+		t.Fatalf("Validate() = %v, want ErrUnbalanced", err)
+	}
+}
+
+func TestValidate_MixedAssetsBalancePerAsset(t *testing.T) {
+	j := Journal{
+		Kind:           KindConversion,
+		IdempotencyKey: "conv:1",
+		Lines: []Line{
+			{Account: key(OwnerMember, "m1", "USDC", KindLiability), Amount: dec("100")},
+			{Account: key(OwnerPlatform, "trade", "USDC", KindAsset), Amount: dec("-100")},
+			{Account: key(OwnerPlatform, "trade", "SOL", KindAsset), Amount: dec("0.5")},
+			{Account: key(OwnerMember, "m1", "SOL", KindLiability), Amount: dec("-0.5")},
+		},
+	}
+	if err := j.Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+
+	// Totals cancel across assets but not within one: must be rejected.
+	cross := Journal{
+		Kind:           KindConversion,
+		IdempotencyKey: "conv:2",
+		Lines: []Line{
+			{Account: key(OwnerMember, "m1", "USDC", KindLiability), Amount: dec("1")},
+			{Account: key(OwnerMember, "m1", "SOL", KindLiability), Amount: dec("-1")},
+		},
+	}
+	if err := cross.Validate(); !errors.Is(err, ErrUnbalanced) {
+		t.Fatalf("Validate() = %v, want ErrUnbalanced", err)
+	}
+}
+
+func TestValidate_ZeroAmountLineRejected(t *testing.T) {
+	j := balancedJournal()
+	j.Lines = append(j.Lines, Line{Account: key(OwnerFees, "platform", "USDC", KindIncome), Amount: decimal.Zero})
+	if err := j.Validate(); !errors.Is(err, ErrZeroAmount) {
+		t.Fatalf("Validate() = %v, want ErrZeroAmount", err)
+	}
+}
+
+func TestValidate_EmptyJournalRejected(t *testing.T) {
+	j := balancedJournal()
+	j.Lines = nil
+	if err := j.Validate(); !errors.Is(err, ErrEmptyJournal) {
+		t.Fatalf("Validate() = %v, want ErrEmptyJournal", err)
+	}
+}
+
+func TestValidate_RejectsBadEnumsAndKeys(t *testing.T) {
+	cases := map[string]func(*Journal){
+		"unknown kind":         func(j *Journal) { j.Kind = "bogus" },
+		"missing key":          func(j *Journal) { j.IdempotencyKey = "" },
+		"unknown owner type":   func(j *Journal) { j.Lines[0].Account.OwnerType = "alien" },
+		"unknown account kind": func(j *Journal) { j.Lines[0].Account.Kind = "equity" },
+		"empty asset":          func(j *Journal) { j.Lines[0].Account.Asset = ""; j.Lines[1].Account.Asset = "" },
+		"empty owner id":       func(j *Journal) { j.Lines[0].Account.OwnerID = "" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			j := balancedJournal()
+			mutate(&j)
+			if err := j.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Validate() = %v, want ErrInvalid", err)
+			}
+		})
+	}
+}
+
+func TestRequestHash_IsCanonical(t *testing.T) {
+	a := balancedJournal()
+	b := balancedJournal()
+	b.Lines[0], b.Lines[1] = b.Lines[1], b.Lines[0]
+	b.Lines[0].Amount = dec("-10.000")
+	if a.requestHash() != b.requestHash() {
+		t.Fatal("line order and decimal formatting must not change the request hash")
+	}
+	c := balancedJournal()
+	c.Lines[0].Amount = dec("11")
+	c.Lines[1].Amount = dec("-11")
+	if a.requestHash() == c.requestHash() {
+		t.Fatal("different amounts must produce a different request hash")
+	}
+}
