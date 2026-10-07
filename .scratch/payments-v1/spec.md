@@ -88,3 +88,15 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 14 | Hosted checkout rendering every link option | Frontend | 04, 07, 09 |
 | 15 | Compose with mocks, CI, release pipeline | DevOps | 05, 08 |
 | 16 | QA: money-path tests, security review, demo script | QA | 11, 14, 15 |
+
+## Distribution: open core, self-hosted by default, white-label in the paid tier
+
+Decided 2026-10-07.
+
+- **Core is open source, Apache 2.0.** Switch, routing, ledger, fee rules, payment links, checkout, dashboard, custody interface with mock, direct-to-wallet and BitGo adapters, Solana and EVM adapters, mock connector, one card connector. Complete and runnable with `docker compose up` and no API key. Self-hosted is the deployment mode of this edition, not a separate product.
+- **Enterprise edition is source-available, licensed per deployment.** Lives in `backend/internal/ee/` and `frontend/ee/` behind a licence key (Payminto's existing `ee_event` model is the seed of this boundary). Contains: white-label (brand removal, custom domains, themed checkout, multi-tenant platform mode with sub-merchants), SSO and audit export, additional custody adapters (Fireblocks, MPC vendors, Squads and Safe multisig), PCI vault integration, conversion connectors beyond the first, fiat payout partners, priority support.
+- **Hosted tier** runs the enterprise edition for merchants who do not want to self-host.
+
+Why not closed self-hosted only: the research found the unclaimed ground is specifically the open-source, self-hostable fiat-plus-stablecoin gateway. A closed self-hosted product has no distribution edge over the hundred gateways already selling, and open source is how Hyperswitch and BTCPay earned their deployers. Why not everything open: custody adapters and white-label are what deployers pay for, and giving them away leaves no business under the maintainers. Why Apache 2.0 rather than a source-available core: connector and adapter contributions from outsiders are a stated measure of done, and contributors do not arrive for a licence that forbids hosting.
+
+Rule for every ticket: a feature goes in core unless it is in the enterprise list above. Core must never depend on `ee/`; `ee/` plugs in through the same interfaces an outside contributor would use.

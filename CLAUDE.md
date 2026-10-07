@@ -30,6 +30,7 @@ If a task would change one of those three folders, stop: the work belongs here.
 - Fee rule snapshot on every payment; conversions are explicit ledger trades.
 - Additive schema changes only; existing API payloads keep working.
 - One backend language: Go. Frontends are TypeScript.
+- Open core: everything is Apache 2.0 unless the spec's enterprise list names it (white-label, SSO, extra custody adapters, PCI vault, extra conversion and payout connectors). Enterprise code lives only in `backend/internal/ee/` and `frontend/ee/`, behind a licence key, and core never imports it.
 
 ## Running and checks
 
