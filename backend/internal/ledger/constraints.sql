@@ -1,8 +1,17 @@
 -- Postgres-only guarantees the GORM models cannot express. Idempotent: applied by
 -- AutoMigrate in dev/test and repeated verbatim in the checksummed migration.
 
+ALTER TABLE ledger_accounts ADD COLUMN IF NOT EXISTS environment varchar(8) NOT NULL DEFAULT 'test';
+DROP INDEX IF EXISTS ledger_accounts_owner_asset_kind_key;
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_accounts_env_owner_asset_kind_key
+    ON ledger_accounts (environment, owner_type, owner_id, asset, kind);
+
 DO $$
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_accounts'::regclass AND conname = 'ledger_accounts_environment_check') THEN
+        ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_environment_check
+            CHECK (environment IN ('test', 'live'));
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_accounts'::regclass AND conname = 'ledger_accounts_id_asset_key') THEN
         ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_id_asset_key UNIQUE (id, asset);
     END IF;

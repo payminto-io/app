@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/database"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -56,6 +57,78 @@ func TestIntegration_SchemaConvergesFromAutoMigrateAndChecksummedMigration(t *te
 	}
 	if fk != 1 {
 		t.Fatalf("composite account/asset FK count = %d, want 1", fk)
+	}
+	var indexes []string
+	if err := db.Raw(`SELECT indexname FROM pg_indexes WHERE tablename = 'ledger_accounts' AND indexname LIKE 'ledger_accounts_%owner_asset_kind_key'`).Scan(&indexes).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(indexes) != 1 || indexes[0] != "ledger_accounts_env_owner_asset_kind_key" {
+		t.Fatalf("ledger_accounts uniqueness indexes = %v, want only the environment-scoped one", indexes)
+	}
+	for _, table := range []string{"ledger_accounts", "api_keys"} {
+		if !db.Migrator().HasColumn(table, "environment") {
+			t.Fatalf("%s.environment missing after migrations", table)
+		}
+	}
+}
+
+func TestIntegration_EnvironmentsNeverShareAccountsOrBalances(t *testing.T) {
+	db, cleanup := database.NewTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	// Two processes, one per environment, each guarded; one database stands in for two here.
+	testSvc := ledger.New(db, ledger.WithEnvironment(environment.Test))
+	liveSvc := ledger.New(db, ledger.WithEnvironment(environment.Live))
+
+	if _, err := testSvc.Post(environment.WithContext(ctx, environment.Test), paymentJournal("t1", "10.000000000000000001")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := liveSvc.Post(environment.WithContext(ctx, environment.Live), paymentJournal("l1", "70")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testSvc.Post(ctx, paymentJournal("l2", "1")); err != nil {
+		t.Fatal(err)
+	}
+
+	member := acct(ledger.OwnerMember, "m1", "USDC", ledger.KindLiability)
+	testID, err := testSvc.AccountID(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveID, err := liveSvc.AccountID(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if testID == liveID {
+		t.Fatal("same account id across environments")
+	}
+	testBal, _ := testSvc.Balance(ctx, testID)
+	liveBal, _ := liveSvc.Balance(ctx, liveID)
+	if !testBal.Equal(d("-11.000000000000000001")) || !liveBal.Equal(d("-70")) {
+		t.Fatalf("balances mixed: test=%s live=%s", testBal, liveBal)
+	}
+	testTotals, _ := testSvc.Balances(ctx, ledger.OwnerMember, "m1")
+	liveTotals, _ := liveSvc.Balances(ctx, ledger.OwnerMember, "m1")
+	if !testTotals["USDC"].Equal(d("-11.000000000000000001")) || !liveTotals["USDC"].Equal(d("-70")) {
+		t.Fatalf("owner totals mixed: test=%v live=%v", testTotals, liveTotals)
+	}
+
+	// A live row cannot be written through the test process, and vice versa.
+	if _, err := testSvc.Post(environment.WithContext(ctx, environment.Live), paymentJournal("x1", "1")); !errors.Is(err, environment.ErrMismatch) {
+		t.Fatalf("test process accepted a live post: %v", err)
+	}
+	liveKeyed := paymentJournal("x2", "1")
+	for i := range liveKeyed.Lines {
+		liveKeyed.Lines[i].Account.Environment = environment.Live
+	}
+	if _, err := testSvc.Post(ctx, liveKeyed); !errors.Is(err, environment.ErrMismatch) {
+		t.Fatalf("test process accepted live-keyed lines: %v", err)
+	}
+	if _, err := liveSvc.Balances(environment.WithContext(ctx, environment.Test), ledger.OwnerMember, "m1"); !errors.Is(err, environment.ErrMismatch) {
+		t.Fatalf("live process served a test read: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO ledger_accounts (environment, owner_type, owner_id, asset, kind, created_at) VALUES ('prod', 'member', 'm9', 'USDC', 'asset', now())`).Error; err == nil || !strings.Contains(err.Error(), "ledger_accounts_environment_check") {
+		t.Fatalf("database accepted an unknown environment: %v", err)
 	}
 }
 

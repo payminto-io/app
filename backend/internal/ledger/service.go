@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -14,9 +15,52 @@ import (
 // Service is the only writer of ledger rows.
 type Service struct {
 	db *gorm.DB
+	// env is the fallback for keys and contexts that name no environment.
+	env   environment.Environment
+	guard environment.Guard
 }
 
-func New(db *gorm.DB) *Service { return &Service{db: db} }
+// Option configures New without changing its shape for existing callers.
+type Option func(*Service)
+
+// WithEnvironment sets the process environment: the fallback for unlabelled keys and the guard's reference.
+func WithEnvironment(env environment.Environment) Option {
+	return func(s *Service) {
+		s.env = env
+		if g, err := environment.NewGuard(env); err == nil {
+			s.guard = g
+		}
+	}
+}
+
+// WithGuard replaces the guard built by WithEnvironment, e.g. with a shared process guard.
+func WithGuard(guard environment.Guard) Option {
+	return func(s *Service) { s.guard = guard }
+}
+
+// New defaults to the test environment so a service built without options can never touch live rows.
+func New(db *gorm.DB, opts ...Option) *Service {
+	s := &Service{db: db}
+	WithEnvironment(environment.Test)(s)
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// Environment is the process environment this service serves.
+func (s *Service) Environment() environment.Environment { return s.env }
+
+// resolve picks the environment for one operation and asks the guard before any row is touched.
+func (s *Service) resolve(ctx context.Context, explicit environment.Environment) (environment.Environment, error) {
+	env := environment.Resolve(ctx, explicit, s.env)
+	if s.guard != nil {
+		if err := s.guard.Require(ctx, env); err != nil {
+			return "", err
+		}
+	}
+	return env, nil
+}
 
 // DB exposes the handle for callers that read ledger rows directly (tests, reports).
 func (s *Service) DB() *gorm.DB { return s.db }
@@ -51,6 +95,11 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 	if err := j.Validate(); err != nil {
 		return Receipt{}, err
 	}
+	explicit, _ := j.explicitEnvironment()
+	env, err := s.resolve(ctx, explicit)
+	if err != nil {
+		return Receipt{}, err
+	}
 	tx = tx.WithContext(ctx)
 	hash := j.requestHash()
 	postedAt := j.PostedAt
@@ -83,7 +132,7 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 
 	lines := make([]LineRow, 0, len(j.Lines))
 	for _, l := range j.Lines {
-		accountID, err := ensureAccount(tx, l.Account)
+		accountID, err := ensureAccount(tx, l.Account, env)
 		if err != nil {
 			return Receipt{}, err
 		}
@@ -100,13 +149,17 @@ func (s *Service) EnsureAccount(ctx context.Context, key AccountKey) (AccountID,
 	if err := key.validate(); err != nil {
 		return 0, err
 	}
-	return ensureAccount(s.db.WithContext(ctx), key)
+	env, err := s.resolve(ctx, key.Environment)
+	if err != nil {
+		return 0, err
+	}
+	return ensureAccount(s.db.WithContext(ctx), key, env)
 }
 
-func ensureAccount(tx *gorm.DB, key AccountKey) (AccountID, error) {
-	row := AccountRow{OwnerType: key.OwnerType, OwnerID: key.OwnerID, Asset: key.Asset, Kind: key.Kind}
+func ensureAccount(tx *gorm.DB, key AccountKey, env environment.Environment) (AccountID, error) {
+	row := AccountRow{Environment: env, OwnerType: key.OwnerType, OwnerID: key.OwnerID, Asset: key.Asset, Kind: key.Kind}
 	res := tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "owner_type"}, {Name: "owner_id"}, {Name: "asset"}, {Name: "kind"}},
+		Columns:   []clause.Column{{Name: "environment"}, {Name: "owner_type"}, {Name: "owner_id"}, {Name: "asset"}, {Name: "kind"}},
 		DoNothing: true,
 	}).Create(&row)
 	if res.Error != nil {
@@ -115,16 +168,16 @@ func ensureAccount(tx *gorm.DB, key AccountKey) (AccountID, error) {
 	if res.RowsAffected > 0 {
 		return row.ID, nil
 	}
-	id, err := lookupAccount(tx, key)
+	id, err := lookupAccount(tx, key, env)
 	if err != nil {
 		return 0, fmt.Errorf("ledger: ensure account %+v: %w", key, err)
 	}
 	return id, nil
 }
 
-func lookupAccount(tx *gorm.DB, key AccountKey) (AccountID, error) {
+func lookupAccount(tx *gorm.DB, key AccountKey, env environment.Environment) (AccountID, error) {
 	var row AccountRow
-	err := tx.Where("owner_type = ? AND owner_id = ? AND asset = ? AND kind = ?", key.OwnerType, key.OwnerID, key.Asset, key.Kind).First(&row).Error
+	err := tx.Where("environment = ? AND owner_type = ? AND owner_id = ? AND asset = ? AND kind = ?", env, key.OwnerType, key.OwnerID, key.Asset, key.Kind).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, ErrAccountNotFound
 	}
@@ -136,7 +189,11 @@ func lookupAccount(tx *gorm.DB, key AccountKey) (AccountID, error) {
 
 // AccountID resolves key without creating anything.
 func (s *Service) AccountID(ctx context.Context, key AccountKey) (AccountID, error) {
-	return lookupAccount(s.db.WithContext(ctx), key)
+	env, err := s.resolve(ctx, key.Environment)
+	if err != nil {
+		return 0, err
+	}
+	return lookupAccount(s.db.WithContext(ctx), key, env)
 }
 
 type sumRow struct {
@@ -165,13 +222,17 @@ func (s *Service) Balance(ctx context.Context, accountID AccountID) (decimal.Dec
 	return row.Total, nil
 }
 
-// Balances sums every account of one owner, grouped by asset across kinds.
+// Balances sums every account of one owner in the context's environment, grouped by asset across kinds.
 func (s *Service) Balances(ctx context.Context, ownerType OwnerType, ownerID string) (map[string]decimal.Decimal, error) {
+	env, err := s.resolve(ctx, "")
+	if err != nil {
+		return nil, err
+	}
 	var rows []sumRow
-	err := s.db.WithContext(ctx).Model(&LineRow{}).
+	err = s.db.WithContext(ctx).Model(&LineRow{}).
 		Select("ledger_lines.asset AS asset, COALESCE(SUM(ledger_lines.amount), 0) AS total").
 		Joins("JOIN ledger_accounts ON ledger_accounts.id = ledger_lines.account_id").
-		Where("ledger_accounts.owner_type = ? AND ledger_accounts.owner_id = ?", ownerType, ownerID).
+		Where("ledger_accounts.environment = ? AND ledger_accounts.owner_type = ? AND ledger_accounts.owner_id = ?", env, ownerType, ownerID).
 		Group("ledger_lines.asset").
 		Scan(&rows).Error
 	if err != nil {
@@ -213,13 +274,17 @@ type statementRow struct {
 
 // Statement lists an owner's lines posted in [from, to) with a per-asset running balance that starts from the lines before from.
 func (s *Service) Statement(ctx context.Context, ownerType OwnerType, ownerID string, from, to time.Time) ([]StatementLine, error) {
+	env, err := s.resolve(ctx, "")
+	if err != nil {
+		return nil, err
+	}
 	db := s.db.WithContext(ctx)
 	var opening []sumRow
-	err := db.Model(&LineRow{}).
+	err = db.Model(&LineRow{}).
 		Select("ledger_lines.asset AS asset, COALESCE(SUM(ledger_lines.amount), 0) AS total").
 		Joins("JOIN ledger_accounts ON ledger_accounts.id = ledger_lines.account_id").
 		Joins("JOIN ledger_journals ON ledger_journals.id = ledger_lines.journal_id").
-		Where("ledger_accounts.owner_type = ? AND ledger_accounts.owner_id = ? AND ledger_journals.posted_at < ?", ownerType, ownerID, from).
+		Where("ledger_accounts.environment = ? AND ledger_accounts.owner_type = ? AND ledger_accounts.owner_id = ? AND ledger_journals.posted_at < ?", env, ownerType, ownerID, from).
 		Group("ledger_lines.asset").
 		Scan(&opening).Error
 	if err != nil {
@@ -238,7 +303,7 @@ func (s *Service) Statement(ctx context.Context, ownerType OwnerType, ownerID st
 			ledger_journals.posted_at`).
 		Joins("JOIN ledger_accounts ON ledger_accounts.id = ledger_lines.account_id").
 		Joins("JOIN ledger_journals ON ledger_journals.id = ledger_lines.journal_id").
-		Where("ledger_accounts.owner_type = ? AND ledger_accounts.owner_id = ? AND ledger_journals.posted_at >= ? AND ledger_journals.posted_at < ?", ownerType, ownerID, from, to).
+		Where("ledger_accounts.environment = ? AND ledger_accounts.owner_type = ? AND ledger_accounts.owner_id = ? AND ledger_journals.posted_at >= ? AND ledger_journals.posted_at < ?", env, ownerType, ownerID, from, to).
 		Order("ledger_journals.posted_at, ledger_journals.id, ledger_lines.id").
 		Scan(&rows).Error
 	if err != nil {
