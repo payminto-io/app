@@ -35,6 +35,10 @@ const (
 	AnomalyWrongTokenProgram = "wrong_token_program"
 	AnomalyNativeToOwner     = "native_sol_to_owner"
 	AnomalyUnparsedCredit    = "unparsed_credit"
+	// AnomalyWithheldAmount: the instruction said more than the account received (transfer fees).
+	AnomalyWithheldAmount = "withheld_amount"
+	// AnomalyStrandedInPDA: a wallet treated the ATA as an owner and sent to ATA(ATA, mint); unsignable.
+	AnomalyStrandedInPDA = "stranded_in_pda_ata"
 )
 
 // Anomaly is value that reached the payment's accounts but must not be credited as the payment asset.
@@ -112,6 +116,9 @@ func ExtractDeposits(tx *ParsedTransaction, w Watch) (*Credit, []Anomaly) {
 					continue
 				}
 				addCredit(from, raw, decimals)
+			case balances[dest].Owner == ata:
+				anomalies = append(anomalies, Anomaly{Kind: AnomalyStrandedInPDA, Signature: sig, Slot: tx.Slot, From: from, To: dest, Mint: ixMint,
+					Amount: decimal.NewFromBigInt(raw, -int32(decimals)), Detail: "token account owned by the deposit ATA " + ata})
 			case balances[dest].Owner == owner && ixMint != mint:
 				// The payer sent another token to the owner address; it sits in the owner's other ATA.
 				anomalies = append(anomalies, Anomaly{Kind: AnomalyWrongMint, Signature: sig, Slot: tx.Slot, From: from, To: dest, Mint: ixMint,
@@ -127,17 +134,28 @@ func ExtractDeposits(tx *ParsedTransaction, w Watch) (*Credit, []Anomaly) {
 		}
 	}
 
-	// The balance delta is the ground truth; a larger delta than the parsed credits means a
-	// transfer we did not understand, which is flagged rather than silently credited.
+	// The balance delta is what the account received and is what gets credited; any difference
+	// from the parsed instructions is flagged, in both directions.
 	if delta := tokenDelta(tx, ata, mint); delta != nil {
 		parsed := new(big.Int)
 		if credit != nil {
 			parsed = credit.RawAmount
 		}
-		if delta.Cmp(parsed) > 0 {
+		switch delta.Cmp(parsed) {
+		case 1:
 			diff := new(big.Int).Sub(delta, parsed)
 			anomalies = append(anomalies, Anomaly{Kind: AnomalyUnparsedCredit, Signature: sig, Slot: tx.Slot, To: ata, Mint: mint,
 				Amount: decimal.NewFromBigInt(diff, -int32(w.Decimals)), Detail: "balance rose more than parsed transfers"})
+		case -1:
+			diff := new(big.Int).Sub(parsed, delta)
+			anomalies = append(anomalies, Anomaly{Kind: AnomalyWithheldAmount, Signature: sig, Slot: tx.Slot, To: ata, Mint: mint,
+				Amount: decimal.NewFromBigInt(diff, -int32(w.Decimals)), Detail: "instructions exceed the balance delta"})
+		}
+		if credit != nil && delta.Sign() > 0 {
+			credit.RawAmount = delta
+			credit.Amount = decimal.NewFromBigInt(delta, -int32(w.Decimals))
+		} else if credit != nil {
+			credit = nil
 		}
 	}
 	return credit, anomalies

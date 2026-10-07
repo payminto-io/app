@@ -2,6 +2,7 @@ package solana
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -154,5 +155,41 @@ func TestRentMovements(t *testing.T) {
 	tx.Meta.PostBalances = []uint64{1_000_000_000 - 5000, 0, 2039280, 374004672, 934087680}
 	if r, f := RentMovements(tx); r != 2039280 || f != 2039280 {
 		t.Fatalf("sweep: reclaimed %d funded %d", r, f)
+	}
+}
+
+// I4: a token program that withholds part of a transfer (Token-2022 transfer fee) must credit the
+// balance delta, never the instruction amount, and flag the difference.
+func TestExtractDeposits_WithheldAmountCreditsDeltaAndFlags(t *testing.T) {
+	tx := fixtureTx(t, "usdc_transfer_checked.json")
+	tx.Meta.PostTokenBalances[1].UITokenAmount.Amount = "24000000"
+	credit, anomalies := ExtractDeposits(tx, usdcWatch())
+	if credit == nil || !credit.Amount.Equal(decimal.RequireFromString("24")) {
+		t.Fatalf("credit = %+v, want the delivered 24", credit)
+	}
+	if len(anomalies) != 1 || anomalies[0].Kind != AnomalyWithheldAmount || !anomalies[0].Amount.Equal(decimal.RequireFromString("1")) {
+		t.Fatalf("anomalies = %+v", anomalies)
+	}
+}
+
+// M2: a wallet that treats the ATA as an owner sends to ATA(ATA, mint); nobody can sign for it.
+func TestExtractDeposits_TokenStrandedInATAOfATAIsFlagged(t *testing.T) {
+	tx := fixtureTx(t, "usdc_transfer_checked.json")
+	stranded, _ := AssociatedTokenAddress(fxUSDCATA, fxUSDC, TokenProgram)
+	tx.Transaction.Message.AccountKeys[2].Pubkey = stranded.String()
+	ix := &tx.Transaction.Message.Instructions[0]
+	ix.Parsed = []byte(strings.Replace(string(ix.Parsed), fxUSDCATA.String(), stranded.String(), 1))
+	for i := range tx.Meta.PostTokenBalances {
+		if tx.Meta.PostTokenBalances[i].AccountIndex == 2 {
+			tx.Meta.PostTokenBalances[i].Owner = fxUSDCATA.String()
+			tx.Meta.PreTokenBalances[i].Owner = fxUSDCATA.String()
+		}
+	}
+	credit, anomalies := ExtractDeposits(tx, usdcWatch())
+	if credit != nil {
+		t.Fatal("stranded token credited")
+	}
+	if len(anomalies) != 1 || anomalies[0].Kind != AnomalyStrandedInPDA || anomalies[0].To != stranded.String() {
+		t.Fatalf("anomalies = %+v", anomalies)
 	}
 }

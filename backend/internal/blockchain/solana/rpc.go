@@ -9,9 +9,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/blockchain"
+	"golang.org/x/time/rate"
 )
 
 // Commitment levels; "confirmed" is seen, "finalized" is credited (ticket 09 detection decision).
@@ -35,16 +37,89 @@ type RPCError struct {
 
 func (e *RPCError) Error() string { return fmt.Sprintf("solana rpc %d: %s", e.Code, e.Message) }
 
-// PoolCaller routes JSON-RPC calls through the blockchain.RPCPool, marking node health per call.
+// PoolCaller routes JSON-RPC calls through the blockchain.RPCPool with a per-node rate limit.
+// A 429 backs the node off and moves to the next one; only transport and 5xx failures count
+// against node health.
 type PoolCaller struct {
-	pool       *blockchain.RPCPool
-	httpClient *http.Client
+	pool        *blockchain.RPCPool
+	httpClient  *http.Client
+	perSecond   float64
+	backoffBase time.Duration
+	backoffMax  time.Duration
+
+	mu       sync.Mutex
+	limiters map[uint]*rate.Limiter
+	backoff  map[uint]backoffState
 }
 
-// NewPoolCaller builds a Caller over pool.
-func NewPoolCaller(pool *blockchain.RPCPool) *PoolCaller {
-	return &PoolCaller{pool: pool, httpClient: &http.Client{Timeout: 30 * time.Second}}
+type backoffState struct {
+	until time.Time
+	wait  time.Duration
 }
+
+// ErrRateLimited is returned when every node is backing off and the context ends first.
+var ErrRateLimited = errors.New("solana rpc: all nodes rate limited")
+
+// NewPoolCaller builds a Caller over pool with DefaultRequestsPerSecond per node.
+func NewPoolCaller(pool *blockchain.RPCPool) *PoolCaller {
+	return &PoolCaller{
+		pool: pool, httpClient: &http.Client{Timeout: 30 * time.Second}, perSecond: DefaultRequestsPerSecond,
+		backoffBase: time.Second, backoffMax: 30 * time.Second,
+		limiters: map[uint]*rate.Limiter{}, backoff: map[uint]backoffState{},
+	}
+}
+
+// DefaultRequestsPerSecond matches the public endpoint's documented budget (100 per 10 seconds).
+const DefaultRequestsPerSecond = 10
+
+// WithRateLimit sets the per-node budget in requests per second; 0 disables the limiter.
+func (p *PoolCaller) WithRateLimit(perSecond float64) *PoolCaller {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.perSecond = perSecond
+	p.limiters = map[uint]*rate.Limiter{}
+	return p
+}
+
+func (p *PoolCaller) limiter(nodeID uint) *rate.Limiter {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.perSecond <= 0 {
+		return nil
+	}
+	l, ok := p.limiters[nodeID]
+	if !ok {
+		l = rate.NewLimiter(rate.Limit(p.perSecond), 1)
+		p.limiters[nodeID] = l
+	}
+	return l
+}
+
+func (p *PoolCaller) backingOff(nodeID uint) (time.Duration, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	b, ok := p.backoff[nodeID]
+	if !ok || time.Now().After(b.until) {
+		return 0, false
+	}
+	return time.Until(b.until), true
+}
+
+func (p *PoolCaller) noteRateLimited(nodeID uint) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	b := p.backoff[nodeID]
+	if b.wait == 0 || time.Now().After(b.until.Add(b.wait)) {
+		b.wait = p.backoffBase
+	} else {
+		b.wait = min(b.wait*2, p.backoffMax)
+	}
+	b.until = time.Now().Add(b.wait)
+	p.backoff[nodeID] = b
+}
+
+// errTooManyRequests marks a 429 so Call can route around it.
+var errTooManyRequests = errors.New("solana rpc http 429")
 
 // StaticCaller targets one URL; used by integration tests and local validators.
 type StaticCaller struct {
@@ -64,24 +139,49 @@ func (p *PoolCaller) Call(ctx context.Context, method string, params []any, out 
 	if p.pool == nil {
 		return errors.New("solana: rpc pool not configured")
 	}
-	node, err := p.pool.Pick()
-	if err != nil {
-		return err
+	attempts := max(p.pool.Len(), 1)
+	for attempt := 0; attempt < attempts; attempt++ {
+		node, err := p.pool.Pick()
+		if err != nil {
+			return err
+		}
+		if wait, off := p.backingOff(node.ID); off {
+			if attempt+1 < attempts {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return ErrRateLimited
+			case <-time.After(wait):
+			}
+		}
+		if l := p.limiter(node.ID); l != nil {
+			if err := l.Wait(ctx); err != nil {
+				return err
+			}
+		}
+		auth := ""
+		if node.AuthHeader != nil {
+			auth = *node.AuthHeader
+		}
+		err = doCall(ctx, p.httpClient, node.URL, auth, method, params, out)
+		var rpcErr *RPCError
+		switch {
+		case err == nil, errors.As(err, &rpcErr):
+			// A JSON-RPC error is the node answering; it is not a node failure.
+			p.pool.MarkSuccess(node.ID)
+			return err
+		case errors.Is(err, errTooManyRequests):
+			p.noteRateLimited(node.ID)
+			if attempt+1 == attempts {
+				return fmt.Errorf("%w: %s", ErrRateLimited, method)
+			}
+		default:
+			p.pool.MarkFailure(node.ID, err)
+			return err
+		}
 	}
-	auth := ""
-	if node.AuthHeader != nil {
-		auth = *node.AuthHeader
-	}
-	err = doCall(ctx, p.httpClient, node.URL, auth, method, params, out)
-	var rpcErr *RPCError
-	switch {
-	case err == nil, errors.As(err, &rpcErr):
-		// A JSON-RPC error is the node answering; it is not a node failure.
-		p.pool.MarkSuccess(node.ID)
-	default:
-		p.pool.MarkFailure(node.ID, err)
-	}
-	return err
+	return ErrRateLimited
 }
 
 type rpcRequest struct {
@@ -114,7 +214,10 @@ func doCall(ctx context.Context, client *http.Client, url, auth, method string, 
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return errTooManyRequests
+	}
+	if resp.StatusCode >= 500 {
 		return fmt.Errorf("solana rpc http %d", resp.StatusCode)
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
@@ -222,10 +325,42 @@ type SignatureStatus struct {
 // Failed reports an on-chain error.
 func (s SignatureStatus) Failed() bool { return len(s.Err) > 0 && string(s.Err) != "null" }
 
-// GetSignatureStatuses looks signatures up, searching the ledger history too.
+// GetSignatureStatuses looks signatures up in the node's recent status cache, then falls back to the
+// ledger history only for the ones still unknown (providers throttle and bill that flag).
 func (c *Client) GetSignatureStatuses(ctx context.Context, signatures []string) ([]*SignatureStatus, error) {
+	statuses, err := c.getSignatureStatuses(ctx, signatures, false)
+	if err != nil {
+		return nil, err
+	}
+	var missing []string
+	var at []int
+	for i := range signatures {
+		if i >= len(statuses) || statuses[i] == nil {
+			missing = append(missing, signatures[i])
+			at = append(at, i)
+		}
+	}
+	if len(missing) == 0 {
+		return statuses, nil
+	}
+	deep, err := c.getSignatureStatuses(ctx, missing, true)
+	if err != nil {
+		return nil, err
+	}
+	for i, idx := range at {
+		if idx >= len(statuses) {
+			statuses = append(statuses, make([]*SignatureStatus, idx-len(statuses)+1)...)
+		}
+		if i < len(deep) {
+			statuses[idx] = deep[i]
+		}
+	}
+	return statuses, nil
+}
+
+func (c *Client) getSignatureStatuses(ctx context.Context, signatures []string, history bool) ([]*SignatureStatus, error) {
 	var out contextValue[[]*SignatureStatus]
-	err := c.caller.Call(ctx, "getSignatureStatuses", []any{signatures, map[string]any{"searchTransactionHistory": true}}, &out)
+	err := c.caller.Call(ctx, "getSignatureStatuses", []any{signatures, map[string]any{"searchTransactionHistory": history}}, &out)
 	return out.Value, err
 }
 
@@ -238,6 +373,56 @@ func (c *Client) GetTransaction(ctx context.Context, signature, commitment strin
 		"maxSupportedTransactionVersion": 0,
 	}}, &out)
 	return out, err
+}
+
+// GetTransactionFromNodes asks up to nodes picks for the transaction and returns the first record;
+// a signature one node just listed can be unknown to a lagging one (C1 in the review).
+func (c *Client) GetTransactionFromNodes(ctx context.Context, signature, commitment string, nodes int) (*ParsedTransaction, error) {
+	var lastErr error
+	for i := 0; i < max(nodes, 1); i++ {
+		tx, err := c.GetTransaction(ctx, signature, commitment)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if tx != nil {
+			return tx, nil
+		}
+	}
+	return nil, lastErr
+}
+
+// MultipleAccount is one entry of getMultipleAccounts; nil when the account does not exist.
+type MultipleAccount struct {
+	Lamports uint64          `json:"lamports"`
+	Owner    string          `json:"owner"`
+	Data     json.RawMessage `json:"data"`
+}
+
+// TokenAmountRaw reads the parsed token account balance (base units) out of jsonParsed data.
+func (a *MultipleAccount) TokenAmountRaw() (string, bool) {
+	if a == nil {
+		return "", false
+	}
+	var parsed struct {
+		Parsed struct {
+			Type string `json:"type"`
+			Info struct {
+				TokenAmount TokenAmount `json:"tokenAmount"`
+			} `json:"info"`
+		} `json:"parsed"`
+	}
+	if err := json.Unmarshal(a.Data, &parsed); err != nil || parsed.Parsed.Type != "account" {
+		return "", false
+	}
+	return parsed.Parsed.Info.TokenAmount.Amount, true
+}
+
+// GetMultipleAccounts fetches up to 100 accounts in one call; entries are nil for missing accounts.
+func (c *Client) GetMultipleAccounts(ctx context.Context, addresses []string, commitment string) ([]*MultipleAccount, error) {
+	var out contextValue[[]*MultipleAccount]
+	err := c.caller.Call(ctx, "getMultipleAccounts", []any{addresses, map[string]any{"commitment": commitment, "encoding": "jsonParsed"}}, &out)
+	return out.Value, err
 }
 
 // ParsedBlock is getBlock with jsonParsed transactions; used by ParseBlock.
