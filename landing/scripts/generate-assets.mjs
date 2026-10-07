@@ -21,9 +21,11 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(__dirname, "..", "public", "generated");
 
-const TOKEN =
-  process.env.REPLICATE_API_TOKEN ||
-  "REDACTED_SET_REPLICATE_API_TOKEN";
+const TOKEN = process.env.REPLICATE_API_TOKEN;
+if (!TOKEN) {
+  console.error("Set REPLICATE_API_TOKEN to run this script.");
+  process.exit(1);
+}
 
 const SEEDREAM_MODEL = "bytedance/seedream-4";
 const NANO_MODEL = "google/nano-banana-pro";
