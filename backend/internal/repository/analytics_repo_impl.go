@@ -49,11 +49,11 @@ var _ = fmt.Sprintf
 // VolumeBucket is a single time-bucket returned by GetVolumeOverTime.
 type VolumeBucket struct {
 	// Bucket is the start of the time bucket (day/hour/week depending on interval).
-	Bucket       time.Time
+	Bucket time.Time
 	// BucketLabel is the string representation for display.
-	BucketLabel  string
+	BucketLabel string
 	// Volume is the total confirmed deposit amount in that bucket.
-	Volume       decimal.Decimal
+	Volume decimal.Decimal
 	// PaymentCount is the number of distinct payments in that bucket.
 	PaymentCount int
 }
@@ -61,11 +61,11 @@ type VolumeBucket struct {
 // CustomerSummary is a row returned by GetTopCustomers.
 type CustomerSummary struct {
 	// CustomerID is the merchant-supplied customer identifier.
-	CustomerID   string
+	CustomerID string
 	// CustomerEmail is the optional email address on record.
 	CustomerEmail *string
 	// TotalVolume is the sum of all confirmed deposits from this customer.
-	TotalVolume  decimal.Decimal
+	TotalVolume decimal.Decimal
 	// PaymentCount is the number of payments from this customer.
 	PaymentCount int
 }
@@ -75,13 +75,13 @@ type RevenueBreakdown struct {
 	// BlockchainCode is the chain code (ETH, BTC, …).
 	BlockchainCode string
 	// CurrencyCode is the token code (USDT, ETH, …).
-	CurrencyCode   string
+	CurrencyCode string
 	// State is the payment state (FILLED, OPEN, …).
-	State          string
+	State string
 	// TotalAmount is the sum of amounts in this bucket.
-	TotalAmount    decimal.Decimal
+	TotalAmount decimal.Decimal
 	// Count is the number of payments in this bucket.
-	Count          int
+	Count int
 }
 
 // SweepStats is returned by GetSweepStats.
@@ -89,9 +89,9 @@ type SweepStats struct {
 	// TotalSweeps is the count of completed sweeps.
 	TotalSweeps int
 	// TotalSwept is the sum of amounts swept.
-	TotalSwept  decimal.Decimal
+	TotalSwept decimal.Decimal
 	// TotalGas is the sum of gas fees spent.
-	TotalGas    decimal.Decimal
+	TotalGas decimal.Decimal
 }
 
 // WithdrawalStats is returned by GetWithdrawalStats.
@@ -99,25 +99,23 @@ type WithdrawalStats struct {
 	// TotalWithdrawals is the count of completed withdrawals.
 	TotalWithdrawals int
 	// TotalAmount is the sum of withdrawal amounts.
-	TotalAmount      decimal.Decimal
+	TotalAmount decimal.Decimal
 	// TotalGas is the sum of gas fees paid.
-	TotalGas         decimal.Decimal
+	TotalGas decimal.Decimal
 }
 
 // DashboardSummary is the all-up aggregate for the dashboard home tile.
 type DashboardSummary struct {
 	// TotalPayments is the lifetime count of payment requests.
-	TotalPayments      int64
+	TotalPayments int64
 	// FilledPayments is the count of payments in FILLED state.
-	FilledPayments     int64
+	FilledPayments int64
 	// TotalVolume is the sum of deposit amounts across all FILLED payments.
-	TotalVolume        decimal.Decimal
-	// TotalSweeps is the lifetime count of sweeps.
-	TotalSweeps        int64
+	TotalVolume decimal.Decimal
 	// TotalWithdrawals is the lifetime count of withdrawals.
-	TotalWithdrawals   int64
+	TotalWithdrawals int64
 	// ActiveWebhooks is the count of active webhook endpoints.
-	ActiveWebhooks     int64
+	ActiveWebhooks int64
 }
 
 // AnalyticsRepository defines read-only aggregation queries used by
@@ -210,10 +208,10 @@ func (r *AnalyticsRepositoryImpl) GetTopCustomers(platformID uint, limit int) ([
 	}
 
 	type row struct {
-		CustomerID   string
+		CustomerID    string
 		CustomerEmail *string
-		TotalVolume  decimal.Decimal
-		PaymentCount int
+		TotalVolume   decimal.Decimal
+		PaymentCount  int
 	}
 
 	var rows []row
@@ -240,10 +238,10 @@ func (r *AnalyticsRepositoryImpl) GetTopCustomers(platformID uint, limit int) ([
 	summaries := make([]CustomerSummary, len(rows))
 	for i, r := range rows {
 		summaries[i] = CustomerSummary{
-			CustomerID:   r.CustomerID,
+			CustomerID:    r.CustomerID,
 			CustomerEmail: r.CustomerEmail,
-			TotalVolume:  r.TotalVolume,
-			PaymentCount: r.PaymentCount,
+			TotalVolume:   r.TotalVolume,
+			PaymentCount:  r.PaymentCount,
 		}
 	}
 	return summaries, nil
@@ -268,7 +266,7 @@ func (r *AnalyticsRepositoryImpl) GetRevenueBreakdown(platformID uint, start, en
 			COALESCE(SUM(d.amount), 0)   AS total_amount,
 			COUNT(DISTINCT p.id)          AS count
 		FROM payment_requests p
-		LEFT JOIN deposits d ON d.payment_request_id = p.id AND d.deleted_at IS NULL
+		LEFT JOIN deposits d ON d.payment_request_id = p.id AND d.deleted_at IS NULL AND d.status IN ('confirmed', 'swept')
 		LEFT JOIN deposit_addresses da ON da.id = p.deposit_address_id AND da.deleted_at IS NULL
 		LEFT JOIN blockchain_currencies bc ON bc.id = da.blockchain_currency_id AND bc.deleted_at IS NULL
 		LEFT JOIN blockchains b ON b.id = bc.blockchain_id AND b.deleted_at IS NULL
@@ -366,8 +364,7 @@ func (r *AnalyticsRepositoryImpl) GetWithdrawalStats(platformID uint, start, end
 // home tile. Each query checks its own error so a single failed scan no
 // longer silently zeros the response.
 //
-// Note: TotalSweeps is intentionally not platform-scoped — see GetSweepStats
-// for the rationale. Future Phase J work will reintroduce a scoped variant.
+// Sweeps batch addresses across platforms, so no sweep count is reported per platform.
 func (r *AnalyticsRepositoryImpl) GetDashboardSummary(platformID uint) (DashboardSummary, error) {
 	var summary DashboardSummary
 
@@ -400,11 +397,6 @@ func (r *AnalyticsRepositoryImpl) GetDashboardSummary(platformID uint) (Dashboar
 		return summary, fmt.Errorf("dashboard total volume: %w", err)
 	}
 	summary.TotalVolume = vr.Volume
-
-	// Sweep count (instance-wide — see method doc).
-	if err := r.db.Raw(`SELECT COUNT(*) FROM sweeps WHERE deleted_at IS NULL`).Scan(&summary.TotalSweeps).Error; err != nil {
-		return summary, fmt.Errorf("dashboard total sweeps: %w", err)
-	}
 
 	// Withdrawal count.
 	if err := r.db.Raw(

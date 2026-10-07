@@ -312,7 +312,6 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 			analyticsGrp.GET("/volume", analyticsH.GetVolume)
 			analyticsGrp.GET("/customers/top", analyticsH.GetTopCustomers)
 			analyticsGrp.GET("/revenue", analyticsH.GetRevenueBreakdown)
-			analyticsGrp.GET("/sweeps", analyticsH.GetSweepStats)
 			analyticsGrp.GET("/withdrawals", analyticsH.GetWithdrawalStats)
 			analyticsGrp.GET("/summary", analyticsH.GetSummary)
 		}
