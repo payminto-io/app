@@ -101,7 +101,57 @@ const deliveries = Array.from({ length: 8 }, (_, i) => ({
 
 type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: URLSearchParams) => unknown; empty?: unknown };
 
+/** An `empty` fixture that answers 404: the route does not exist in that state (attestations off). */
+export const NOT_FOUND: unique symbol = Symbol("not-found");
+
+const attestationStatus = {
+  enabled: true,
+  provider: "mock",
+  degraded_from: "",
+  missing_keys: [],
+  environment: "test",
+  chain: "ethereum-testnet-sepolia-base-1",
+  consumer_address: "",
+  forwarder_address: "",
+  workflow_owner: "0x4c1e9d2a7b3f5e8c0a6d1f2b3c4d5e6f7a8b9c0d",
+  trigger_signer: "keyring://cre-trigger",
+  trigger_signer_address: "0x4c1e9d2a7b3f5e8c0a6d1f2b3c4d5e6f7a8b9c0d",
+  gateway_id: "0x8a1f3c5e7b9d2f4a6c8e0b1d3f5a7c9e2b4d6f8a0c1e3b5d7f9a2c4e6b8d0f1a",
+  public_base_url: "http://localhost:8090",
+  public_verify_enabled: true,
+  health: { status: "ok", message: "mock provider; attestations are signed by an in-process dev key" },
+  workflows: [
+    {
+      kind: "solvency", workflow_id: "0x" + "ab".repeat(32), interval_seconds: 3600, credential_configured: true, state: "fresh",
+      last_run: { kind: "solvency", provider: "mock", execution_id: "mock-solvency-12", status: "accepted", detail: "", started_at: iso(-20 * 60_000) },
+      last_attestation: {
+        id: "sample-att-solvency-0001", kind: "solvency", subject_type: "ledger_checkpoint", subject_id: "sample-cp-0931", status: "attested", provider: "mock", simulated: false,
+        chain: "ethereum-testnet-sepolia-base-1", tx_hash: null, block_number: 0, workflow_id: "0x" + "ab".repeat(32), workflow_owner: "0x4c1e9d2a7b3f5e8c0a6d1f2b3c4d5e6f7a8b9c0d",
+        observed_at: iso(-20 * 60_000), recorded_at: iso(-19 * 60_000), reason: "",
+        item: { asset: "USDC.SOLANA", liabilities_minor: "18210750000", reserves_minor: "19000000000", decimals: 6 },
+      },
+    },
+    {
+      kind: "deposit_finality", workflow_id: "0x" + "cd".repeat(32), interval_seconds: 60, credential_configured: true, state: "stale",
+      last_run: { kind: "deposit_finality", provider: "mock", execution_id: "mock-deposit_finality-40", status: "failed", detail: "scripted outage", started_at: iso(-4 * 60_000) },
+      last_attestation: {
+        id: "sample-att-deposit-0040", kind: "deposit_finality", subject_type: "deposit", subject_id: "sample-dep-4410", status: "attested", provider: "mock", simulated: false,
+        chain: "ethereum-testnet-sepolia-base-1", tx_hash: null, block_number: 0, workflow_id: "0x" + "cd".repeat(32), workflow_owner: "0x4c1e9d2a7b3f5e8c0a6d1f2b3c4d5e6f7a8b9c0d",
+        observed_at: iso(-6 * 60_000), recorded_at: iso(-6 * 60_000), reason: "",
+        item: { chain: "solana", token: "USDC", amount_minor: "25000000", verdict: 1 },
+      },
+    },
+    { kind: "conversion_reference", workflow_id: "0x" + "ef".repeat(32), interval_seconds: 900, credential_configured: false, state: "never", last_run: null, last_attestation: null },
+  ],
+};
+
 const ROUTES: Route[] = [
+  {
+    method: "GET",
+    pattern: /^\/cre\/status$/,
+    body: () => attestationStatus,
+    empty: NOT_FOUND,
+  },
   {
     method: "GET",
     pattern: /^\/admin\/configurations$/,
@@ -366,7 +416,7 @@ export function resolveFixture(pathWithQuery: string, method: string, empty: boo
     if (r.method !== method) continue;
     const m = path.match(r.pattern);
     if (!m) continue;
-    if (empty && r.empty !== undefined) return r.empty;
+    if (empty && r.empty !== undefined) return r.empty === NOT_FOUND ? undefined : r.empty;
     return r.body(m, q);
   }
   return undefined;

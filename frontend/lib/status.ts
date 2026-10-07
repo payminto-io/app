@@ -65,6 +65,13 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   failure: { label: "Failure", tone: "bad", glyph: "x" },
   resolved: { label: "Resolved", tone: "ok", glyph: "check" },
   dismissed: { label: "Dismissed", tone: "mute", glyph: "minus" },
+  // attestations
+  attested: { label: "Attested", tone: "ok", glyph: "check" },
+  accepted: { label: "Accepted", tone: "ok", glyph: "check" },
+  fresh: { label: "Fresh", tone: "ok", glyph: "check" },
+  stale: { label: "Stale", tone: "wait", glyph: "clock" },
+  never: { label: "Never attested", tone: "mute", glyph: "minus" },
+  off: { label: "Off", tone: "mute", glyph: "minus" },
 };
 
 export function statusMeta(status: string): StatusMeta {
