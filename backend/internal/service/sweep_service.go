@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -29,11 +30,11 @@ var ErrSweepNotFound = errors.New("sweep not found")
 // db is held directly so MarkCompleted can atomically update the sweep status
 // and write ledger entries in a single database transaction.
 type SweepService struct {
-	db              *gorm.DB
-	sweepRepo       repository.SweepRepository
-	sweepTxRepo     repository.SweepTransactionRepository
-	blockchainRepo  repository.BlockchainRepository
-	ledgerService   *LedgerService
+	db             *gorm.DB
+	sweepRepo      repository.SweepRepository
+	sweepTxRepo    repository.SweepTransactionRepository
+	blockchainRepo repository.BlockchainRepository
+	ledgerService  *LedgerService
 }
 
 // NewSweepService constructs a SweepService with the required repositories.
@@ -91,42 +92,50 @@ func (s *SweepService) UpdateStatus(id uint, status string) error {
 	return s.sweepRepo.UpdateStatus(id, status)
 }
 
-// MarkCompleted transitions a Sweep to completed, updates its totals, and
-// records the ledger entries for the sweep event. The conditional UPDATE
-// (status != 'completed') ensures idempotency: a second call for the same
-// sweep ID is a no-op and does not write a duplicate ledger entry.
-//
-// Implementation note: the sweep UPDATE and the ledger write are committed
-// sequentially rather than wrapped in a single outer transaction. This avoids
-// nested-transaction complexity (SQLite savepoints are unreliable in test; Postgres
-// supports them natively). The trade-off is a tiny window where the sweep row
-// shows 'completed' but the ledger entry is missing — a reconciliation job
-// (Phase L) closes this gap. The ledger failure is returned as an error so
-// callers can retry.
-func (s *SweepService) MarkCompleted(id uint, totalAmount, totalGasFee decimal.Decimal, currencyID uint) error {
-	// Atomic conditional UPDATE — only transitions sweeps that are not yet completed.
-	res := s.db.Model(&models.Sweep{}).
-		Where("id = ? AND status != ?", id, SweepStatusCompleted).
-		Updates(map[string]any{
-			"status":        SweepStatusCompleted,
-			"total_amount":  totalAmount,
-			"total_gas_fee": totalGasFee,
-		})
-	if res.Error != nil {
-		return fmt.Errorf("update sweep %d: %w", id, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		// Already completed — idempotent success, do not write a second ledger entry.
+// MarkCompleted transitions a Sweep to completed, updates its totals and posts the
+// ledger journal in the same transaction: a sweep is never completed without its lines.
+// The conditional UPDATE makes a second call a no-op.
+func (s *SweepService) MarkCompleted(ctx context.Context, id uint, totalAmount, totalGasFee decimal.Decimal, blockchainCurrencyID uint) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.completeIn(ctx, tx, id, totalAmount, totalGasFee, blockchainCurrencyID)
+	})
+}
+
+func (s *SweepService) completeIn(ctx context.Context, tx *gorm.DB, id uint, totalAmount, totalGasFee decimal.Decimal, blockchainCurrencyID uint) error {
+	{
+		res := tx.Model(&models.Sweep{}).
+			Where("id = ? AND status != ?", id, SweepStatusCompleted).
+			Updates(map[string]any{
+				"status":        SweepStatusCompleted,
+				"total_amount":  totalAmount,
+				"total_gas_fee": totalGasFee,
+			})
+		if res.Error != nil {
+			return fmt.Errorf("update sweep %d: %w", id, res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return nil
+		}
+		if err := s.ledgerService.RecordSweepIn(ctx, tx, id, blockchainCurrencyID, totalAmount, totalGasFee); err != nil {
+			return fmt.Errorf("record sweep ledger for sweep %d: %w", id, err)
+		}
 		return nil
 	}
+}
 
-	// Record the sweep event in the double-entry ledger. Any failure is returned
-	// to the caller so they can retry — the ledger entry is idempotent on
-	// (sweep_id, reference) via the unique-constraint in Phase E.
-	if err := s.ledgerService.RecordSweep(id, currencyID, totalAmount, totalGasFee); err != nil {
-		return fmt.Errorf("record sweep ledger for sweep %d: %w", id, err)
-	}
-	return nil
+// CompleteConfirmedTransaction marks a sweep transaction confirmed and completes its sweep (with the
+// ledger journal) in one transaction, so a failed post leaves the transaction unconfirmed for the next round.
+func (s *SweepService) CompleteConfirmedTransaction(ctx context.Context, st *models.SweepTransaction) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		binder, ok := s.sweepTxRepo.(repository.SweepTransactionTxBinder)
+		if !ok {
+			return fmt.Errorf("sweep transaction repository %T cannot join the transaction", s.sweepTxRepo)
+		}
+		if err := binder.WithTx(tx).UpdateStatus(st.ID, SweepTxStatusConfirmed); err != nil {
+			return fmt.Errorf("mark sweep tx %d confirmed: %w", st.ID, err)
+		}
+		return s.completeIn(ctx, tx, st.SweepID, st.Amount, st.GasFee, st.BlockchainCurrencyID)
+	})
 }
 
 // MarkFailed transitions a Sweep to failed.

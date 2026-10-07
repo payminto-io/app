@@ -17,10 +17,10 @@ var ErrMissedDepositAlreadyResolved = errors.New("missed deposit already resolve
 
 // Resolve actions accepted by MissedDepositService.Resolve.
 const (
-	MissedDepositActionRefund            = "refunded"
-	MissedDepositActionClaimAsRevenue    = "claimed_as_revenue"
-	MissedDepositActionLinkToPayment     = "linked_to_payment"
-	MissedDepositActionIgnored           = "ignored"
+	MissedDepositActionRefund         = "refunded"
+	MissedDepositActionClaimAsRevenue = "claimed_as_revenue"
+	MissedDepositActionLinkToPayment  = "linked_to_payment"
+	MissedDepositActionIgnored        = "ignored"
 )
 
 // MissedDepositService is the operator-facing facade for the missed_deposits

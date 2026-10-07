@@ -145,3 +145,16 @@ func openStartupTestDB(t *testing.T) *gorm.DB {
 	}
 	return db
 }
+
+func TestPrepareSchema_ValidateRejectsMissingLedgerTables(t *testing.T) {
+	db := openStartupTestDB(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate() error = %v", err)
+	}
+	for _, env := range []string{config.EnvironmentDevelopment, config.EnvironmentProduction} {
+		err := PrepareSchema(db, env, config.SchemaModeValidate)
+		if err == nil || !strings.Contains(err.Error(), "ledger_accounts") {
+			t.Fatalf("PrepareSchema(%s) error = %v, want missing ledger table", env, err)
+		}
+	}
+}

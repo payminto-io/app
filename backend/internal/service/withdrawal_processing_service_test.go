@@ -26,6 +26,10 @@ func newProcessingTestDB(t *testing.T) *gorm.DB {
 		&models.ExternalPlatform{},
 		&models.Account{},
 		&models.Member{},
+		&models.Asset{},
+		&models.Liability{},
+		&models.Revenue{},
+		&models.Expense{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

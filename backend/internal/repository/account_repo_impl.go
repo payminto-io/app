@@ -73,10 +73,23 @@ type AccountRepository interface {
 	ListPendingAccountRewards() ([]models.AccountReward, error)
 }
 
+// TxBinder is implemented by repositories that can run inside a caller's transaction.
+type TxBinder interface {
+	WithTx(tx *gorm.DB) AccountRepository
+}
+
 // AccountRepositoryImpl is the GORM-backed implementation of AccountRepository.
 type AccountRepositoryImpl struct {
 	db *gorm.DB
 }
+
+// WithTx returns a copy bound to tx so ledger writes can share a transaction with the new ledger package.
+func (r *AccountRepositoryImpl) WithTx(tx *gorm.DB) AccountRepository {
+	return &AccountRepositoryImpl{db: tx}
+}
+
+// DB exposes the handle so the ledger service can open a transaction when no journal is configured.
+func (r *AccountRepositoryImpl) DB() *gorm.DB { return r.db }
 
 // NewAccountRepository constructs a new AccountRepository backed by the provided *gorm.DB.
 func NewAccountRepository(db *gorm.DB) AccountRepository {

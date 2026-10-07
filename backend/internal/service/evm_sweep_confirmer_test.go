@@ -30,6 +30,7 @@ func setupConfirmer(t *testing.T, checker confirmationChecker) (*EVMSweepConfirm
 	if err := db.AutoMigrate(
 		&models.SweepTransaction{}, &models.Sweep{}, &models.BlockchainCurrency{},
 		&models.Blockchain{}, &models.Account{},
+		&models.Asset{}, &models.Liability{}, &models.Revenue{}, &models.Expense{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

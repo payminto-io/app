@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,10 @@ func NewTestDB(t *testing.T) (*gorm.DB, func()) {
 		cleanup()
 		t.Fatalf("migrate test db: %v", err)
 	}
+	if err := MigrateExpandSchema(db); err != nil {
+		cleanup()
+		t.Fatalf("migrate test db: %v", err)
+	}
 	return db, cleanup
 }
 
@@ -41,7 +46,7 @@ func NewEmptyTestDB(t *testing.T) (*gorm.DB, func()) {
 	if dsn := os.Getenv("PAYMINTO_INTEGRATION_DATABASE_URL"); dsn != "" {
 		return newIsolatedSchemaTestDB(t, dsn)
 	}
-	testcontainers.SkipIfProviderIsNotHealthy(t)
+	requireContainerProvider(t)
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -94,6 +99,33 @@ func NewEmptyTestDB(t *testing.T) (*gorm.DB, func()) {
 	return db, cleanup
 }
 
+var dsnCredential = regexp.MustCompile(`(user|password)=\S+`)
+
+// ConnectTestDBAs opens a second connection to the same test database as another role.
+func ConnectTestDBAs(t *testing.T, db *gorm.DB, user, password string) *gorm.DB {
+	t.Helper()
+	dialector, ok := db.Dialector.(*postgres.Dialector)
+	if !ok || strings.Contains(dialector.Config.DSN, "://") {
+		t.Fatalf("ConnectTestDBAs needs a key=value Postgres DSN, got %T", db.Dialector)
+	}
+	dsn := dsnCredential.ReplaceAllStringFunc(dialector.Config.DSN, func(kv string) string {
+		if strings.HasPrefix(kv, "user=") {
+			return "user=" + user
+		}
+		return "password=" + password
+	})
+	other, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("connect as %s: %v", user, err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := other.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return other
+}
+
 // newIsolatedSchemaTestDB permits PostgreSQL contract tests where a container
 // provider is unavailable. The explicit URL must identify a disposable test
 // database on which the current user may create and drop isolated schemas.
@@ -129,4 +161,21 @@ func newIsolatedSchemaTestDB(t *testing.T, dsn string) (*gorm.DB, func()) {
 		}
 	}
 	return db, cleanup
+}
+
+// requireContainerProvider fails rather than skips: a skipped integration run printed "ok" and hid real failures.
+func requireContainerProvider(t *testing.T) {
+	t.Helper()
+	if os.Getenv("PAYMINTO_INTEGRATION_ALLOW_SKIP") == "1" {
+		testcontainers.SkipIfProviderIsNotHealthy(t)
+		return
+	}
+	provider, err := testcontainers.NewDockerProvider()
+	if err != nil {
+		t.Fatalf("integration tests need Docker (set DOCKER_HOST, or PAYMINTO_INTEGRATION_ALLOW_SKIP=1 to skip): %v", err)
+	}
+	defer provider.Close()
+	if err := provider.Health(context.Background()); err != nil {
+		t.Fatalf("integration tests need a healthy Docker (set DOCKER_HOST, or PAYMINTO_INTEGRATION_ALLOW_SKIP=1 to skip): %v", err)
+	}
 }

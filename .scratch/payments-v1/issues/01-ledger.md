@@ -1,6 +1,6 @@
 # 01 Double-entry ledger in Go
 
-Status: ready-for-agent
+Status: done
 Owner: Principal engineer (Fable)
 Blocked by: -
 
@@ -22,3 +22,9 @@ A multi-asset, append-only, double-entry ledger in `backend/internal/ledger/`. B
 
 ## Plan
 `docs/superpowers/plans/2026-10-07-ledger.md`
+
+## Comments
+
+- 2026-10-07 (Principal, Fable): done on branch `ledger`. Commits `601d3dd` (journal types + validation), `ada0679` (models + service), `99b6e31` (property test), `340f385` (Postgres constraints, migration `2026100701_ledger_double_entry`, integration tests), `dcd2277` (LedgerService dual-write + reconciliation + registry wiring). Full report: `.superpowers/ledger-report.md`. Deviations from the ticket text: `asset` is `varchar(16)` not `char(16)` (padding breaks equality); journal kind `transfer` added for sweeps; the existing `service.LedgerService` keeps its name because there is no collision and its callers are untouched. Follow-ups listed in the report.
+- 2026-10-07 fix round 1 (Principal, Fable): review `.superpowers/ledger-review.md` addressed in `10109ea` (ledger package: scale/magnitude, sealed journals, TRUNCATE, per-account statements, PostedAt bounds, sorted account creation, property test on Postgres), `bfd1cbe` (callers: assets resolved from blockchain_currencies as chain-qualified codes, gas in the native asset, every post inside the caller's transaction, no second connection), `203bc4f` (boot refuses a missing ledger; ledger_owner role, app role limited to SELECT/INSERT, live privilege check). Report: `.superpowers/ledger-fix-1-report.md`.
+- 2026-10-07 fix round 2 (Principal, Fable): re-review `.superpowers/ledger-rereview.md` addressed in `0bfef86` (pinned, schema-qualified trigger functions; seal by txid and start time; asset varchar(32) with format check; boot checks on trigger state and function definitions; late replay; docs), `a337d0e` (POL native rows in both seeds, lazy native resolution, sweep confirmation inside the completion transaction with re-poll of stranded confirmed txs, strict IBT binding, exact reconcile matching), `8a57cd8` (ownership transfer for a CREATEROLE migrator with NOTICE fallback, tested for superuser, CREATEROLE and plain migrators). Report: `.superpowers/ledger-fix-2-report.md`.

@@ -18,13 +18,13 @@ import (
 
 // AuthService handles member authentication via JWT tokens and API keys.
 type AuthService struct {
-	memberRepo    repository.MemberRepository
-	apiKeyRepo    repository.APIKeyRepository
-	mepRoleRepo   repository.MemberExternalPlatformRoleRepository
-	jwtTokenSvc   *JWTTokenService
-	platformSvc   *ExternalPlatformService
-	eventEmitter  *EventEmitterService
-	jwtSecret     string
+	memberRepo   repository.MemberRepository
+	apiKeyRepo   repository.APIKeyRepository
+	mepRoleRepo  repository.MemberExternalPlatformRoleRepository
+	jwtTokenSvc  *JWTTokenService
+	platformSvc  *ExternalPlatformService
+	eventEmitter *EventEmitterService
+	jwtSecret    string
 }
 
 // NewAuthService constructs an AuthService with the given member/API key repositories and JWT secret.

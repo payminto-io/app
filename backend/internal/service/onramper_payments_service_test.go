@@ -82,9 +82,9 @@ func TestOnramperPaymentsService_HandleWebhook_BadSignature(t *testing.T) {
 	svc, _ := newOnramperService(t, "shared-secret")
 
 	row, _, err := svc.CreateSession(CreateOnramperSessionInput{
-		PlatformID:    1,
-		FiatAmount:    decimal.NewFromInt(50),
-		FiatCurrency:  "USD",
+		PlatformID:     1,
+		FiatAmount:     decimal.NewFromInt(50),
+		FiatCurrency:   "USD",
 		CryptoCurrency: "USDC", BlockchainCode: "BASE", WalletAddress: "0x",
 	})
 	if err != nil {
@@ -106,9 +106,9 @@ func TestOnramperPaymentsService_HandleWebhook_Completed(t *testing.T) {
 	svc, db := newOnramperService(t, secret)
 
 	row, _, err := svc.CreateSession(CreateOnramperSessionInput{
-		PlatformID:    1,
-		FiatAmount:    decimal.NewFromInt(50),
-		FiatCurrency:  "USD",
+		PlatformID:     1,
+		FiatAmount:     decimal.NewFromInt(50),
+		FiatCurrency:   "USD",
 		CryptoCurrency: "USDC", BlockchainCode: "BASE", WalletAddress: "0xwallet",
 	})
 	if err != nil {
@@ -146,9 +146,9 @@ func TestOnramperPaymentsService_HandleWebhook_AlreadyTerminal(t *testing.T) {
 	svc, _ := newOnramperService(t, secret)
 
 	row, _, _ := svc.CreateSession(CreateOnramperSessionInput{
-		PlatformID:    1,
-		FiatAmount:    decimal.NewFromInt(50),
-		FiatCurrency:  "USD",
+		PlatformID:     1,
+		FiatAmount:     decimal.NewFromInt(50),
+		FiatCurrency:   "USD",
 		CryptoCurrency: "USDC", BlockchainCode: "BASE", WalletAddress: "0x",
 	})
 
@@ -174,9 +174,9 @@ func TestOnramperPaymentsService_HandleWebhook_EmptySecretFailsClosed(t *testing
 	svc, _ := newOnramperService(t, "")
 
 	row, _, _ := svc.CreateSession(CreateOnramperSessionInput{
-		PlatformID:    1,
-		FiatAmount:    decimal.NewFromInt(50),
-		FiatCurrency:  "USD",
+		PlatformID:     1,
+		FiatAmount:     decimal.NewFromInt(50),
+		FiatCurrency:   "USD",
 		CryptoCurrency: "USDC", BlockchainCode: "BASE", WalletAddress: "0x",
 	})
 	parsed := OnramperWebhookPayload{SessionID: row.SessionID, Status: models.OnramperStatusCompleted}
@@ -189,9 +189,9 @@ func TestOnramperPaymentsService_MarkExpired(t *testing.T) {
 	svc, db := newOnramperService(t, "")
 
 	row, _, _ := svc.CreateSession(CreateOnramperSessionInput{
-		PlatformID:    1,
-		FiatAmount:    decimal.NewFromInt(50),
-		FiatCurrency:  "USD",
+		PlatformID:     1,
+		FiatAmount:     decimal.NewFromInt(50),
+		FiatCurrency:   "USD",
 		CryptoCurrency: "USDC", BlockchainCode: "BASE", WalletAddress: "0x",
 	})
 

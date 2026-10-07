@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/payminto/payminto/backend/internal/config"
+	"github.com/payminto/payminto/backend/internal/ledger"
 	"gorm.io/gorm"
 )
 
@@ -143,11 +144,42 @@ func PrepareSchema(db *gorm.DB, environment, mode string) error {
 		if err := AutoMigrate(db); err != nil {
 			return fmt.Errorf("schema auto-migrate: %w", err)
 		}
+		if err := MigrateExpandSchema(db); err != nil {
+			return fmt.Errorf("schema auto-migrate: %w", err)
+		}
 	} else if mode != config.SchemaModeValidate {
 		return fmt.Errorf("schema startup: unsupported mode %q", mode)
 	}
 
-	return validateCurrentSchema(db)
+	if err := validateCurrentSchema(db); err != nil {
+		return err
+	}
+	return validateLedger(db, environment, mode)
+}
+
+// validateLedger refuses to boot without the ledger's tables and guarantees; validate mode also
+// requires the migration record, and live environments require a role that cannot rewrite history.
+func validateLedger(db *gorm.DB, environment, mode string) error {
+	if err := ledger.ValidateSchema(db); err != nil {
+		return fmt.Errorf("schema readiness: %w", err)
+	}
+	if mode == config.SchemaModeValidate {
+		if err := ledger.ValidateMigrationRecorded(db); err != nil {
+			return fmt.Errorf("schema readiness: %w", err)
+		}
+	}
+	if environment == config.EnvironmentStaging || environment == config.EnvironmentProduction {
+		if err := ledger.ValidatePrivileges(db); err != nil {
+			return fmt.Errorf("schema readiness: %w", err)
+		}
+	}
+	return nil
+}
+
+// MigrateExpandSchema creates the migration-managed tables that are deliberately outside the
+// manifest (so ApplyMigrations can still run on a database that predates them) for dev/test.
+func MigrateExpandSchema(db *gorm.DB) error {
+	return ledger.Migrate(db)
 }
 
 func validateCurrentSchema(db *gorm.DB) error {
