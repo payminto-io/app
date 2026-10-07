@@ -31,6 +31,7 @@ contracts/
 │   ├── DepositProxy.sol      # Minimal proxy: receives ETH, factory-controlled execute()
 │   └── cre/
 │       ├── IReceiver.sol             # Chainlink CRE receiver interface (copied, not a package)
+│       ├── WorkflowName.sol          # Keystone's HashTruncateName (ten hex chars of sha256, as ASCII)
 │       └── GatewayAttestations.sol   # CRE consumer: forwarder + workflow binding + replay guards
 ├── test/
 │   ├── SmartSweep.t.sol      # covers sweep, pause, access control, fuzz
@@ -39,8 +40,12 @@ contracts/
 │   └── cre/
 │       ├── ReportEncoder.sol                  # test-side mirror of the workflow report encoding
 │       ├── GatewayAttestations.t.sol          # every guard, round trips, fuzz decoding
-│       ├── GatewayAttestations.invariant.t.sol # state only moves through valid forwarder reports
-│       └── GatewayAttestationsGas.t.sol       # 20-asset solvency, 12-deposit, 10-conversion batches
+│       ├── GatewayAttestations.invariant.t.sol # state only moves through valid reports and owner actions
+│       ├── GatewayAttestations.forwarder.t.sol # end to end through the vendored real KeystoneForwarder
+│       ├── GatewayAttestationsGas.t.sol       # 20-asset solvency, 12-deposit, 10-conversion batches
+│       ├── WorkflowName.t.sol                 # pinned to the Chainlink docs example
+│       ├── DeployScript.t.sol                 # script env validation and ownership hand-off
+│       └── vendor/keystone/                   # chainlink-evm@b723176 KeystoneForwarder + interfaces, fmt-ignored
 ├── script/
 │   └── DeployGatewayAttestations.s.sol   # env-parameterised; dry run unless --broadcast
 ├── snapshots/
@@ -105,9 +110,9 @@ kind 2 deposit finality:     (bytes32 depositId, bytes32 chainId, bytes32 txRef,
 kind 3 conversion reference: (bytes32 conversionId, bytes32 pair, int256 referenceRate, uint8 referenceDecimals, int256 deviationBps, address feed, uint80 roundId)
 ```
 
-Guards, in order: `msg.sender == forwarder`; metadata is exactly 64 bytes `(workflowId, workflowName, workflowOwner, reportId)`; version, kind, canonical array offset and exact byte length; the metadata equals the `setWorkflow` binding for that kind; `observedAt` at most five minutes ahead of the block and strictly greater than the last accepted one for `(gatewayId, kind)`; for solvency, strictly greater per `(gatewayId, asset)` too. Any failure reverts with a named error and nothing is stored.
+Guards, in order: `msg.sender == forwarder`; metadata is exactly 64 bytes `(workflowId, workflowName, workflowOwner, reportId)`; version, kind, canonical array offset, bounded item count and exact byte length; the metadata equals the `setWorkflow` binding for that kind; `observedAt` at most five minutes ahead of the block; `keccak256(report)` not seen before (`DuplicateReport`). Any failure reverts with a named error and nothing is stored. Solvency items are stored only when newer than the stored snapshot for `(gatewayId, asset)`, otherwise `SolvencyIgnored`; deposit and conversion kinds are events only, in any order. Full rule: `docs/cre/SPEC.md` section 5.
 
-Storage is the latest solvency per `(gatewayId, asset)` and `lastObservedAt` per `(gatewayId, kind)`; everything else is events. Ownership is OpenZeppelin `Ownable2Step`; the owner sets the forwarder and the per-kind workflow binding, nothing else. The ABI is exported with `forge inspect src/cre/GatewayAttestations.sol:GatewayAttestations abi --json` to `backend/internal/cre/abi/GatewayAttestations.json`, `frontend/lib/cre/abi.ts` and `cre/contracts/evm/src/GatewayAttestations.abi`; regenerate all three after any change.
+Storage is the latest solvency per `(gatewayId, asset)`, the report seen-set and `latestObservedAt` per `(gatewayId, kind)` (informational); everything else is events. Ownership is OpenZeppelin `Ownable2Step` with `renounceOwnership` disabled; the owner sets the forwarder and the per-kind workflow binding, nothing else. `workflowName` must be `WorkflowName.keystone(name)`, never `bytes10(sha256(name))`; the forwarder test shows the wrong one is rejected on a real delivery. The ABI is exported with `forge inspect src/cre/GatewayAttestations.sol:GatewayAttestations abi --json` to `backend/internal/cre/abi/GatewayAttestations.json`, `frontend/lib/cre/abi.ts` and `cre/contracts/evm/src/GatewayAttestations.abi`; regenerate all three after any change.
 
 ## Common Commands
 
@@ -136,8 +141,10 @@ forge fmt --check
 # Get gas report
 forge test --gas-report
 
-# Deploy GatewayAttestations: dry run (no --broadcast), reads CRE_* env vars, see the script header
-CRE_FORWARDER_ADDRESS=0x... forge script script/DeployGatewayAttestations.s.sol --rpc-url $RPC_URL --sender $DEPLOYER
+# Deploy GatewayAttestations: dry run (no --broadcast); every CRE_* variable in the script header is required and
+# the forwarder must have code on the forked chain. The deployer binds the workflows, then CRE_CONSUMER_OWNER
+# must call acceptOwnership().
+forge script script/DeployGatewayAttestations.s.sol --rpc-url $RPC_URL --sender $DEPLOYER
 
 # Check a specific address on-chain
 cast call $CONTRACT_ADDRESS "coldWallet()(address)" --rpc-url $RPC_URL

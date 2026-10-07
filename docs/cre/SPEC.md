@@ -152,8 +152,18 @@ Every handler is deterministic in DON mode; all external reads happen through th
 Each workflow writes to `GatewayAttestations` on one EVM chain (Base mainnet for live, Base Sepolia for test; configurable) through `runtime.report()` and `EVMClient.writeReport()`.
 Each report is one batch: `abi.encode(uint8 version, uint8 kind, bytes32 gatewayId, uint64 observedAt, Item[] items)` with `version = 1`, so one contract and one verifier handle all three.
 `gatewayId` is `keccak256` of the deployer's configured public base URL, so a public verifier can tell which gateway a record belongs to.
-`observedAt` is DON time in seconds; the consumer rejects it more than five minutes ahead of the block and requires it to be strictly greater than the last accepted `observedAt` for the same `(gatewayId, kind)`, which is the replay and ordering guard (ticket 22, `contracts/src/cre/GatewayAttestations.sol`).
-The consumer accepts a report only from the configured forwarder and only when the Keystone metadata `(workflowId, workflowName, workflowOwner)` equals the binding the contract owner set for that `kind`; the per-report `ReportAccepted` event carries that metadata, the report id, the item count and `keccak256(report)` for the verifier.
+`observedAt` is DON time in **seconds** (the TypeScript SDK's `runtime.now()` is a millisecond `Date`; divide before encoding); the consumer rejects it more than five minutes ahead of `block.timestamp`.
+Replay rule, enforced by `contracts/src/cre/GatewayAttestations.sol` and mirrored by the verifier:
+
+- Every kind: a report is accepted at most once, keyed by `keccak256(report)` (the receiver's slice, `rawReport[109:]`, not the signed `keccak256(rawReport)`); a second delivery of the same bytes reverts `DuplicateReport`, whatever its execution id or report id. Order between distinct genuine reports is not enforced, so a late batch is still recorded. The forwarder's own `(receiver, workflowExecutionId, reportId)` dedupe sits in front of this.
+- Solvency: per item, the snapshot is stored only when the report's `observedAt` is strictly greater than the stored `observedAt` for `(gatewayId, asset)`; otherwise the item emits `SolvencyIgnored(gatewayId, asset, observedAt, latestObservedAt)` and is skipped without failing the report. A duplicate asset inside one batch keeps the first item.
+- Deposit finality and conversion reference: no ordering; each accepted report emits its items, nothing per item is stored.
+- `latestObservedAt[gatewayId][kind]` is the highest `observedAt` accepted, for staleness reads only; it gates nothing.
+
+The consumer accepts a report only from the configured forwarder and only when the Keystone metadata `(workflowId, workflowName, workflowOwner)` equals the binding the contract owner set for that `kind`.
+`workflowName` is Keystone's truncation, the ASCII bytes of the first ten hex characters of `sha256(name)` (`contracts/src/cre/WorkflowName.sol`, pinned to the docs example `my_workflow` -> `0x62373666336165316465`); the deploy script derives it from the `workflow.yaml` name.
+The per-report `ReportAccepted` event carries that metadata, the report id, the item count and `keccak256(report)` for the verifier; per-item events precede it in the same transaction and the forwarder's `ReportProcessed` follows, so the verifier joins on transaction hash.
+Gas (`contracts/snapshots/GatewayAttestations.json`): first write of 20 solvency assets ~1.91M, hourly rewrite ~0.30M, 12 deposits ~0.12M, 10 conversions ~0.11M, against CRE's 10M per-transaction write quota; ticket 23 sets `gasConfig.gasLimit` to about 2.5M for solvency, 300k for deposit finality and 250k for conversion reference.
 
 ### 5.1 `solvency`
 
@@ -166,7 +176,7 @@ Inputs:
 
 Output, `kind = 1`, items of `(bytes32 checkpointHash, bytes32 asset, uint256 liabilities, uint256 reserves, uint8 decimals)`; several assets are packed as one array in one report (well under 50 KB).
 Consensus: identical on every field.
-Consumer: `GatewayAttestations.onReport` emits `SolvencyAttested(gatewayId, asset, checkpointHash, liabilities, reserves, decimals, observedAt)` per item and stores the latest per `(gatewayId, asset)`; an asset whose stored `observedAt` is not older than the report's is rejected, which also rejects a duplicate asset inside one batch.
+Consumer: `GatewayAttestations.onReport` emits `SolvencyAttested(gatewayId, asset, checkpointHash, liabilities, reserves, decimals, observedAt)` per stored item and `SolvencyIgnored` per skipped one; newest snapshot per `(gatewayId, asset)` wins (replay rule above).
 Chains: attestation chain only; reserves may live on any chain.
 Fail mode: **fail open.** A missing attestation makes the badge `stale` after two intervals; nothing else changes.
 
@@ -218,7 +228,7 @@ How the gateway verifies an attestation before using it (`verify.go`):
 Only after all six does the record become `attested` and the event fire.
 The `mock` provider goes through the same verifier with a mock forwarder and a local dev chain or recorded logs, so the verifier is exercised in CI.
 
-Threats considered: compromised gateway host (cannot forge attestations because the workflow config, not the gateway, names the reserve addresses, and the signer set is the DON's); compromised RPC used by the gateway (the deposit workflow uses the DON's RPCs, and the verifier's read of the consumer contract can be pointed at a second RPC); compromised CRE account (can trigger, pause or update workflows; cannot change the consumer contract's forwarder or workflow bindings, which only the contract owner, the deployer's multisig under a two-step transfer, can set; an updated workflow gets a new workflow id, which the contract rejects until the owner rebinds it and the gateway rejects until an owner-role user accepts it in settings with an audit entry); CRE outage (section 5 fail modes per kind).
+Threats considered: compromised gateway host (cannot forge attestations because the workflow config, not the gateway, names the reserve addresses, and the signer set is the DON's); compromised RPC used by the gateway (the deposit workflow uses the DON's RPCs, and the verifier's read of the consumer contract can be pointed at a second RPC); compromised CRE account (can trigger, pause or update workflows; cannot change the consumer contract's forwarder or workflow bindings, which only the contract owner, the deployer's multisig under a two-step transfer that can never be renounced, can set; an updated workflow gets a new workflow id, which the contract rejects until the owner rebinds it and the gateway rejects until an owner-role user accepts it in settings with an audit entry); CRE outage (section 5 fail modes per kind).
 
 ## 7. Data flow
 

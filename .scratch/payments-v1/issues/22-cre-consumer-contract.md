@@ -27,3 +27,11 @@ Departures from the ticket text, all recorded in SPEC:
 
 Checks: `forge build` clean, `forge test -vvv` 67 passed (49 CRE), `forge fmt --check` clean. Gas (snapshots/GatewayAttestations.json): solvency 20 assets first write 1,886,423; deposit 12 items 96,686; conversion 10 items 83,042; deploy 1,624,235.
 Report: `.superpowers/cre-contract-report.md`.
+
+## Fix round 1 (2026-10-07, audit `.superpowers/cre-contract-review.md`)
+
+- `9b38d35` H-1: `WorkflowName.keystone` (ten hex chars of sha256 as ASCII), pinned to the docs example
+- `0b43dfa` M-1 replay per report hash with newest-wins solvency; L-1 renounce reverts; L-2 zero name rejected; L-3 script requires every variable, checks forwarder code, hands ownership by two-step transfer; L-4 item count bounded; L-5 owner actions in the invariant handler; L-7 cold-access rewrite snapshot
+- `52930f1` L-6: delivery through the vendored real `KeystoneForwarder` (chainlink-evm@b723176), ABI regenerated
+
+Final replay rule in SPEC section 5. Checks: `forge build` clean, `forge test -vvv` 80 passed, `forge fmt --check` clean. Report: `.superpowers/cre-contract-fix-1-report.md`.
