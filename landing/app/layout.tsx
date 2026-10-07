@@ -1,37 +1,35 @@
 import type { Metadata } from "next";
-import { Inter, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { SmoothScrollProvider } from "./smooth-scroll";
 
-const inter = Inter({
-  variable: "--font-inter",
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
+  weight: ["400", "500", "600"],
   display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-mono",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
   subsets: ["latin"],
+  weight: ["400", "500"],
+  display: "swap",
 });
 
+const TITLE = "Payminto - the open-source payment gateway you actually own";
+const DESCRIPTION =
+  "Self-hostable payment gateway: payment providers and USDC/USDT on Solana as peer rails on one double-entry ledger, with optional Chainlink CRE solvency attestation.";
+
 export const metadata: Metadata = {
-  title: "Payminto — The payment processor you actually own.",
-  description:
-    "Self-hosted crypto + card payments. Zero fees. Zero approvals. Yours by deployment, not by license.",
-  openGraph: {
-    title: "Payminto — The payment processor you actually own.",
-    description:
-      "Self-hosted crypto + card payments. Zero fees. Zero approvals.",
-    images: ["/generated/og-image.png"],
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Payminto — The payment processor you actually own.",
-    images: ["/generated/og-image.png"],
-  },
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: { title: TITLE, description: DESCRIPTION, type: "website" },
+  twitter: { card: "summary", title: TITLE, description: DESCRIPTION },
 };
+
+// Marks the page for the hero entrance before paint; a 2.5s fallback reveals it if JS never runs the motion.
+const MOTION_BOOT = `(function(){try{if(matchMedia('(prefers-reduced-motion: no-preference)').matches){var d=document.documentElement;d.classList.add('motion');setTimeout(function(){d.classList.add('motion-ready')},2500)}}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -41,9 +39,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${plexSans.variable} ${plexMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: MOTION_BOOT }} />
+      </head>
+      <body className="min-h-full bg-canvas text-ink">
         <SmoothScrollProvider>{children}</SmoothScrollProvider>
       </body>
     </html>
