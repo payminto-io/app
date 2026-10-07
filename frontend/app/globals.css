@@ -4,33 +4,77 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ========================================================================== 
-   Payminto Design System
-   A light, high-trust merchant workspace with crisp coral interaction states.
+/* ==========================================================================
+   Gateway design system - tokens
+   Source of truth: docs/design/DESIGN.md. Change the doc first, then this.
    ========================================================================== */
 
 @theme inline {
-  /* Fonts */
-  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-heading: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  /* Fonts (loaded by next/font in app/layout.tsx) */
+  --font-sans: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
 
   /* Type scale */
-  --text-title: 30px;       /* hero metric */
+  --text-display: 40px;
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.02em;
   --text-h1: 28px;
+  --text-h1--line-height: 1.2;
+  --text-h1--letter-spacing: -0.02em;
   --text-h2: 20px;
-  --text-subheading: 20px;
-  --text-button: 16px;
-  --text-body: 16px;
-  --text-body-sm: 14px;
-  --text-label: 12px;       /* uppercase column headers */
+  --text-h2--line-height: 1.3;
+  --text-h2--letter-spacing: -0.02em;
+  --text-h3: 16px;
+  --text-h3--line-height: 1.4;
+  --text-h3--letter-spacing: -0.01em;
+  --text-lead: 16px;
+  --text-lead--line-height: 1.5;
+  --text-body: 14px;
+  --text-body--line-height: 1.5;
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 1.45;
+  --text-label: 12px;
+  --text-label--line-height: 1.35;
+  --text-caption: 11px;
+  --text-caption--line-height: 1.35;
 
-  /* Tracking */
-  --tracking-tight: -0.16px;
-  --tracking-label: 0.6px;
+  /* Neutrals and surfaces */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-inverse: var(--ink-inverse);
 
-  /* Core color tokens (shadcn-compatible) */
+  /* Accent */
+  --color-tide: var(--tide);
+  --color-tide-strong: var(--tide-strong);
+  --color-tide-tint: var(--tide-tint);
+
+  /* Status */
+  --color-ok: var(--ok);
+  --color-ok-tint: var(--ok-tint);
+  --color-wait: var(--wait);
+  --color-wait-tint: var(--wait-tint);
+  --color-bad: var(--bad);
+  --color-bad-tint: var(--bad-tint);
+  --color-note: var(--note);
+  --color-note-tint: var(--note-tint);
+  --color-mute: var(--mute);
+  --color-mute-tint: var(--mute-tint);
+
+  /* Environment */
+  --color-env-test: var(--env-test);
+  --color-env-test-ink: var(--env-test-ink);
+  --color-env-live: var(--env-live);
+
+  /* shadcn-compatible aliases so existing pages keep compiling */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -49,6 +93,9 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-success: var(--ok);
+  --color-warning: var(--wait);
+  --color-info: var(--note);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -65,137 +112,178 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Payminto brand tokens */
-  --color-pm-primary: var(--pm-primary);
-  --color-pm-primary-deep: var(--pm-primary-deep);
-  --color-pm-blue: var(--pm-blue);                /* #2563EB */
-  --color-pm-blue-soft: var(--pm-blue-soft);      /* #3B82F6 */
-  --color-pm-success: var(--pm-success);          /* #22C55E */
-  --color-pm-warning: var(--pm-warning);          /* #F59E0B */
-  --color-pm-danger: var(--pm-danger);            /* #EF4444 */
-  --color-pm-ink: var(--pm-ink);                  /* #111827 */
-  --color-pm-gray-50: var(--pm-gray-50);          /* #F9FAFB */
-  --color-pm-gray-100: var(--pm-gray-100);        /* #F3F4F6 */
-  --color-pm-gray-200: var(--pm-gray-200);        /* #E5E7EB */
-  --color-pm-gray-300: var(--pm-gray-300);        /* #D1D5DB */
-  --color-pm-gray-400: var(--pm-gray-400);        /* #9CA3AF */
-  --color-pm-gray-500: var(--pm-gray-500);        /* #6B7280 */
-  --color-pm-gray-600: var(--pm-gray-600);        /* #4B5563 */
-  --color-pm-gray-700: var(--pm-gray-700);        /* #374151 */
+  /* Legacy pm-* aliases (Payminto pages). Mapped onto the system; do not add new uses. */
+  --color-pm-primary: var(--tide);
+  --color-pm-primary-deep: var(--tide-strong);
+  --color-pm-blue: var(--tide);
+  --color-pm-blue-soft: var(--tide-strong);
+  --color-pm-success: var(--ok);
+  --color-pm-warning: var(--wait);
+  --color-pm-danger: var(--bad);
+  --color-pm-ink: var(--ink);
+  --color-pm-gray-50: var(--canvas);
+  --color-pm-gray-100: var(--surface-sunken);
+  --color-pm-gray-200: var(--line);
+  --color-pm-gray-300: var(--line-strong);
+  --color-pm-gray-400: var(--ink-faint);
+  --color-pm-gray-500: var(--ink-soft);
+  --color-pm-gray-600: var(--ink-soft);
+  --color-pm-gray-700: var(--ink);
 
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-info: var(--info);
+  /* Radius hierarchy */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 14px;
+  --radius-2xl: 14px;
+  --radius-4xl: 9999px;
 
-  --radius-sm: calc(var(--radius) * 0.5);
-  --radius-md: calc(var(--radius) * 0.75);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.5);
-  --radius-2xl: calc(var(--radius) * 2);
+  /* Elevation */
+  --shadow-1: var(--elev-1);
+  --shadow-2: var(--elev-2);
+  --shadow-3: var(--elev-3);
 }
 
 /* --------------------------------------------------------------------------
-   Light theme (default)
+   Light (default)
    -------------------------------------------------------------------------- */
 :root {
-  /* Surfaces */
-  --background: #f7f8fa;
-  --foreground: #15171c;
+  color-scheme: light;
 
-  --card: #ffffff;
-  --card-foreground: #15171c;
-  --popover: #ffffff;
-  --popover-foreground: #15171c;
+  --canvas: #f4f5f7;
+  --surface: #ffffff;
+  --surface-sunken: #eef0f3;
+  --surface-raised: #ffffff;
+  --line: #e1e4e9;
+  --line-strong: #c8ced6;
+  --ink: #15181d;
+  --ink-soft: #5b6472;
+  --ink-faint: #8a93a1;
+  --ink-inverse: #ffffff;
 
-  --primary: #e22323;
-  --primary-foreground: #ffffff;
+  --tide: #0b7285;
+  --tide-strong: #095f6f;
+  --tide-tint: #e3f3f6;
 
-  --secondary: #f1f3f6;
-  --secondary-foreground: #15171c;
+  --ok: #1a7f4b;
+  --ok-tint: #e4f3ea;
+  --wait: #b45309;
+  --wait-tint: #fbeedc;
+  --bad: #b42318;
+  --bad-tint: #fbe9e7;
+  --note: #0b7285;
+  --note-tint: #e3f3f6;
+  --mute: #5b6472;
+  --mute-tint: #eef0f3;
 
-  --muted: #f2f4f7;
-  --muted-foreground: #69707d;
+  --env-test: #d97706;
+  --env-test-ink: #15181d;
+  --env-live: #15181d;
 
-  --accent: #fceeea;
-  --accent-foreground: #b91c1c;
+  --elev-1: 0 1px 2px rgba(21, 24, 29, 0.04);
+  --elev-2: 0 4px 16px rgba(21, 24, 29, 0.1);
+  --elev-3: 0 16px 48px rgba(21, 24, 29, 0.18);
 
-  --destructive: #ef4444;
-  --border: #e4e7ec;
-  --input: #d8dde6;
-  --ring: #e22323;
+  /* shadcn aliases */
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--ink-inverse);
+  --secondary: var(--surface-sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-sunken);
+  --muted-foreground: var(--ink-soft);
+  --accent: var(--tide-tint);
+  --accent-foreground: var(--tide-strong);
+  --destructive: var(--bad);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--tide);
+  --radius: 10px;
 
-  /* Charts — brand-led palette */
-  --chart-1: #e22323;
-  --chart-2: #f06b28;
-  --chart-3: #22b86a;
-  --chart-4: #f59e0b;   /* amber */
-  --chart-5: #ef4444;   /* red */
+  --chart-1: var(--tide);
+  --chart-2: #9aa3b0;
+  --chart-3: var(--ok);
+  --chart-4: var(--wait);
+  --chart-5: #7c5cbf;
 
-  --radius: 0.75rem;
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--ink-soft);
+  --sidebar-primary: var(--tide);
+  --sidebar-primary-foreground: var(--ink-inverse);
+  --sidebar-accent: var(--tide-tint);
+  --sidebar-accent-foreground: var(--tide-strong);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--tide);
 
-  /* Semantic */
-  --success: #22b86a;
-  --warning: #f59e0b;
-  --info: #2563eb;
-
-  /* Payminto brand tokens */
-  --pm-primary: #e22323;
-  --pm-primary-deep: #c91e1e;
-  --pm-primary-soft: rgba(226, 35, 35, 0.08);
-  --pm-blue: #384ccb;
-  --pm-blue-soft: #5f6fd6;
-  --pm-success: #22b86a;
-  --pm-warning: #f59e0b;
-  --pm-danger: #ef4444;
-  --pm-ink: #15171c;
-  --pm-navy: #17152f;
-  --pm-gray-50: #f7f8fa;
-  --pm-gray-100: #f1f3f6;
-  --pm-gray-200: #e4e7ec;
-  --pm-gray-300: #d0d5dd;
-  --pm-gray-400: #98a2b3;
-  --pm-gray-500: #69707d;
-  --pm-gray-600: #4b5260;
-  --pm-gray-700: #344054;
-
-  --sidebar: #ffffff;
-  --sidebar-foreground: #3f4652;
-  --sidebar-primary: #e22323;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #fceeea;
-  --sidebar-accent-foreground: #b91c1c;
-  --sidebar-border: #e4e7ec;
-  --sidebar-ring: #e22323;
+  /* Legacy pm-* variables referenced as var(--pm-*) in older pages */
+  --pm-primary: var(--tide);
+  --pm-primary-deep: var(--tide-strong);
+  --pm-primary-soft: var(--tide-tint);
+  --pm-blue: var(--tide);
+  --pm-blue-soft: var(--tide-strong);
+  --pm-success: var(--ok);
+  --pm-warning: var(--wait);
+  --pm-danger: var(--bad);
+  --pm-ink: var(--ink);
+  --pm-navy: var(--ink);
+  --pm-gray-50: var(--canvas);
+  --pm-gray-100: var(--surface-sunken);
+  --pm-gray-200: var(--line);
+  --pm-gray-300: var(--line-strong);
+  --pm-gray-400: var(--ink-faint);
+  --pm-gray-500: var(--ink-soft);
+  --pm-gray-600: var(--ink-soft);
+  --pm-gray-700: var(--ink);
 }
 
 /* --------------------------------------------------------------------------
-   Dark theme
+   Dark
    -------------------------------------------------------------------------- */
 .dark {
-  --background: #111827;
-  --foreground: #f9fafb;
+  color-scheme: dark;
 
-  --card: #1f2937;
-  --card-foreground: #f9fafb;
-  --popover: #1f2937;
-  --popover-foreground: #f9fafb;
+  --canvas: #0f1115;
+  --surface: #171a20;
+  --surface-sunken: #121419;
+  --surface-raised: #1d2129;
+  --line: #262b33;
+  --line-strong: #363d48;
+  --ink: #edeff2;
+  --ink-soft: #a7afba;
+  --ink-faint: #6f7886;
+  --ink-inverse: #0f1115;
 
-  --primary: #5c6cff;
-  --primary-foreground: #ffffff;
+  --tide: #3fb8cc;
+  --tide-strong: #5cc9da;
+  --tide-tint: #13343b;
 
-  --secondary: #374151;
-  --secondary-foreground: #f9fafb;
+  --ok: #3dbb78;
+  --ok-tint: #12301f;
+  --wait: #e8a33d;
+  --wait-tint: #3a2a10;
+  --bad: #f0665a;
+  --bad-tint: #3b1612;
+  --note: #3fb8cc;
+  --note-tint: #13343b;
+  --mute: #a7afba;
+  --mute-tint: #20252d;
 
-  --muted: #1f2937;
-  --muted-foreground: #9ca3af;
+  --env-test: #f0b454;
+  --env-test-ink: #0f1115;
+  --env-live: #edeff2;
 
-  --accent: #374151;
-  --accent-foreground: #f9fafb;
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --elev-2: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --elev-3: 0 16px 48px rgba(0, 0, 0, 0.5);
 
-  --destructive: #ef4444;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.12);
-  --ring: #5c6cff;
+  --chart-2: #5b6472;
+  --chart-5: #a68ae0;
 }
 
 /* --------------------------------------------------------------------------
@@ -206,129 +294,171 @@
     @apply border-border outline-ring/50;
   }
 
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+    @apply bg-canvas text-ink;
+    font-size: 14px;
+    line-height: 1.5;
     letter-spacing: -0.01em;
   }
 
-  html {
-    font-family: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  h1, h2, h3, h4 {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  h1 { font-size: 28px; line-height: 1.2; letter-spacing: -0.02em; }
+  h2 { font-size: 20px; line-height: 1.3; letter-spacing: -0.02em; }
+  h3 { font-size: 16px; line-height: 1.4; letter-spacing: -0.01em; }
+
+  code, kbd, pre, samp {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
   }
 
-  h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
-    font-weight: 650;
-    letter-spacing: -0.035em;
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--tide);
+    outline-offset: 2px;
   }
 
-  h1 { font-size: 28px; line-height: 1.14; }
-  h2 { font-size: 20px; line-height: 1.40; font-weight: 600; }
-  h3 { font-size: 18px; line-height: 1.40; }
+  ::selection {
+    background: var(--tide-tint);
+    color: var(--ink);
+  }
+
+  /* Replaced elements cannot carry ::after, so inputs and select triggers grow on touch. */
+  @media (pointer: coarse) {
+    [data-slot="input"], [data-slot="select-trigger"] {
+      min-height: 44px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 /* --------------------------------------------------------------------------
-   Payminto utility classes
+   Utilities
    -------------------------------------------------------------------------- */
-@layer components {
-  /* Compact uppercase labels used in navigation, tables, and metrics. */
-  .pm-label {
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    line-height: 1.33;
+@layer utilities {
+  /* Every amount, count, date and time. */
+  .num {
+    font-variant-numeric: tabular-nums lining-nums;
+    letter-spacing: 0;
   }
 
-  /* Hero metric value */
-  .pm-metric-value {
-    font-family: var(--font-inter), "Inter", sans-serif;
-    font-size: 30px;
-    font-weight: 700;
-    line-height: 1.20;
-    letter-spacing: -0.04em;
-    font-variant-numeric: tabular-nums;
-    color: var(--foreground);
+  /* 44px hit area on coarse pointers without moving anything. Replaced
+     elements cannot carry ::after, so inputs and select triggers grow instead. */
+  @media (pointer: coarse) {
+    .tap {
+      position: relative;
+    }
+    .tap::after {
+      content: "";
+      position: absolute;
+      inset: 50% auto auto 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
   }
 
-  /* Deep ink hero surface, with coral and green light accents. */
-  .pm-metric-card {
-    background:
-      radial-gradient(circle at 92% 12%, rgba(226, 35, 35, 0.52), transparent 30%),
-      radial-gradient(circle at 0% 120%, rgba(34, 184, 106, 0.2), transparent 36%),
-      linear-gradient(135deg, #191631 0%, #11182f 100%);
-    @apply relative overflow-hidden rounded-xl text-white;
+  /* Confirming-state pulse; the only looping animation in the product. */
+  .pulse-dots > span {
+    animation: pulse-dot 1.2s ease-in-out infinite;
+  }
+  .pulse-dots > span:nth-child(2) { animation-delay: 0.2s; }
+  .pulse-dots > span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse-dot {
+    0%, 80%, 100% { opacity: 0.25; }
+    40% { opacity: 1; }
   }
 
-  .pm-metric-card::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(600px circle at 20% 0%, rgba(255, 255, 255, 0.08), transparent 50%);
-    pointer-events: none;
-  }
-
-  /* Soft coral pill */
-  .pm-badge-primary {
-    @apply inline-flex items-center gap-1.5 rounded-md px-2.5 py-1
-           text-[12px] font-semibold uppercase tracking-[0.6px];
-    background: #fceeea;
-    color: #b91c1c;
-  }
-
-  /* Active sidebar item */
-  .pm-sidebar-active {
-    position: relative;
-    background: #fceeea;
-    color: #b91c1c !important;
-  }
-
-  .pm-sidebar-active::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: #2d40ea;
-    border-radius: 2px;
-  }
-
-  /* Standard card surface */
-  .pm-card {
-    @apply rounded-xl border bg-card;
-    border-color: #e4e7ec;
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.03);
-  }
-
-  /* Primary button */
-  .pm-btn-primary {
-    background: #2d40ea;
-    color: #ffffff;
-    font-weight: 600;
-    font-size: 16px;
-    line-height: 1.5;
-    letter-spacing: -0.16px;
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 transition;
-  }
-  .pm-btn-primary:hover { background: #1f2fbe; }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
+  .pm-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+  .pm-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .pm-scrollbar::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
 }
 
-/* Scrollbar styling */
-@layer utilities {
-  .pm-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+/* --------------------------------------------------------------------------
+   Legacy class names still used by untouched pages. Restyled to the system;
+   new pages use the primitives instead of these.
+   -------------------------------------------------------------------------- */
+@layer components {
+  .pm-label {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink-soft);
   }
-  .pm-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
+
+  .pm-metric-value {
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums lining-nums;
+    color: var(--ink);
   }
-  .pm-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(105, 112, 125, 0.25);
-    border-radius: 3px;
+
+  .pm-metric-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
   }
-  .pm-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(105, 112, 125, 0.4);
+
+  .pm-badge-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: var(--radius-xs);
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--tide-tint);
+    color: var(--tide-strong);
   }
+
+  .pm-sidebar-active {
+    background: var(--tide-tint);
+    color: var(--tide-strong) !important;
+  }
+
+  .pm-card {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .pm-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: var(--radius-sm);
+    background: var(--ink);
+    color: var(--ink-inverse);
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 120ms ease-out;
+  }
+  .pm-btn-primary:hover { opacity: 0.9; }
 }

@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { Loader2 } from "lucide-react"
 
 import {
   Table,
@@ -11,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { EmptyState } from "@/components/empty-state"
+import { EmptyState, LoadingRows } from "@/components/ui/states"
 import { cn } from "@/lib/utils"
 
 export type DataTableColumn<T> = {
@@ -39,18 +38,14 @@ export function DataTable<T>({
   rows,
   loading,
   onRowClick,
-  emptyTitle = "No records yet",
+  emptyTitle = "Nothing here yet",
   emptyDescription,
   emptyAction,
   className,
   getRowId,
 }: DataTableProps<T>) {
   if (loading) {
-    return (
-      <div className="flex items-center justify-center rounded-xl border border-border bg-card p-10">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    )
+    return <LoadingRows rows={5} />
   }
 
   if (!rows.length) {
@@ -64,15 +59,14 @@ export function DataTable<T>({
   }
 
   return (
-    <div className={cn("rounded-xl border border-border bg-card overflow-hidden", className)}>
+    <div className={cn("overflow-hidden rounded-md border border-line bg-surface", className)}>
       <Table>
         <TableHeader>
-          <TableRow>
+          <TableRow className="hover:bg-transparent">
             {columns.map((col) => (
               <TableHead
                 key={col.key}
                 className={cn(
-                  "pm-label text-muted-foreground",
                   col.align === "right" && "text-right",
                   col.align === "center" && "text-center",
                   col.className
@@ -96,7 +90,7 @@ export function DataTable<T>({
                   <TableCell
                     key={col.key}
                     className={cn(
-                      col.align === "right" && "text-right",
+                      col.align === "right" && "num text-right",
                       col.align === "center" && "text-center",
                       col.className
                     )}
@@ -109,6 +103,9 @@ export function DataTable<T>({
           })}
         </TableBody>
       </Table>
+      <div className="num border-t border-line px-3 py-2 text-caption text-ink-soft">
+        {rows.length} {rows.length === 1 ? "result" : "results"}
+      </div>
     </div>
   )
 }

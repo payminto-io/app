@@ -4,17 +4,13 @@ import { MetricCard } from "@/components/metric-card";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AnalyticsSummary } from "@/lib/api/analytics";
+import { formatDecimal } from "@/lib/money";
 
 interface DashboardMetricsProps {
   data: AnalyticsSummary | undefined;
   isLoading: boolean;
 }
 
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
-  return n.toFixed(2);
-}
 
 export function DashboardMetrics({ data, isLoading }: DashboardMetricsProps) {
   return (
@@ -26,9 +22,9 @@ export function DashboardMetrics({ data, isLoading }: DashboardMetricsProps) {
           <div className="sm:col-span-2">
             <MetricCard
               variant="primary"
-              label="Total Volume"
-              value={`$${formatCompact(parseFloat(data.totalVolume || "0"))}`}
-              sublabel={`${data.totalPayments.toLocaleString()} total payments`}
+              label="Deposit volume"
+              value={formatDecimal(data.totalVolume || "0", "")}
+              sublabel="Sum of filled deposits across all assets, as the API reports it"
               className="h-full"
             />
           </div>
@@ -39,9 +35,9 @@ export function DashboardMetrics({ data, isLoading }: DashboardMetricsProps) {
         ) : data ? (
           <MetricCard
             variant="lime"
-            label="Filled Payments"
+            label="Paid payments"
             value={data.filledPayments.toLocaleString()}
-            sublabel="Confirmed"
+            sublabel="Filled"
           />
         ) : null}
 
@@ -50,7 +46,7 @@ export function DashboardMetrics({ data, isLoading }: DashboardMetricsProps) {
         ) : data ? (
           <MetricCard
             variant="dark"
-            label="Total Payments"
+            label="All payments"
             value={data.totalPayments.toLocaleString()}
             sublabel="All time"
           />
@@ -69,7 +65,7 @@ export function DashboardMetrics({ data, isLoading }: DashboardMetricsProps) {
           loading={isLoading}
         />
         <SecondaryMetric
-          label="Active Webhooks"
+          label="Active webhooks"
           value={data ? String(data.activeWebhooks) : "\u2014"}
           loading={isLoading}
         />
@@ -90,18 +86,16 @@ function SecondaryMetric({
   loading: boolean;
 }) {
   return (
-    <Card className="border-border shadow-none">
-      <CardContent className="p-5">
-        <div className="pm-label">{label}</div>
+    <Card size="sm">
+      <CardContent>
+        <div className="text-label font-medium text-ink-soft">{label}</div>
         {loading ? (
-          <Skeleton className="h-8 w-24 mt-3" />
+          <Skeleton className="mt-2 h-8 w-24" />
         ) : (
-          <div className="mt-3 text-[28px] font-bold tracking-tight tabular-nums">
-            {value}
-          </div>
+          <div className="num mt-2 text-h1 font-semibold text-ink">{value}</div>
         )}
         {sublabel && (
-          <p className="mt-1 text-[12px] text-muted-foreground">{sublabel}</p>
+          <p className="mt-1 text-caption text-ink-soft">{sublabel}</p>
         )}
       </CardContent>
     </Card>
