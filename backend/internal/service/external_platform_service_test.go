@@ -47,8 +47,8 @@ func TestExternalPlatformService_Create_ReturnsPlainKeyOnce(t *testing.T) {
 	if platform.ID == 0 {
 		t.Error("expected platform ID to be set")
 	}
-	if !strings.HasPrefix(plainKey, "pm_") {
-		t.Errorf("expected pm_ prefix on API key, got %s", plainKey)
+	if !strings.HasPrefix(plainKey, "sk_test_") {
+		t.Errorf("expected sk_test_ prefix on API key, got %s", plainKey)
 	}
 
 	// Verify the key was stored hashed, not plaintext.
@@ -59,6 +59,9 @@ func TestExternalPlatformService_Create_ReturnsPlainKeyOnce(t *testing.T) {
 	}
 	if stored.Key != HashAPIKey(plainKey) {
 		t.Error("stored hash does not match SHA-256 of plaintext")
+	}
+	if stored.Environment != "test" || stored.Prefix != plainKey[:12] {
+		t.Errorf("stored environment/prefix = %q/%q, want test/%q", stored.Environment, stored.Prefix, plainKey[:12])
 	}
 }
 

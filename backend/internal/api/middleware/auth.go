@@ -1,13 +1,27 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/service"
 )
+
+// CodeAPIKeyEnvironmentMismatch is the error code for a key from the other environment (ticket 13).
+const CodeAPIKeyEnvironmentMismatch = "api_key_environment_mismatch"
+
+// rejectAPIKey writes the 401 for a failed key validation, with a code when the environment is the reason.
+func rejectAPIKey(c *gin.Context, err error) {
+	if errors.Is(err, environment.ErrMismatch) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error(), "code": CodeAPIKeyEnvironmentMismatch})
+		return
+	}
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+}
 
 // APIKeyAuth returns a Gin middleware that authenticates requests via either
 // the X-API-Key header or an "Authorization: Bearer <key>" header. On success
@@ -28,7 +42,7 @@ func APIKeyAuth(authSvc *service.AuthService) gin.HandlerFunc {
 
 		apiKey, err := authSvc.ValidateAPIKey(key)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			rejectAPIKey(c, err)
 			return
 		}
 
@@ -58,7 +72,7 @@ func JWTOrAPIKey(authSvc *service.AuthService) gin.HandlerFunc {
 		if key := c.GetHeader("X-API-Key"); key != "" {
 			apiKey, err := authSvc.ValidateAPIKey(key)
 			if err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+				rejectAPIKey(c, err)
 				return
 			}
 			if !setAPIKeyIdentity(c, apiKey) {
@@ -85,11 +99,16 @@ func JWTOrAPIKey(authSvc *service.AuthService) gin.HandlerFunc {
 		}
 
 		// Legacy: some integrations sent the API key via the Bearer header.
-		if apiKey, err := authSvc.ValidateAPIKey(tokenStr); err == nil {
+		apiKey, err := authSvc.ValidateAPIKey(tokenStr)
+		if err == nil {
 			if !setAPIKeyIdentity(c, apiKey) {
 				return
 			}
 			c.Next()
+			return
+		}
+		if errors.Is(err, environment.ErrMismatch) {
+			rejectAPIKey(c, err)
 			return
 		}
 

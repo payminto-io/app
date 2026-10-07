@@ -13,6 +13,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/email/transport"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -114,6 +115,9 @@ type ServiceRegistry struct {
 	// Phase D.6: DepositService
 	depositService *DepositService
 
+	// Modules (docs/architecture/MODULES.md): one field per wired module.
+	environmentModule *modules.EnvironmentModule
+
 	// Phase F: Sweep + ledger services
 	ledgerService               *LedgerService
 	sweepService                *SweepService
@@ -191,6 +195,11 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		redis:       rdb,
 		cfg:         cfg,
 		networkType: cfg.Blockchain.NetworkType,
+	}
+
+	var err error
+	if r.environmentModule, err = modules.WireEnvironment(modules.Deps{Config: cfg, DB: db}); err != nil {
+		return nil, err
 	}
 
 	// Construct adapter registry and register one adapter per active blockchain.
@@ -298,6 +307,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 
 	// Pass 1: construct services (now take repository interfaces).
 	r.authService = NewAuthService(r.memberRepo, r.apiKeyRepo, cfg.Security.JWTSecret)
+	r.authService.SetEnvironment(r.environmentModule.Environment)
 	r.paymentService = NewPaymentService(r.paymentRepo)
 	r.webhookService = NewWebhookService(r.webhookRepo, r.webhookDeliveryLogRepo)
 	r.onrampService = NewOnrampService("", "")
@@ -358,7 +368,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 	)
 
 	// Phase F.1: LedgerService (depends on accountRepo); dual-writes into internal/ledger
-	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db), currencyAssetResolver(r.currencyRepo)))
+	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db, ledger.WithEnvironment(r.environmentModule.Environment), ledger.WithGuard(r.environmentModule.Guard)), currencyAssetResolver(r.currencyRepo)))
 
 	// Phase F.2: SweepTransactionService (depends on ledgerService)
 	r.sweepTransactionService = NewSweepTransactionService(
@@ -497,6 +507,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 	r.epbcRepo = repository.NewExternalPlatformBlockchainCurrencyRepository(db)
 	r.onramperPaymentsRepo = repository.NewOnramperPaymentsRepository(db)
 	r.externalPlatformService = NewExternalPlatformService(r.externalPlatformRepo, r.apiKeyRepo)
+	r.externalPlatformService.SetEnvironment(r.environmentModule.Environment)
 	r.epbcService = NewExternalPlatformBlockchainCurrencyService(r.epbcRepo)
 	r.missedDepositService = NewMissedDepositService(r.missedDepositRepo)
 	r.onramperPaymentsService = NewOnramperPaymentsService(r.onramperPaymentsRepo, "", "", "")
@@ -703,6 +714,9 @@ func (r *ServiceRegistry) AddressDeploymentRepo() repository.AddressDeploymentRe
 func (r *ServiceRegistry) AccountRepo() repository.AccountRepository { return r.accountRepo }
 
 // ----- Phase F: Service accessors -----
+
+// EnvironmentModule returns the process environment and its guard.
+func (r *ServiceRegistry) EnvironmentModule() *modules.EnvironmentModule { return r.environmentModule }
 
 // LedgerService returns the double-entry ledger facade.
 func (r *ServiceRegistry) LedgerService() *LedgerService { return r.ledgerService }

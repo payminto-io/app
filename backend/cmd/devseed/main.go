@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"log"
 	"os"
 	"path/filepath"
@@ -181,8 +182,9 @@ func replaceDevKey(tx *gorm.DB, memberID, platformID uint, roleName, description
 	if err := tx.Where("name = ?", roleName).First(&role).Error; err != nil {
 		return err
 	}
-	key := models.APIKey{Key: service.HashAPIKey(raw), Status: "active", MemberID: &memberID, ExternalPlatformID: platformID, RoleID: &role.ID, Description: &description}
-	return tx.Create(&key).Error
+	key := service.NewAPIKeyRow(raw, environment.Test, platformID)
+	key.MemberID, key.RoleID, key.Description = &memberID, &role.ID, &description
+	return tx.Create(key).Error
 }
 
 func randomSecret(prefix string) string {

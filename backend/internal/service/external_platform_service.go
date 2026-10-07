@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"log"
 
 	"github.com/payminto/payminto/backend/internal/models"
@@ -38,6 +39,7 @@ type ExternalPlatformInput struct {
 type ExternalPlatformService struct {
 	platformRepo repository.ExternalPlatformRepository
 	apiKeyRepo   repository.APIKeyRepository
+	environment  environment.Environment
 
 	walletSvc            *WalletService
 	addressPoolSvc       *AddressPoolService
@@ -59,6 +61,9 @@ func NewExternalPlatformService(
 
 // SetWalletService injects the HD wallet service (Pass 2 wiring).
 func (s *ExternalPlatformService) SetWalletService(ws *WalletService) { s.walletSvc = ws }
+
+// SetEnvironment sets the environment newly issued platform keys carry; unset means test.
+func (s *ExternalPlatformService) SetEnvironment(env environment.Environment) { s.environment = env }
 
 // SetAddressPoolService injects the address pool service (Pass 2 wiring).
 func (s *ExternalPlatformService) SetAddressPoolService(aps *AddressPoolService) {
@@ -251,16 +256,15 @@ func (s *ExternalPlatformService) enableAllBlockchainCurrencies(platformID uint)
 // issueAPIKey creates a fresh hashed API key row for the platform and returns
 // the plaintext value to the caller. Internal helper.
 func (s *ExternalPlatformService) issueAPIKey(platformID uint) (string, error) {
-	plain, err := GenerateAPIKey()
+	env := s.environment
+	if env == "" {
+		env = environment.Test
+	}
+	plain, err := GenerateAPIKeyFor(env)
 	if err != nil {
 		return "", err
 	}
-	row := &models.APIKey{
-		Key:                HashAPIKey(plain),
-		Status:             "active",
-		ExternalPlatformID: platformID,
-	}
-	if err := s.apiKeyRepo.Create(row); err != nil {
+	if err := s.apiKeyRepo.Create(NewAPIKeyRow(plain, env, platformID)); err != nil {
 		return "", err
 	}
 	return plain, nil

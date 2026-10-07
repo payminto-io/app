@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"golang.org/x/crypto/bcrypt"
@@ -18,13 +19,31 @@ import (
 
 // AuthService handles member authentication via JWT tokens and API keys.
 type AuthService struct {
-	memberRepo    repository.MemberRepository
-	apiKeyRepo    repository.APIKeyRepository
-	mepRoleRepo   repository.MemberExternalPlatformRoleRepository
-	jwtTokenSvc   *JWTTokenService
-	platformSvc   *ExternalPlatformService
-	eventEmitter  *EventEmitterService
-	jwtSecret     string
+	memberRepo   repository.MemberRepository
+	apiKeyRepo   repository.APIKeyRepository
+	mepRoleRepo  repository.MemberExternalPlatformRoleRepository
+	jwtTokenSvc  *JWTTokenService
+	platformSvc  *ExternalPlatformService
+	eventEmitter *EventEmitterService
+	jwtSecret    string
+	// environment is the process environment; a key from the other one is refused (ticket 13).
+	environment environment.Environment
+}
+
+// ErrAPIKeyEnvironmentMismatch wraps environment.ErrMismatch for keys that belong to the other environment.
+var ErrAPIKeyEnvironmentMismatch = errors.New("API key belongs to the other environment")
+
+// apiKeyEnvironmentError satisfies errors.Is for both the service and the environment sentinel.
+type apiKeyEnvironmentError struct {
+	process, key environment.Environment
+}
+
+func (e *apiKeyEnvironmentError) Error() string {
+	return fmt.Sprintf("API key is a %s key but this server is %s", e.key, e.process)
+}
+
+func (e *apiKeyEnvironmentError) Is(target error) bool {
+	return target == ErrAPIKeyEnvironmentMismatch || target == environment.ErrMismatch
 }
 
 // NewAuthService constructs an AuthService with the given member/API key repositories and JWT secret.
@@ -54,13 +73,52 @@ func (s *AuthService) SetEventEmitter(svc *EventEmitterService) {
 	s.eventEmitter = svc
 }
 
-// GenerateAPIKey generates a cryptographically random 32-byte API key prefixed with "pm_".
+// SetEnvironment sets the process environment keys are validated and issued against.
+func (s *AuthService) SetEnvironment(env environment.Environment) { s.environment = env }
+
+// Environment is the process environment, defaulting to test so a bare service never admits live keys.
+func (s *AuthService) Environment() environment.Environment {
+	if s.environment == "" {
+		return environment.Test
+	}
+	return s.environment
+}
+
+// GenerateAPIKey issues a test secret key; callers that know the process environment use GenerateAPIKeyFor.
 func GenerateAPIKey() (string, error) {
+	return GenerateAPIKeyFor(environment.Test)
+}
+
+// GenerateAPIKeyFor generates a random 32-byte secret key with the visible prefix of env ("sk_live_...").
+func GenerateAPIKeyFor(env environment.Environment) (string, error) {
+	if !env.Valid() {
+		return "", fmt.Errorf("%w: %q", environment.ErrInvalid, env)
+	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("crypto/rand: %w", err)
 	}
-	return "pm_" + hex.EncodeToString(b), nil
+	return env.KeyPrefix(environment.SecretKey) + hex.EncodeToString(b), nil
+}
+
+// APIKeyPrefix is the part of a raw key safe to show in a list ("sk_live_ab12").
+func APIKeyPrefix(rawKey string) string {
+	const shown = 12
+	if len(rawKey) <= shown {
+		return rawKey
+	}
+	return rawKey[:shown]
+}
+
+// NewAPIKeyRow builds the stored row for a freshly generated key in env.
+func NewAPIKeyRow(rawKey string, env environment.Environment, platformID uint) *models.APIKey {
+	return &models.APIKey{
+		Key:                HashAPIKey(rawKey),
+		Status:             "active",
+		ExternalPlatformID: platformID,
+		Environment:        env,
+		Prefix:             APIKeyPrefix(rawKey),
+	}
 }
 
 // HashAPIKey returns the SHA-256 hex digest of the raw API key. This hash is stored in the DB.
@@ -126,7 +184,12 @@ func (s *AuthService) ValidateJWT(tokenString string) (*JWTClaims, error) {
 }
 
 // ValidateAPIKey looks up and validates a raw API key, returning the active APIKey record.
+// A key whose prefix or row names the other environment is refused before anything else.
 func (s *AuthService) ValidateAPIKey(key string) (*models.APIKey, error) {
+	process := s.Environment()
+	if keyEnv, _, ok := environment.KeyEnvironment(key); ok && keyEnv != process {
+		return nil, &apiKeyEnvironmentError{process: process, key: keyEnv}
+	}
 	hash := HashAPIKey(key)
 	apiKey, err := s.apiKeyRepo.GetByKey(hash)
 	if err != nil {
@@ -140,6 +203,13 @@ func (s *AuthService) ValidateAPIKey(key string) (*models.APIKey, error) {
 	}
 	if apiKey.ExpireAt != nil && apiKey.ExpireAt.Before(time.Now()) {
 		return nil, errors.New("API key expired")
+	}
+	rowEnv := apiKey.Environment
+	if rowEnv == "" {
+		rowEnv = environment.Test
+	}
+	if rowEnv != process {
+		return nil, &apiKeyEnvironmentError{process: process, key: rowEnv}
 	}
 	return apiKey, nil
 }

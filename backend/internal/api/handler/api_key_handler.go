@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/payminto/payminto/backend/internal/service"
@@ -13,12 +14,16 @@ import (
 // APIKeyHandler serves the merchant-facing /api-keys CRUD surface.
 // Merchants manage API keys scoped to their external platform.
 type APIKeyHandler struct {
-	apiKeyRepo repository.APIKeyRepository
+	apiKeyRepo  repository.APIKeyRepository
+	environment environment.Environment
 }
 
-// NewAPIKeyHandler wires the handler.
-func NewAPIKeyHandler(apiKeyRepo repository.APIKeyRepository) *APIKeyHandler {
-	return &APIKeyHandler{apiKeyRepo: apiKeyRepo}
+// NewAPIKeyHandler wires the handler; env is the environment new keys are issued in.
+func NewAPIKeyHandler(apiKeyRepo repository.APIKeyRepository, env environment.Environment) *APIKeyHandler {
+	if env == "" {
+		env = environment.Test
+	}
+	return &APIKeyHandler{apiKeyRepo: apiKeyRepo, environment: env}
 }
 
 // apiKeyResponse is the public projection returned to the frontend.
@@ -26,7 +31,8 @@ func NewAPIKeyHandler(apiKeyRepo repository.APIKeyRepository) *APIKeyHandler {
 type apiKeyResponse struct {
 	ID                 uint    `json:"id"`
 	Name               string  `json:"name"`
-	Prefix             string  `json:"prefix"`             // first 8 chars e.g. "pm_abcd..."
+	Prefix             string  `json:"prefix"` // visible prefix e.g. "sk_live_ab12..."
+	Environment        string  `json:"environment"`
 	Active             bool    `json:"active"`
 	Status             string  `json:"status"`
 	ExternalPlatformID uint    `json:"externalPlatformID"`
@@ -39,10 +45,17 @@ type apiKeyResponse struct {
 
 func toAPIKeyResponse(k *models.APIKey, rawKey string) apiKeyResponse {
 	prefix := ""
-	if len(k.Key) >= 10 {
+	switch {
+	case k.Prefix != "":
+		prefix = k.Prefix + "..."
+	case len(k.Key) >= 10:
 		prefix = k.Key[:10] + "..."
-	} else if rawKey != "" && len(rawKey) >= 10 {
+	case rawKey != "" && len(rawKey) >= 10:
 		prefix = rawKey[:10] + "..."
+	}
+	env := k.Environment
+	if env == "" {
+		env = environment.Test
 	}
 	name := "API Key"
 	if k.Description != nil && *k.Description != "" {
@@ -52,6 +65,7 @@ func toAPIKeyResponse(k *models.APIKey, rawKey string) apiKeyResponse {
 		ID:                 k.ID,
 		Name:               name,
 		Prefix:             prefix,
+		Environment:        string(env),
 		Active:             k.Status == "active",
 		Status:             k.Status,
 		ExternalPlatformID: k.ExternalPlatformID,
@@ -113,12 +127,11 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 		req.Name = "API Key"
 	}
 
-	rawKey, err := service.GenerateAPIKey()
+	rawKey, err := service.GenerateAPIKeyFor(h.environment)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate key"})
 		return
 	}
-	hashed := service.HashAPIKey(rawKey)
 
 	mid := memberID
 	var mPtr *uint
@@ -126,14 +139,10 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 		mPtr = &mid
 	}
 	name := req.Name
-	apiKey := &models.APIKey{
-		Key:                hashed,
-		Status:             "active",
-		ExternalPlatformID: platformID,
-		MemberID:           mPtr,
-		RoleID:             req.RoleID,
-		Description:        &name,
-	}
+	apiKey := service.NewAPIKeyRow(rawKey, h.environment, platformID)
+	apiKey.MemberID = mPtr
+	apiKey.RoleID = req.RoleID
+	apiKey.Description = &name
 	if err := h.apiKeyRepo.Create(apiKey); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
