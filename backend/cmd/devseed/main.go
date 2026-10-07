@@ -4,10 +4,12 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"log"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/database"
 	"github.com/payminto/payminto/backend/internal/models"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/service"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -42,10 +45,27 @@ func main() {
 	if cfg.Server.Environment != config.EnvironmentDevelopment || !localHost(cfg.Database.Host) {
 		log.Fatal("devseed is restricted to DEVELOPMENT with a loopback database host")
 	}
+	envModule, err := modules.WireEnvironment(modules.Deps{Config: cfg})
+	if err != nil {
+		log.Fatalf("environment: %v", err)
+	}
+	if envModule.Environment != environment.Test {
+		log.Fatalf("devseed seeds test money only; GATEWAY_ENVIRONMENT is %s", envModule.Environment)
+	}
 
 	db, err := database.Connect(cfg.Database)
 	if err != nil {
 		log.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := envModule.VerifyDatabase(ctx, db); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
+	if err := envModule.VerifySchema(ctx, db); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
+	if err := envModule.Stamp(ctx, db); err != nil {
+		log.Fatalf("environment: %v", err)
 	}
 
 	adminPassword := randomSecret("Adm-")
@@ -181,8 +201,9 @@ func replaceDevKey(tx *gorm.DB, memberID, platformID uint, roleName, description
 	if err := tx.Where("name = ?", roleName).First(&role).Error; err != nil {
 		return err
 	}
-	key := models.APIKey{Key: service.HashAPIKey(raw), Status: "active", MemberID: &memberID, ExternalPlatformID: platformID, RoleID: &role.ID, Description: &description}
-	return tx.Create(&key).Error
+	key := service.NewAPIKeyRow(raw, environment.Test, platformID)
+	key.MemberID, key.RoleID, key.Description = &memberID, &role.ID, &description
+	return tx.Create(key).Error
 }
 
 func randomSecret(prefix string) string {

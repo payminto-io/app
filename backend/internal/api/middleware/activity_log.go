@@ -17,16 +17,16 @@ import (
 // appear in the request body preview stored in the audit log. The lookup
 // lowercases the incoming key before checking this map.
 var sensitiveKeys = map[string]struct{}{
-	"password":   {},
-	"token":      {},
-	"apikey":     {},
-	"api_key":    {},
-	"privatekey": {},
+	"password":    {},
+	"token":       {},
+	"apikey":      {},
+	"api_key":     {},
+	"privatekey":  {},
 	"private_key": {},
-	"mnemonic":   {},
-	"secret":     {},
-	"apisecret":  {},
-	"passphrase": {},
+	"mnemonic":    {},
+	"secret":      {},
+	"apisecret":   {},
+	"passphrase":  {},
 }
 
 const (

@@ -16,8 +16,10 @@ func newTestRegistry(t *testing.T) *ServiceRegistry {
 	}
 	cfg := &config.Config{
 		Server:     config.ServerConfig{Port: 8080, Environment: "DEVELOPMENT"},
+		Database:   config.DatabaseConfig{Host: "localhost", Database: "payminto_test"},
 		Blockchain: config.BlockchainConfig{NetworkType: "testnet"},
 		Security:   config.SecurityConfig{JWTSecret: "test-secret"},
+		Gateway:    config.GatewayConfig{Environment: "test"},
 	}
 	reg, err := NewServiceRegistry(db, nil, cfg)
 	if err != nil {

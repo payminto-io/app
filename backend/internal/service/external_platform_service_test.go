@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"strings"
 	"testing"
 
@@ -28,10 +30,12 @@ func setupExternalPlatformDB(t *testing.T) *gorm.DB {
 func newExternalPlatformService(t *testing.T) (*ExternalPlatformService, *gorm.DB) {
 	t.Helper()
 	db := setupExternalPlatformDB(t)
-	return NewExternalPlatformService(
+	svc := NewExternalPlatformService(
 		repository.NewExternalPlatformRepository(db),
 		repository.NewAPIKeyRepository(db),
-	), db
+	)
+	svc.SetEnvironment(environment.Test)
+	return svc, db
 }
 
 func TestExternalPlatformService_Create_ReturnsPlainKeyOnce(t *testing.T) {
@@ -47,8 +51,8 @@ func TestExternalPlatformService_Create_ReturnsPlainKeyOnce(t *testing.T) {
 	if platform.ID == 0 {
 		t.Error("expected platform ID to be set")
 	}
-	if !strings.HasPrefix(plainKey, "pm_") {
-		t.Errorf("expected pm_ prefix on API key, got %s", plainKey)
+	if !strings.HasPrefix(plainKey, "sk_test_") {
+		t.Errorf("expected sk_test_ prefix on API key, got %s", plainKey)
 	}
 
 	// Verify the key was stored hashed, not plaintext.
@@ -59,6 +63,9 @@ func TestExternalPlatformService_Create_ReturnsPlainKeyOnce(t *testing.T) {
 	}
 	if stored.Key != HashAPIKey(plainKey) {
 		t.Error("stored hash does not match SHA-256 of plaintext")
+	}
+	if stored.Environment != "test" || stored.Prefix != plainKey[:12] {
+		t.Errorf("stored environment/prefix = %q/%q, want test/%q", stored.Environment, stored.Prefix, plainKey[:12])
 	}
 }
 
@@ -138,5 +145,13 @@ func TestExternalPlatformService_Delete(t *testing.T) {
 
 	if _, err := svc.GetByID(platform.ID); err == nil {
 		t.Error("expected error after delete")
+	}
+}
+
+func TestExternalPlatformService_RefusesToIssueKeysWithoutAnEnvironment(t *testing.T) {
+	db := setupExternalPlatformDB(t)
+	svc := NewExternalPlatformService(repository.NewExternalPlatformRepository(db), repository.NewAPIKeyRepository(db))
+	if _, _, err := svc.Create(ExternalPlatformInput{Name: "x"}); !errors.Is(err, environment.ErrUnconfigured) {
+		t.Fatalf("Create without an environment = %v, want ErrUnconfigured", err)
 	}
 }
