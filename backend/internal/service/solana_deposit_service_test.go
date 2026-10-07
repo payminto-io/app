@@ -59,7 +59,7 @@ func newSolanaFixture(t *testing.T) *solanaFixture {
 		&models.SolanaDepositAccount{}, &models.BlockchainFamily{}, &models.Blockchain{}, &models.Currency{}, &models.BlockchainCurrency{},
 		&models.MissedDeposit{}, &models.Account{}, &models.Asset{}, &models.Liability{}, &models.Revenue{}, &models.Expense{},
 		&models.Sweep{}, &models.SweepTransaction{}, &models.Wallet{}, &models.AddressPool{}, &models.WalletXpub{},
-		&models.SolanaSweepAttempt{}, &models.SolanaSweepDeposit{},
+		&models.SolanaSweepAttempt{}, &models.SolanaSweepDeposit{}, &models.SolanaSweepLock{},
 	); err != nil {
 		t.Fatal(err)
 	}

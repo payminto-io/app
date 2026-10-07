@@ -88,6 +88,7 @@ var currentSchemaManifest = []schemaTable{
 	{name: "solana_deposit_accounts", requiredColumns: []string{"deposit_address_id", "owner_address", "token_account", "watch_until"}},
 	{name: "solana_sweep_attempts", requiredColumns: []string{"sweep_id", "signature"}},
 	{name: "solana_sweep_deposits", requiredColumns: []string{"sweep_id", "deposit_id"}},
+	{name: "solana_sweep_locks", requiredColumns: []string{"token_account", "sweep_id"}},
 	{name: "sweep_transactions"},
 	{name: "sweeps"},
 	{name: "tags"},

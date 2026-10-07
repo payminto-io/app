@@ -35,6 +35,8 @@ type SolanaDepositAccount struct {
 	HeldSignature        string `gorm:"type:varchar(128)" json:"heldSignature"`
 	HeldAttempts         int    `gorm:"default:0" json:"heldAttempts"`
 	UnresolvedSignatures string `gorm:"type:text" json:"unresolvedSignatures"`
+	// UnresolvedAttempts counts polls with unresolved signatures outstanding; past the budget expiry proceeds.
+	UnresolvedAttempts int `gorm:"default:0" json:"unresolvedAttempts"`
 	// BalanceHoldAttempts counts ticks a balance movement went unexplained by any listed signature.
 	BalanceHoldAttempts int `gorm:"default:0" json:"balanceHoldAttempts"`
 
@@ -68,6 +70,8 @@ type SolanaSweepAttempt struct {
 func (SolanaSweepAttempt) TableName() string { return "solana_sweep_attempts" }
 
 const (
+	// SolanaSweepAttemptSigned is persisted before the send; the node may or may not have taken it.
+	SolanaSweepAttemptSigned  = "signed"
 	SolanaSweepAttemptSent    = "sent"
 	SolanaSweepAttemptLanded  = "landed"
 	SolanaSweepAttemptExpired = "expired"
@@ -83,3 +87,15 @@ type SolanaSweepDeposit struct {
 }
 
 func (SolanaSweepDeposit) TableName() string { return "solana_sweep_deposits" }
+
+// SolanaSweepLock is the database's guarantee of one sweep in flight per token account: inserted
+// with the sweep rows, hard-deleted when the sweep completes or fails (no soft delete: a deleted row
+// must not keep holding the unique index). See service/SOLANA_SWEEPS.md.
+type SolanaSweepLock struct {
+	ID           uint      `gorm:"primarykey" json:"id"`
+	CreatedAt    time.Time `json:"createdAt"`
+	TokenAccount string    `gorm:"type:varchar(64);not null;uniqueIndex" json:"tokenAccount"`
+	SweepID      uint      `gorm:"not null;index" json:"sweepID"`
+}
+
+func (SolanaSweepLock) TableName() string { return "solana_sweep_locks" }

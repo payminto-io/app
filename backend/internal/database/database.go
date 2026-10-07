@@ -120,6 +120,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.SolanaDepositAccount{},
 		&models.SolanaSweepAttempt{},
 		&models.SolanaSweepDeposit{},
+		&models.SolanaSweepLock{},
 
 		// --- Withdrawals / onramp / recipient — Phase C ---
 		&models.Withdrawal{},
