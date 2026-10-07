@@ -18,6 +18,9 @@ type Service struct {
 
 func New(db *gorm.DB) *Service { return &Service{db: db} }
 
+// DB exposes the handle for callers that read ledger rows directly (tests, reports).
+func (s *Service) DB() *gorm.DB { return s.db }
+
 // Receipt is what PostIn returns; Replayed is true when the key had already been posted.
 type Receipt struct {
 	ID       JournalID

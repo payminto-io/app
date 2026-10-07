@@ -12,6 +12,7 @@ import (
 	tronAdapter "github.com/payminto/payminto/backend/internal/blockchain/tron"
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/email/transport"
+	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -356,8 +357,8 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		r.blockchainRepo,
 	)
 
-	// Phase F.1: LedgerService (depends on accountRepo)
-	r.ledgerService = NewLedgerService(r.accountRepo)
+	// Phase F.1: LedgerService (depends on accountRepo); dual-writes into internal/ledger
+	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db), currencyAssetResolver(r.currencyRepo)))
 
 	// Phase F.2: SweepTransactionService (depends on ledgerService)
 	r.sweepTransactionService = NewSweepTransactionService(
@@ -659,6 +660,20 @@ func (r *ServiceRegistry) AddressRepo() repository.AddressRepository {
 // MissedDepositRepo returns the MissedDeposit repository.
 func (r *ServiceRegistry) MissedDepositRepo() repository.MissedDepositRepository {
 	return r.missedDepositRepo
+}
+
+// currencyAssetResolver maps a currency id to its code; it fails rather than inventing an asset.
+func currencyAssetResolver(currencies repository.CurrencyRepository) AssetResolver {
+	return func(currencyID uint) (string, error) {
+		c, err := currencies.GetByID(currencyID)
+		if err != nil {
+			return "", err
+		}
+		if c == nil || c.Code == "" {
+			return "", fmt.Errorf("currency %d has no code", currencyID)
+		}
+		return c.Code, nil
+	}
 }
 
 // ----- Phase F: Sweep + Ledger repository accessors -----
