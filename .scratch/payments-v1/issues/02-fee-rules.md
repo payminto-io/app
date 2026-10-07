@@ -1,6 +1,6 @@
 # 02 Versioned fee rules and fee preview
 
-Status: ready-for-agent
+Status: claimed
 Owner: Backend engineer (Opus)
 Blocked by: 01
 
