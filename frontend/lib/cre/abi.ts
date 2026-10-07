@@ -243,7 +243,7 @@ export const gatewayAttestationsAbi = [
   },
   {
     "type": "function",
-    "name": "lastObservedAt",
+    "name": "latestObservedAt",
     "inputs": [
       {
         "name": "gatewayId",
@@ -358,7 +358,26 @@ export const gatewayAttestationsAbi = [
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "reportSeen",
+    "inputs": [
+      {
+        "name": "reportHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -772,6 +791,37 @@ export const gatewayAttestationsAbi = [
   },
   {
     "type": "event",
+    "name": "SolvencyIgnored",
+    "inputs": [
+      {
+        "name": "gatewayId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "asset",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "observedAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "latestObservedAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "WorkflowBound",
     "inputs": [
       {
@@ -813,6 +863,17 @@ export const gatewayAttestationsAbi = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "DuplicateReport",
+    "inputs": [
+      {
+        "name": "reportHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
   },
   {
     "type": "error",
@@ -892,55 +953,8 @@ export const gatewayAttestationsAbi = [
   },
   {
     "type": "error",
-    "name": "StaleReport",
-    "inputs": [
-      {
-        "name": "gatewayId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "kind",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "observedAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "lastObservedAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "StaleSolvency",
-    "inputs": [
-      {
-        "name": "gatewayId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "asset",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "observedAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "lastObservedAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ]
+    "name": "RenounceDisabled",
+    "inputs": []
   },
   {
     "type": "error",
@@ -1015,6 +1029,11 @@ export const gatewayAttestationsAbi = [
   {
     "type": "error",
     "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroWorkflowName",
     "inputs": []
   }
 ]
