@@ -1,5 +1,5 @@
 -- CRE attestation records (ticket 21, internal/cre/README.md).
--- Idempotent: cre.Migrate runs it in dev/test and migration 2026100707 repeats it verbatim.
+-- Idempotent: cre.Migrate runs it in dev/test and migration 2026100711 repeats it verbatim.
 
 CREATE TABLE IF NOT EXISTS cre_attestations (
     id uuid PRIMARY KEY,

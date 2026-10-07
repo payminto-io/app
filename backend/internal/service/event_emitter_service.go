@@ -62,8 +62,11 @@ func (s *EventEmitterService) EmitNotification(payload NotificationPayload) erro
 	return s.emit(models.EventTypeNotificationSend, payload)
 }
 
-// EmitNamed publishes a module event (for example cre.attestation.recorded.v1) through the same queue.
-func (s *EventEmitterService) EmitNamed(eventType string, payload map[string]any) error {
+// EmitDomain enqueues a named, versioned domain event from a module (MODULES.md rule 9); consumers select by type.
+func (s *EventEmitterService) EmitDomain(eventType string, payload any) error {
+	if eventType == "" {
+		return fmt.Errorf("domain event type required")
+	}
 	return s.emit(eventType, payload)
 }
 

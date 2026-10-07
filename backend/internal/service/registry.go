@@ -120,11 +120,14 @@ type ServiceRegistry struct {
 
 	// Modules (docs/architecture/MODULES.md): one field per wired module.
 	environmentModule *modules.EnvironmentModule
+	// journal is the one ledger handle bound to the process guard; every money module posts through it.
+	journal *ledger.Service
 
 	// Phase F: Sweep + ledger services
 	ledgerService               *LedgerService
 	feesModule                  *modules.FeesModule
 	creModule                   *modules.CREModule
+	linksModule                 *modules.LinksModule
 	sweepService                *SweepService
 	sweepTransactionService     *SweepTransactionService
 	utxoService                 *UTXOService
@@ -388,12 +391,16 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 
 	// Phase F.1: LedgerService (depends on accountRepo); dual-writes into internal/ledger
 	journal := ledger.New(db, ledger.WithEnvironment(r.environmentModule.Environment), ledger.WithGuard(r.environmentModule.Guard))
+	r.journal = journal
 	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(journal, blockchainCurrencyAssetResolver()))
 	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: journal, LedgerAsset: LedgerAssetResolver()})
 	if err != nil {
 		return nil, fmt.Errorf("wire fees: %w", err)
 	}
 	r.feesModule = feesModule
+	if r.linksModule, err = modules.WireLinks(modules.Deps{DB: db, Config: cfg, FeePort: feesModule.Port, LinkPayments: NewLinkPaymentCreator(r.paymentService, db, cfg.Server.CheckoutBaseURL), Environment: r.environmentModule}); err != nil {
+		return nil, fmt.Errorf("wire links: %w", err)
+	}
 
 	// Phase F.2: SweepTransactionService (depends on ledgerService)
 	r.sweepTransactionService = NewSweepTransactionService(
@@ -472,7 +479,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 	r.eventEmitterService = NewEventEmitterService(r.eeEventRepo)
 
 	// Attestation module (ticket 21); provider none is a no-op core with no routes and no worker.
-	if r.creModule, err = modules.WireCRE(modules.Deps{DB: db, Config: cfg, Ledger: journal, Environment: r.environmentModule, EmitEvent: r.eventEmitterService.EmitNamed}, modules.CREOptions{}); err != nil {
+	if r.creModule, err = modules.WireCRE(modules.Deps{DB: db, Config: cfg, Ledger: journal, Environment: r.environmentModule, EmitEvent: r.eventEmitterService.EmitDomain}, modules.CREOptions{}); err != nil {
 		return nil, fmt.Errorf("wire cre: %w", err)
 	}
 
@@ -588,6 +595,9 @@ func (r *ServiceRegistry) FeesModule() *modules.FeesModule { return r.feesModule
 
 // CREModule returns the wired attestation module.
 func (r *ServiceRegistry) CREModule() *modules.CREModule { return r.creModule }
+
+// LinksModule returns the wired payment links module.
+func (r *ServiceRegistry) LinksModule() *modules.LinksModule { return r.linksModule }
 
 // DB returns the underlying *gorm.DB for services that need it directly.
 // Should be used sparingly — prefer repositories.
@@ -783,6 +793,9 @@ func (r *ServiceRegistry) AccountRepo() repository.AccountRepository { return r.
 
 // EnvironmentModule returns the process environment and its guard.
 func (r *ServiceRegistry) EnvironmentModule() *modules.EnvironmentModule { return r.environmentModule }
+
+// Journal is the guarded ledger handle; modules wired outside the registry (the switch) must post through it.
+func (r *ServiceRegistry) Journal() *ledger.Service { return r.journal }
 
 // LedgerService returns the double-entry ledger facade.
 func (r *ServiceRegistry) LedgerService() *LedgerService { return r.ledgerService }

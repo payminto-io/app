@@ -201,6 +201,6 @@ func (l ledgerLiabilities) LiabilityTotals(ctx context.Context) (cre.LedgerSnaps
 	return out, nil
 }
 
-type eventSink func(eventType string, payload map[string]any) error
+type eventSink func(eventType string, payload any) error
 
 func (f eventSink) Emit(_ context.Context, e cre.Event) error { return f(e.Type, e.Payload) }

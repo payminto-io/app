@@ -56,6 +56,7 @@
    - 4.41 [Address Contract Signatures (AddressContractSignatureHandler)](#441-address-contract-signatures-addresscontractsignaturehandler)
    - 4.42 [Account Rewards (AccountRewardHandler)](#442-account-rewards-accountrewardhandler)
    - 4.43 [Secrets Vault Activities (SecretsVaultActivityHandler)](#443-secrets-vault-activities-secretsvaultactivityhandler)
+   - 4.44 [Payment Links (v2)](#444-payment-links-v2)
 5. [Webhook Events](#5-webhook-events)
 6. [Error Response Format](#6-error-response-format)
 7. [Rate Limiting](#7-rate-limiting)
@@ -1932,6 +1933,101 @@ SecretsVault {
   status:            string
 }
 ```
+
+---
+
+### 4.44 Payment Links (v2)
+
+Payment links live under `/api/v2` (module `backend/internal/links`, routes `backend/internal/api/routes_links.go`).
+JSON is snake_case; money is a decimal string (numbers are accepted on input); request bodies are capped at 64 KiB and unknown fields are refused.
+Errors are `{"error": message, "code": code, "field"?: string, "errors"?: [{code, field, message}]}`; `errors` lists every failed rule when there is more than one, and `code`/`field` repeat the first.
+The full list of validation codes and when they apply is in `backend/internal/links/README.md`, "Validation".
+
+#### Merchant routes (dashboard session or `X-API-Key`)
+
+| Method | Path | Success | Notes |
+| --- | --- | --- | --- |
+| POST | `/api/v2/links` | 201 link | Creates a draft. Absent fields take defaults. |
+| GET | `/api/v2/links?status=&limit=&offset=` | 200 `{links, total}` | Newest first; `limit` 1-100 (default 25). |
+| GET | `/api/v2/links/:id` | 200 link | |
+| PATCH | `/api/v2/links/:id` | 200 link | Each top-level key sent replaces that field whole; other fields keep their values. Optional `If-Match: <revision>`; a concurrent change is 409 `link_conflict`. A published link may not change `amount_mode`, `amount`, `amount_min`, `amount_max`, `currency`, `methods`, `line_items` or `fee_bearer` (409 `link_published_immutable`) and is re-validated in full; use limits may not drop below payments taken (409 `use_limit_below_uses`). |
+| DELETE | `/api/v2/links/:id` | 204 | Drafts only (409 `link_not_deletable`). |
+| POST | `/api/v2/links/:id/publish` | 200 link | Draft or paused to active. Runs full validation; mints `short_code` on first publish. |
+| POST | `/api/v2/links/:id/pause` | 200 link | Active to paused. |
+| POST | `/api/v2/links/:id/archive` | 200 link | Draft, active or paused to archived (terminal). |
+| POST | `/api/v2/links/:id/duplicate` | 201 link | New draft with the same form. |
+| POST | `/api/v2/links/preview?link_id=` | 200 `{model, dropped_methods}` | Renders the posted form body exactly as `GET /public/links/:short_code` would once published, without storing it. `model` is the public render model (per-line totals, fees on methods, `merchant_name`); `dropped_methods` is `[{method, chain, asset, code, message}]` for methods checkout would leave out (`method_no_connector`, `method_no_fee_rule`, `surcharge_forbidden`, `surcharge_needs_quote`, `fee_exceeds_amount`). With `link_id`, status, uses and short code come from that link. Shape errors are 422 as on save. |
+| GET | `/api/v2/links/options` | 200 `{environment, currencies, methods: [{method, chain, asset, currencies}]}` | What the form may offer in the process environment: each method the payment creator takes that has a connector and an active fee rule, and the link currencies it works in. Empty when the creator cannot list its offerings. |
+
+Link body (create and PATCH), all optional on a draft:
+
+```
+title, description,
+amount_mode: "fixed" | "customer" | "line_items",
+amount, amount_min, amount_max, currency,
+reference_id, metadata: {string: string}, category,
+customer_field_policy: {name|email|phone: {mode: "required" | "optional" | "hidden", prefill?}},
+billing_required, shipping_required, multi_use, use_limit,
+methods: [{method: "card" | "upi" | "bank" | "crypto", chain?, asset?}],
+capture_mode: "automatic" | "manual", three_ds_policy: "inherit" | "force",
+chain_tolerance_bps, quote_expiry_seconds, fee_bearer: "merchant" | "customer",
+success_mode: "message" | "redirect", success_url, success_message,
+receipt_email, receipt_note, webhook_id, failure_retry, failure_message,
+settlement_override: {kind: "fiat" | "crypto", destination_id, chain?, asset?} | null,
+hold_in_asset, settlement_timing: "cycle" | "immediate",
+expires_at, expires_after_payments,
+logo_url, accent_color, language,
+line_items: [{name, quantity, unit_price, tax_rate}],
+questions: [{key, label, type: "text" | "select" | "checkbox", options?, required, per_order}]
+```
+
+Link response: the body fields above plus `id`, `status`, `environment` (`live` | `test`), `short_code`, `url` (`<CHECKOUT_BASE_URL>/l/<short_code>`, the QR payload; both null on a draft), `total` (the fixed amount or the server's line-item sum; null for customer-entered), `uses_count`, `revision`, `published_at`, `created_at`, `updated_at`, `merchant_name`, and on single-link responses `fee_preview`: `[{method, chain, asset, connector, rule_id, rule_version, fee_bearer, fee_currency, amount, fee, tax, customer_total, merchant_net, unavailable}]` (null in lists).
+
+#### Public routes (no authentication, rate limited per IP)
+
+`GET /api/v2/public/links/:short_code` (120 per minute) returns the render model: everything checkout needs and no internal id beyond the short code.
+404 `link_not_found` for unknown codes and drafts, 410 `link_archived` for archived links; paused, expired and exhausted links return 200 with `available: false`.
+
+```
+short_code, url, available, unavailable_reason: null | "paused" | "expired" | "use_limit_reached" | "no_methods_available",
+merchant_name, title, description,
+amount_mode, amount, amount_min, amount_max, currency,
+line_items: [{name, quantity, unit_price, tax_rate, subtotal, tax, total}], subtotal, tax_total,
+customer_fields: {name|email|phone: {mode, prefill}},
+billing_required, shipping_required,
+questions: [{key, label, type, options, required, per_order}],
+methods: [{method, chain, asset, fee, tax, customer_total}],
+fee_bearer, chain_tolerance_bps, quote_expiry_seconds,
+success_mode, success_message, failure_retry, failure_message, receipt_email, expires_at,
+branding: {logo_url, accent_color, language}
+```
+
+`fee`, `tax` and `customer_total` on a method are set only for a customer-borne fee on a known amount in the link's currency; otherwise null.
+A hidden field's `prefill` is always null.
+
+`GET /api/v2/public/links/:short_code/qr.svg` (120 per minute) returns the link URL as an SVG QR code.
+
+Public limits are per client IP, where the IP is the socket address unless the peer is in `TRUSTED_PROXIES`; they are kept in Redis and fall back to an in-process limit when Redis is unavailable.
+
+`POST /api/v2/public/links/:short_code/pay` (20 per minute) requires an `Idempotency-Key` header (1-128 characters, scoped to the link).
+
+```
+{method: {method, chain?, asset?}, amount?, customer: {name?, email?, phone?},
+ billing_address?: {line1, line2?, city, state?, postal_code, country}, shipping_address?: {...},
+ answers?: {question_key: value}}
+```
+
+`amount` is accepted only on customer-entered links. Checkbox answers are `"true"` or `"false"`.
+201 on a new payment, 200 on a replay of the same key and body:
+
+```
+{payment_reference, amount, currency, fee, tax, customer_total, fee_bearer,
+ method: {method, chain, asset}, checkout_url, deposit_address, expires_at,
+ success_redirect_url, replayed}
+```
+
+`success_redirect_url` is the merchant's URL with `reference_id` appended, for redirect links.
+Refusals: 400 `idempotency_key_required`; 409 `idempotency_key_reused`, `payment_in_progress` (with `Retry-After`; retry the same key), `link_paused`, `link_use_limit_reached`, `link_environment_mismatch`; 410 `link_archived`, `link_expired`; 429 `open_payments_limit`, `rate_limit_exceeded`; 422 payer-input and pricing codes; 502 `payment_creation_failed` (the processor refused and the use was released, so the same key may retry).
 
 ---
 

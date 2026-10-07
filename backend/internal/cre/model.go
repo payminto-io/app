@@ -12,7 +12,7 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
-// SchemaSQL is the DDL; migration 2026100707_cre_attestations repeats it verbatim (schema_test.go).
+// SchemaSQL is the DDL; migration 2026100711_cre_attestations repeats it verbatim (schema_test.go).
 func SchemaSQL() string { return schemaSQL }
 
 // Migrate installs the tables for development and test databases; production applies the migration.

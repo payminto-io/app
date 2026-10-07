@@ -1036,6 +1036,6 @@ export const gatewayAttestationsAbi = [
     "name": "ZeroWorkflowName",
     "inputs": []
   }
- ] as const;
+] as const;
 
 export type GatewayAttestationsAbi = typeof gatewayAttestationsAbi;

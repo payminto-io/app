@@ -3,8 +3,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { authStore } from "@/lib/auth/store";
-import { API_BASE_URL } from "@/lib/constants";
+import { API_BASE_URL, API_V2_BASE_URL } from "@/lib/constants";
 import { resolveFixture } from "./fixtures";
+import { resolveLinksV2 } from "./links-fixtures";
 
 const PREFIX = "/design/preview";
 
@@ -21,16 +22,25 @@ function install() {
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (!location.pathname.startsWith(PREFIX) || !url.startsWith(API_BASE_URL)) {
+    const v2 = url.startsWith(API_V2_BASE_URL);
+    if (!location.pathname.startsWith(PREFIX) || !(v2 || url.startsWith(API_BASE_URL))) {
       return realFetch(input, init);
     }
     const mode = new URLSearchParams(location.search).get("state");
-    const path = url.slice(API_BASE_URL.length);
+    const path = url.slice((v2 ? API_V2_BASE_URL : API_BASE_URL).length);
+    const method = (init?.method ?? "GET").toUpperCase();
+    const reqBody = typeof init?.body === "string" ? init.body : undefined;
     await new Promise((r) => setTimeout(r, 120));
     if (mode === "error") {
       return new Response(JSON.stringify({ error: "Sample error: the service returned 503." }), { status: 503 });
     }
-    const body = resolveFixture(path, (init?.method ?? "GET").toUpperCase(), mode === "empty");
+    const linkReply = v2 ? resolveLinksV2(path, method, reqBody, mode === "empty") : undefined;
+    if (linkReply) {
+      return linkReply.status === 204
+        ? new Response(null, { status: 204 })
+        : new Response(JSON.stringify(linkReply.body), { status: linkReply.status, headers: { "Content-Type": "application/json" } });
+    }
+    const body = resolveFixture(path, method, mode === "empty");
     if (body === undefined) {
       return new Response(JSON.stringify({ error: `No preview fixture for ${path}` }), { status: 404 });
     }

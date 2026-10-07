@@ -45,7 +45,7 @@ Per-item outcomes: `attested` (every served fact matches), `mismatch` (figures d
 - `Worker()`: nil when off; otherwise polls every `CRE_POLL_INTERVAL`, refreshes the checkpoint every `CRE_SOLVENCY_INTERVAL`, triggers the mock on its schedules (deployed workflows pull on their own cron), sweeps staleness.
 - Credentials: per-workflow bearer tokens compared as SHA-256 in constant time; an unset token refuses that workflow's routes.
 
-## Tables (`schema.sql`, migration `2026100707_cre_attestations`)
+## Tables (`schema.sql`, migration `2026100711_cre_attestations`)
 
 `cre_attestations` (one row per item; unique `(provider, payload_hash, item_index)`, the same scope as `Seen`; indexes `(kind, subject_id)`, `(status, recorded_at)`, `(kind, recorded_at desc)`), `cre_subjects` (what was served, first facts win), `cre_runs`, `cre_cursors` (keyed by `<chain>/<consumer>/<kind>`).
 `Migrate` installs them in dev/test; production applies the checksummed migration.

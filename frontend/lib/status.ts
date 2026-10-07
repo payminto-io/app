@@ -52,6 +52,10 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   up: { label: "Up", tone: "ok", glyph: "check" },
   degraded: { label: "Degraded", tone: "wait", glyph: "clock" },
   down: { label: "Down", tone: "bad", glyph: "x" },
+  // payment links
+  draft: { label: "Draft", tone: "mute", glyph: "circle" },
+  paused: { label: "Paused", tone: "wait", glyph: "minus" },
+  archived: { label: "Archived", tone: "mute", glyph: "minus" },
   // generic
   active: { label: "Active", tone: "ok", glyph: "check" },
   inactive: { label: "Inactive", tone: "mute", glyph: "minus" },

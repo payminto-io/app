@@ -10,6 +10,10 @@ export const APP_DOCS = "/developers/documentation"
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api/v1"
 
+/** v2 routes (payment links) live beside v1 on the same host; see docs/API_SPECIFICATION.md 4.44. */
+export const API_V2_BASE_URL =
+  process.env.NEXT_PUBLIC_API_V2_URL ?? API_BASE_URL.replace(/\/api\/v1\/?$/, "/api/v2")
+
 /**
  * Polling intervals (ms). With real-time SSE in place, the public checkout uses
  * a slow poll purely as a reconciliation fallback rather than the primary

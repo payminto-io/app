@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	environmentpkg "github.com/payminto/payminto/backend/internal/environment"
 )
@@ -20,10 +21,37 @@ type Config struct {
 	Security   SecurityConfig
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
+	Switch     SwitchConfig
 	Gateway    GatewayConfig
 	Modules    ModulesConfig
 	Fees       FeesConfig
+	Links      LinksConfig
 	CRE        CREConfig
+}
+
+// LinksConfig holds LINKS_* keys; internal/links/README.md "Configuration" documents them.
+type LinksConfig struct {
+	// MaxOpenPayments caps unpaid payments open at once on one multi-use link; 0 disables the cap.
+	MaxOpenPayments int
+	// MaxOpenPaymentsPerClient caps them per payer IP on one link; 0 disables the cap.
+	MaxOpenPaymentsPerClient int
+	// LeaseSeconds is how long a pending use is held before the resolver looks its payment up.
+	LeaseSeconds int
+}
+
+// SwitchConfig configures the payment switch (internal/paymentswitch) and which connectors every merchant
+// may use until routing (ticket 06) owns that per merchant. The mock connector is refused in deployment environments.
+type SwitchConfig struct {
+	// Connectors is SWITCH_CONNECTORS; nil when unset, and the wiring then follows the environment contract:
+	// mock and chaindeposit in test, CONNECTORS_PROVIDER or nothing in live (never the mock).
+	Connectors        []string
+	MockWebhookSecret string
+	// ClaimLease is how long a claimed connector operation is trusted to be in flight before Sync may roll it back.
+	ClaimLease time.Duration
+	// LateReceiptRetention is how long terminal chain-deposit attempts keep being synced for late money.
+	LateReceiptRetention time.Duration
+	// IntentTTL is how long an unconfirmed intent and its payment record stay open.
+	IntentTTL time.Duration
 }
 
 // FeesConfig holds FEES_* keys; internal/fees/README.md "Configuration" documents them.
@@ -78,6 +106,8 @@ type ServerConfig struct {
 	// credentialed cross-origin requests. Empty means "any origin, no
 	// credentials" (safe public-API default).
 	AllowedOrigins []string
+	// TrustedProxies lists the proxy IPs or CIDRs whose X-Forwarded-For is believed (TRUSTED_PROXIES); empty trusts none.
+	TrustedProxies []string
 }
 
 // DatabaseConfig holds PostgreSQL connection parameters.
@@ -169,6 +199,7 @@ func Load() (*Config, error) {
 			Environment:     environment,
 			CheckoutBaseURL: strings.TrimRight(envStr("CHECKOUT_BASE_URL", "http://localhost:3002"), "/"),
 			AllowedOrigins:  envCSV("CORS_ALLOWED_ORIGINS"),
+			TrustedProxies:  envCSV("TRUSTED_PROXIES"),
 		},
 		Database: DatabaseConfig{
 			Host:               envStr("POSTGRES_HOST", "localhost"),
@@ -213,6 +244,13 @@ func Load() (*Config, error) {
 			MetricsEnabled: envBool("METRICS_ENABLED", true),
 			SentryDSN:      envStr("SENTRY_DSN", ""),
 		},
+		Switch: SwitchConfig{
+			Connectors:           envCSVDefault("SWITCH_CONNECTORS", nil),
+			MockWebhookSecret:    envStr("SWITCH_MOCK_WEBHOOK_SECRET", "mock-webhook-secret"),
+			ClaimLease:           envDuration("SWITCH_CLAIM_LEASE", 2*time.Minute),
+			LateReceiptRetention: envDuration("SWITCH_LATE_RECEIPT_RETENTION", 30*24*time.Hour),
+			IntentTTL:            envDuration("SWITCH_INTENT_TTL", 30*time.Minute),
+		},
 		Gateway: GatewayConfig{
 			Environment:      envStr("GATEWAY_ENVIRONMENT", string(environmentpkg.Test)),
 			TestDatabaseName: strings.TrimSpace(envStr("GATEWAY_TEST_DATABASE_NAME", "")),
@@ -224,6 +262,11 @@ func Load() (*Config, error) {
 			SurchargeForbiddenMethods: envStr("FEES_SURCHARGE_FORBIDDEN_METHODS", ""),
 			AssetPrecision:            envStr("FEES_ASSET_PRECISION", ""),
 			OperatorPlatformID:        feesOperator,
+		},
+		Links: LinksConfig{
+			MaxOpenPayments:          envInt("LINKS_MAX_OPEN_PAYMENTS", 100),
+			MaxOpenPaymentsPerClient: envInt("LINKS_MAX_OPEN_PAYMENTS_PER_CLIENT", 3),
+			LeaseSeconds:             envInt("LINKS_LEASE_SECONDS", 300),
 		},
 		CRE: cre,
 	}
@@ -239,6 +282,13 @@ func (c *Config) validate() error {
 		return err
 	}
 	c.Server.Environment = environment
+	for _, p := range c.Server.TrustedProxies {
+		if net.ParseIP(p) == nil {
+			if _, _, err := net.ParseCIDR(p); err != nil {
+				return fmt.Errorf("TRUSTED_PROXIES: %q is neither an IP nor a CIDR", p)
+			}
+		}
+	}
 
 	gatewayEnv, err := environmentpkg.Parse(c.Gateway.Environment)
 	if err != nil {
@@ -422,6 +472,27 @@ func envStr(key, fallback string) string {
 }
 
 // envCSV reads a comma-separated env var into a trimmed, non-empty slice.
+// envCSVDefault is envCSV with a fallback when the variable is unset; an explicit empty value means none.
+func envCSVDefault(key string, fallback []string) []string {
+	if _, set := os.LookupEnv(key); !set {
+		return fallback
+	}
+	return envCSV(key)
+}
+
+// envDuration reads a Go duration ("2m", "720h"); an unparsable value keeps the fallback.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
 func envCSV(key string) []string {
 	v := os.Getenv(key)
 	if v == "" {

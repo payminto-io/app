@@ -91,15 +91,15 @@ func loadCRE() (CREConfig, error) {
 	if err != nil {
 		return CREConfig{}, err
 	}
-	solvency, err := envDuration("CRE_SOLVENCY_INTERVAL", time.Hour)
+	solvency, err := envDurationStrict("CRE_SOLVENCY_INTERVAL", time.Hour)
 	if err != nil {
 		return CREConfig{}, err
 	}
-	finality, err := envDuration("CRE_FINALITY_BATCH_INTERVAL", 60*time.Second)
+	finality, err := envDurationStrict("CRE_FINALITY_BATCH_INTERVAL", 60*time.Second)
 	if err != nil {
 		return CREConfig{}, err
 	}
-	poll, err := envDuration("CRE_POLL_INTERVAL", 30*time.Second)
+	poll, err := envDurationStrict("CRE_POLL_INTERVAL", 30*time.Second)
 	if err != nil {
 		return CREConfig{}, err
 	}
@@ -246,7 +246,7 @@ func (c *CREConfig) validate(environment string) error {
 	return nil
 }
 
-func envDuration(key string, fallback time.Duration) (time.Duration, error) {
+func envDurationStrict(key string, fallback time.Duration) (time.Duration, error) {
 	raw := strings.TrimSpace(envStrRaw(key))
 	if raw == "" {
 		return fallback, nil

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/payminto/payminto/backend/internal/environment"
+	"github.com/payminto/payminto/backend/internal/ledger"
 	"log"
 	"os"
 	"path/filepath"
@@ -120,6 +121,18 @@ func main() {
 	})
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: ledger.New(db, ledger.WithEnvironment(envModule.Environment), ledger.WithGuard(envModule.Guard)), LedgerAsset: service.LedgerAssetResolver()})
+	if err != nil {
+		log.Fatalf("fees: %v", err)
+	}
+	seeded, err := modules.SeedDevelopmentFeeRules(ctx, envModule.Environment, feesModule.Port, modules.DevFeeMethods(modules.DefaultConnectors(envModule.Environment, cfg)))
+	if err != nil {
+		log.Fatalf("fee seed: %v", err)
+	}
+	for _, r := range seeded {
+		fmt.Printf("Seeded zero-fee development rule %d for %s/%s (test environment only)\n", r.ID, r.Method, r.Currency)
 	}
 
 	path := os.Getenv("DEV_CREDENTIALS_PATH")

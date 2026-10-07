@@ -1,6 +1,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/payminto/payminto/backend/internal/api/handler"
 	"github.com/payminto/payminto/backend/internal/api/middleware"
@@ -12,6 +14,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/payminto/payminto/backend/internal/service"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -79,6 +82,8 @@ type RouterConfig struct {
 	// balance lookups).
 	AdapterReg *blockchain.AdapterRegistry
 
+	// PaymentSwitch mounts /api/v2/payments and /api/v2/webhooks when wired.
+	PaymentSwitch *modules.PaymentSwitchModule
 	// Environment is the process environment module; NewRouter refuses to build without one (ticket 13).
 	Environment *modules.EnvironmentModule
 
@@ -89,6 +94,18 @@ type RouterConfig struct {
 	CRE *modules.CREModule
 	// RateLimit throttles the cre and public attestation routes; nil applies none (no Redis).
 	RateLimit gin.HandlerFunc
+
+	// Links is the payment links module (internal/links); nil leaves its /api/v2 routes unmounted.
+	Links *modules.LinksModule
+
+	// Redis backs the public link rate limits; without it they fall back to an in-process limiter.
+	Redis *redis.Client
+
+	// TrustedProxies are the proxies whose X-Forwarded-For sets the client IP; empty trusts none.
+	TrustedProxies []string
+
+	// forwardingWarning replaces the untrusted X-Forwarded-For log line, for tests.
+	forwardingWarning func(peer string)
 }
 
 // processEnvironment is the environment every request is tagged with; there is no default.
@@ -102,6 +119,11 @@ func (cfg RouterConfig) processEnvironment() environment.Environment {
 // NewRouter constructs and returns a configured Gin engine.
 func NewRouter(cfg RouterConfig) *gin.Engine {
 	r := gin.Default()
+	// Client IPs come from the socket unless the peer is a configured proxy (TRUSTED_PROXIES); gin trusts all by default.
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		panic("api: TRUSTED_PROXIES: " + err.Error())
+	}
+	r.Use(middleware.WarnUntrustedForwarding(cfg.forwardingWarning))
 
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Environment(cfg.processEnvironment()))
@@ -440,6 +462,11 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 		}
 	}
 
+	// ---- v2: payment switch (intents, attempts, refunds, connector webhooks) ----
+	if cfg.PaymentSwitch != nil {
+		RegisterPaymentSwitchRoutes(r.Group("/api/v2"), cfg.PaymentSwitch, middleware.JWTOrAPIKey(cfg.AuthSvc))
+	}
+
 	// ---- Fee rules: preview for merchants; management needs a dashboard session and system.admin ----
 	if cfg.Fees != nil && cfg.AuthSvc != nil {
 		auth := FeesAuth{Merchant: middleware.JWTOrAPIKey(cfg.AuthSvc), Session: middleware.JWTAuth(cfg.AuthSvc)}
@@ -447,6 +474,18 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 			auth.Admin = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
 		}
 		RegisterFeesRoutes(v1, cfg.Fees, auth)
+	}
+
+	// ---- Payment links: merchant CRUD (session or API key) and the public checkout, rate limited per IP ----
+	if cfg.Links != nil {
+		auth := LinksAuth{
+			PublicRead: middleware.RateLimitStrict(cfg.Redis, "links:read", linksPublicReadPerMinute, time.Minute),
+			PublicPay:  middleware.RateLimitStrict(cfg.Redis, "links:pay", linksPublicPayPerMinute, time.Minute),
+		}
+		if cfg.AuthSvc != nil {
+			auth.Merchant = middleware.JWTOrAPIKey(cfg.AuthSvc)
+		}
+		RegisterLinksRoutes(r.Group("/api/v2"), cfg.Links, auth)
 	}
 
 	// ---- Attestations: workflow pulls and pushes, dashboard status, public verification ----
@@ -463,3 +502,9 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 
 	return r
 }
+
+// Public link limits per IP per minute; a checkout loads the link a few times and pays once or twice.
+const (
+	linksPublicReadPerMinute = 120
+	linksPublicPayPerMinute  = 20
+)
