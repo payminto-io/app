@@ -6,16 +6,16 @@ package models
 type PaymentChannel struct {
 	PaymintoModel
 	Name          string  `gorm:"type:varchar(100);not null;uniqueIndex" json:"name"`
-	ChannelType   string  `gorm:"type:varchar(50);not null" json:"channelType"`                // PayRam: blockchain, app
-	Status        string  `gorm:"type:varchar(20);default:'active'" json:"status"`              // PayRam: active, inactive
-	ConfigValue   *string `gorm:"type:text" json:"configValue,omitempty"`                      // PayRam: JSON config (fees, geography, networks)
-	MetadataValue *string `gorm:"type:text" json:"metadataValue,omitempty"`                    // PayRam: additional metadata JSON
-	APIKey        *string `gorm:"type:varchar(255)" json:"-"`                                  // PayRam: API key for onramp providers
-	DisplayName   string  `gorm:"type:varchar(100)" json:"displayName"`                        // PayRam: human-readable name
+	ChannelType   string  `gorm:"type:varchar(50);not null" json:"channelType"`    // PayRam: blockchain, app
+	Status        string  `gorm:"type:varchar(20);default:'active'" json:"status"` // PayRam: active, inactive
+	ConfigValue   *string `gorm:"type:text" json:"configValue,omitempty"`          // PayRam: JSON config (fees, geography, networks)
+	MetadataValue *string `gorm:"type:text" json:"metadataValue,omitempty"`        // PayRam: additional metadata JSON
+	APIKey        *string `gorm:"type:varchar(255)" json:"-"`                      // PayRam: API key for onramp providers
+	DisplayName   string  `gorm:"type:varchar(100)" json:"displayName"`            // PayRam: human-readable name
 	Description   *string `gorm:"type:text" json:"description,omitempty"`
-	Icon          *string `gorm:"type:text" json:"icon,omitempty"`                             // PayRam: icon path
-	DisplayOrder  int     `gorm:"default:0" json:"displayOrder"`                               // PayRam: UI sort order
-	IsDefault     bool    `gorm:"default:false" json:"isDefault"`                              // PayRam: default channel
+	Icon          *string `gorm:"type:text" json:"icon,omitempty"` // PayRam: icon path
+	DisplayOrder  int     `gorm:"default:0" json:"displayOrder"`   // PayRam: UI sort order
+	IsDefault     bool    `gorm:"default:false" json:"isDefault"`  // PayRam: default channel
 }
 
 func (PaymentChannel) TableName() string { return "payment_channels" }

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	environmentpkg "github.com/payminto/payminto/backend/internal/environment"
 )
@@ -21,9 +22,25 @@ type Config struct {
 	Security   SecurityConfig
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
+	Switch     SwitchConfig
 	Gateway    GatewayConfig
 	Modules    ModulesConfig
 	Fees       FeesConfig
+}
+
+// SwitchConfig configures the payment switch (internal/paymentswitch) and which connectors every merchant
+// may use until routing (ticket 06) owns that per merchant. The mock connector is refused in deployment environments.
+type SwitchConfig struct {
+	// Connectors is SWITCH_CONNECTORS; nil when unset, and the wiring then follows the environment contract:
+	// mock and chaindeposit in test, CONNECTORS_PROVIDER or nothing in live (never the mock).
+	Connectors        []string
+	MockWebhookSecret string
+	// ClaimLease is how long a claimed connector operation is trusted to be in flight before Sync may roll it back.
+	ClaimLease time.Duration
+	// LateReceiptRetention is how long terminal chain-deposit attempts keep being synced for late money.
+	LateReceiptRetention time.Duration
+	// IntentTTL is how long an unconfirmed intent and its payment record stay open.
+	IntentTTL time.Duration
 }
 
 // FeesConfig holds FEES_* keys; internal/fees/README.md "Configuration" documents them.
@@ -146,8 +163,8 @@ type SolanaConfig struct {
 	// RequestsPerSecond is the per-RPC-node budget; the public endpoints allow about 10.
 	RequestsPerSecond int
 	// PostDepositJournals posts the deposit's payment journal from the watcher at finalization.
-	// The switch posts payment journals on attempt success; set false once it is wired (see
-	// .superpowers/solana-fix-1-report.md).
+	// Default false: the switch's chaindeposit connector posts the attempt journal (one journal per
+	// finalized deposit); true only for a deployment without the switch.
 	PostDepositJournals bool
 }
 
@@ -231,7 +248,7 @@ func Load() (*Config, error) {
 			SweepIntervalSeconds:     envInt("SOLANA_SWEEP_INTERVAL_SECONDS", 30),
 			LateWindowDays:           envInt("SOLANA_LATE_WINDOW_DAYS", 7),
 			RequestsPerSecond:        envInt("SOLANA_RPC_REQUESTS_PER_SECOND", 10),
-			PostDepositJournals:      envBool("SOLANA_POST_DEPOSIT_JOURNALS", true),
+			PostDepositJournals:      envBool("SOLANA_POST_DEPOSIT_JOURNALS", false),
 		},
 		Security: SecurityConfig{
 			AESKey:          envStr("AES_KEY", ""),
@@ -250,6 +267,13 @@ func Load() (*Config, error) {
 		Telemetry: TelemetryConfig{
 			MetricsEnabled: envBool("METRICS_ENABLED", true),
 			SentryDSN:      envStr("SENTRY_DSN", ""),
+		},
+		Switch: SwitchConfig{
+			Connectors:           envCSVDefault("SWITCH_CONNECTORS", nil),
+			MockWebhookSecret:    envStr("SWITCH_MOCK_WEBHOOK_SECRET", "mock-webhook-secret"),
+			ClaimLease:           envDuration("SWITCH_CLAIM_LEASE", 2*time.Minute),
+			LateReceiptRetention: envDuration("SWITCH_LATE_RECEIPT_RETENTION", 30*24*time.Hour),
+			IntentTTL:            envDuration("SWITCH_INTENT_TTL", 30*time.Minute),
 		},
 		Gateway: GatewayConfig{
 			Environment:      envStr("GATEWAY_ENVIRONMENT", string(environmentpkg.Test)),
@@ -445,6 +469,27 @@ func envStr(key, fallback string) string {
 }
 
 // envCSV reads a comma-separated env var into a trimmed, non-empty slice.
+// envCSVDefault is envCSV with a fallback when the variable is unset; an explicit empty value means none.
+func envCSVDefault(key string, fallback []string) []string {
+	if _, set := os.LookupEnv(key); !set {
+		return fallback
+	}
+	return envCSV(key)
+}
+
+// envDuration reads a Go duration ("2m", "720h"); an unparsable value keeps the fallback.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
 func envCSV(key string) []string {
 	v := os.Getenv(key)
 	if v == "" {

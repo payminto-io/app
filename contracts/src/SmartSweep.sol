@@ -38,7 +38,7 @@ contract SmartSweep is Pausable {
     function sweepETH() external onlySweeper whenNotPaused {
         uint256 balance = address(this).balance;
         require(balance > 0, "no ETH balance");
-        (bool success, ) = coldWallet.call{value: balance}("");
+        (bool success,) = coldWallet.call{value: balance}("");
         require(success, "ETH transfer failed");
         emit SweptETH(balance);
     }
