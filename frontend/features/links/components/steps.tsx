@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Lock, Plus, Trash2 } from "lucide-react";
 import type { DroppedMethod, LinkOptions, MethodPreview, MethodSpec } from "@/lib/api/links";
 import { CurrencyDisplay } from "@/components/currency-display";
@@ -14,6 +15,33 @@ import { a11y, Field, FieldError, Group, GroupLabel, NativeSelect, ReadOnly, Seg
 
 const F = LINKS_COPY.fields;
 const FEE = LINKS_COPY.fee;
+
+/** The options request as the steps need it: the data, or why there is none yet. */
+export interface OptionsState {
+  data: LinkOptions | undefined;
+  loading: boolean;
+  error: string | null;
+  retry: () => void;
+}
+
+function OptionsProblem({ options }: { options: OptionsState }) {
+  if (options.loading) {
+    return (
+      <p role="status" className="text-caption text-ink-soft">
+        {F.optionsLoading}
+      </p>
+    );
+  }
+  if (!options.error) return null;
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-2 text-label text-bad">
+      <span>{F.optionsFailed}</span>
+      <Button type="button" variant="outline" size="sm" className="tap" onClick={options.retry}>
+        {F.retry}
+      </Button>
+    </div>
+  );
+}
 
 export interface StepProps {
   form: LinkForm;
@@ -46,9 +74,19 @@ export function LockedNote({ onDuplicate }: { onDuplicate?: () => void }) {
   );
 }
 
-function CurrencyControl({ form, edit, err, options }: StepProps & { options: LinkOptions | undefined }) {
+function CurrencyControl({ form, edit, err, options }: StepProps & { options: OptionsState }) {
   const e = err("currency");
-  const list = options?.currencies ?? [];
+  const list = options.data?.currencies ?? [];
+  if (!options.data) {
+    return (
+      <Field label={F.currency} htmlFor="lf-currency" error={e}>
+        <NativeSelect id="lf-currency" value={form.currency} disabled {...a11y("lf-currency", e)}>
+          <option value={form.currency}>{form.currency || F.loadingShort}</option>
+        </NativeSelect>
+        <OptionsProblem options={options} />
+      </Field>
+    );
+  }
   if (list.length === 0) {
     return (
       <Field label={F.currency} htmlFor="lf-currency" error={e}>
@@ -80,7 +118,7 @@ function CurrencyControl({ form, edit, err, options }: StepProps & { options: Li
   );
 }
 
-export function ItemStep({ form, edit, err, locked, options }: StepProps & { options: LinkOptions | undefined }) {
+export function ItemStep({ form, edit, err, locked, options }: StepProps & { options: OptionsState }) {
   const mode = form.amount_mode;
   const cur = form.currency;
   return (
@@ -199,7 +237,7 @@ function LineItems({ form, edit, err }: StepProps) {
       ) : null}
       {form.line_items.map((li, i) => {
         const id = (k: string) => `lf-li-${i}-${k}`;
-        const rowErr = keys.map((k) => ({ k, e: err(`line_items[${i}].${k}`) })).find((x) => x.e);
+        const rowErrs = keys.map((k) => ({ k, e: err(`line_items[${i}].${k}`) })).filter((x) => x.e);
         const input = (k: (typeof keys)[number]) => (
           <label key={k} className={cn("min-w-0 space-y-1", k === "name" && "col-span-2 sm:col-span-1")}>
             <span className="block text-caption font-medium text-ink-soft sm:sr-only">{cols[k]}</span>
@@ -224,7 +262,11 @@ function LineItems({ form, edit, err }: StepProps) {
               {input("unit_price")}
               {input("tax_rate")}
             </div>
-            {rowErr ? <FieldError id={id(rowErr.k)}>{rowErr.e}</FieldError> : null}
+            {rowErrs.map((x) => (
+              <FieldError key={x.k} id={id(x.k)}>
+                {`${cols[x.k]}: ${x.e}`}
+              </FieldError>
+            ))}
           </div>
         );
       })}
@@ -449,9 +491,9 @@ export function PaymentStep({
   options,
   pricing,
   dropped,
-}: StepProps & { options: LinkOptions | undefined; pricing: Map<string, MethodPreview> | null; dropped: Map<string, DroppedMethod> }) {
+}: StepProps & { options: OptionsState; pricing: Map<string, MethodPreview> | null; dropped: Map<string, DroppedMethod> }) {
   const chosen = new Map(form.methods.map((m, i) => [methodKey(m), i]));
-  const offers = locked ? form.methods.map((spec) => ({ spec, enabled: true })) : offersFor(form, options);
+  const offers = locked ? form.methods.map((spec) => ({ spec, enabled: true })) : offersFor(form, options.data);
   const order = offers.map((o) => methodKey(o.spec));
   const toggle = (spec: MethodSpec, on: boolean) =>
     edit("methods", (f) => {
@@ -461,16 +503,26 @@ export function PaymentStep({
       return { ...f, methods: next };
     });
   const has = (m: string) => form.methods.some((x) => x.method === m);
-  const empty = !locked && options && offers.length === 0;
+  const data = options.data;
+  const empty = !locked && data && offers.length === 0;
+  const noCatalog = !locked && data && data.methods.length === 0;
 
   return (
     <>
       <div className="space-y-2" role="group" aria-labelledby="lf-methods-label">
         <GroupLabel id="lf-methods-label">{F.methods}</GroupLabel>
         <FieldError id="lf-methods">{err("methods")}</FieldError>
-        {empty ? (
+        {!locked && !data ? <OptionsProblem options={options} /> : null}
+        {noCatalog && offers.length === 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-dashed border-line-strong px-3 py-2.5 text-body-sm text-ink-soft">
+            <span>{F.noOptions}</span>
+            <Link href="/dashboard/settings" className="tap rounded-xs font-medium text-tide hover:text-tide-strong">
+              {F.openSettings}
+            </Link>
+          </div>
+        ) : !locked && !data && offers.length === 0 ? null : empty ? (
           <p className="rounded-sm border border-dashed border-line-strong px-3 py-2.5 text-body-sm text-ink-soft">
-            {!form.currency ? F.chooseCurrencyFirst : options.methods.length === 0 ? F.noOptions : F.noOptionsForCurrency(form.currency)}
+            {!form.currency ? F.chooseCurrencyFirst : F.noOptionsForCurrency(form.currency)}
           </p>
         ) : (
           <ul className="divide-y divide-line rounded-sm border border-line">

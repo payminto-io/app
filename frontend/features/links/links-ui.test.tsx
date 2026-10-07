@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { RenderModel } from "@/lib/api/links";
 import { defaultForm, type LinkForm } from "./model";
-import { PaymentStep } from "./components/steps";
+import { ItemStep, PaymentStep, type OptionsState } from "./components/steps";
 import { CheckoutPreview } from "./components/checkout-preview";
 import { splitLinkUrl } from "./components/link-share";
 
 const form = (patch: Partial<LinkForm> = {}): LinkForm => ({ ...defaultForm(), ...patch });
+const opts = (patch: Partial<OptionsState> = {}): OptionsState => ({ data: undefined, loading: false, error: null, retry: vi.fn(), ...patch });
+const ENABLED = { environment: "test" as const, currencies: ["USD"], methods: [{ method: "card" as const, chain: null, asset: null, currencies: ["USD"] }] };
 
 function model(patch: Partial<RenderModel> = {}): RenderModel {
   return {
@@ -52,7 +54,7 @@ describe("live link payment step", () => {
         edit={vi.fn()}
         err={() => undefined}
         locked
-        options={undefined}
+        options={opts()}
         pricing={null}
         dropped={new Map()}
       />
@@ -63,8 +65,59 @@ describe("live link payment step", () => {
   });
 
   it("offers the fee bearer as a choice on a draft", () => {
-    render(<PaymentStep form={form()} edit={vi.fn()} err={() => undefined} locked={false} options={undefined} pricing={null} dropped={new Map()} />);
+    render(<PaymentStep form={form()} edit={vi.fn()} err={() => undefined} locked={false} options={opts({ data: ENABLED })} pricing={null} dropped={new Map()} />);
     expect(screen.getByRole("radiogroup", { name: "Fees paid by" })).toBeInTheDocument();
+  });
+});
+
+describe("options states", () => {
+  const step = (o: OptionsState, f = form({ currency: "USD" })) =>
+    render(<PaymentStep form={f} edit={vi.fn()} err={() => undefined} locked={false} options={o} pricing={null} dropped={new Map()} />);
+
+  it("says it is loading while the options request runs", () => {
+    step(opts({ loading: true }));
+    expect(screen.getByRole("status")).toHaveTextContent("Loading methods and currencies");
+  });
+
+  it("shows the failure with a retry", () => {
+    const retry = vi.fn();
+    step(opts({ error: "503", retry }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load methods and currencies.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("explains an environment with no enabled methods and links to settings", () => {
+    step(opts({ data: { environment: "test", currencies: [], methods: [] } }));
+    expect(screen.getByText("No payment methods are enabled for this environment.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open settings" })).toHaveAttribute("href", "/dashboard/settings");
+  });
+
+  it("lists enabled methods for the chosen currency", () => {
+    step(opts({ data: ENABLED }));
+    expect(screen.getByRole("checkbox", { name: "Card" })).toBeInTheDocument();
+  });
+});
+
+describe("line item errors", () => {
+  it("renders a message for every field it marks invalid", () => {
+    const errors: Record<string, string> = { "line_items[0].quantity": "Must be 1-100000", "line_items[0].unit_price": "Has more than 2 decimal places" };
+    const { container } = render(
+      <ItemStep
+        form={form({ amount_mode: "line_items", currency: "USD", line_items: [{ name: "Mug", quantity: "0", unit_price: "1.234", tax_rate: "0" }] })}
+        edit={vi.fn()}
+        err={(p) => errors[p]}
+        locked={false}
+        options={opts({ data: ENABLED })}
+      />
+    );
+    const invalid = container.querySelectorAll('[aria-invalid="true"]');
+    expect(invalid).toHaveLength(2);
+    for (const el of invalid) {
+      const target = container.querySelector(`#${CSS.escape(el.getAttribute("aria-describedby") ?? "")}`);
+      expect(target).not.toBeNull();
+      expect(target?.textContent).toMatch(/Must be|decimal/);
+    }
   });
 });
 

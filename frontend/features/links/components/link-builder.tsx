@@ -299,10 +299,16 @@ export function LinkBuilder({ link: initial, basePath = "/dashboard/links" }: { 
   const allOpen = open.size === STEP_ORDER.length;
 
   const stepProps = { form, edit, err, locked };
+  const optionsState = {
+    data: options.data,
+    loading: options.isPending && !options.error,
+    error: options.error ? options.error.message : null,
+    retry: () => void options.refetch(),
+  };
   const stepBody: Record<StepId, React.ReactNode> = {
-    item: <ItemStep {...stepProps} options={options.data} />,
+    item: <ItemStep {...stepProps} options={optionsState} />,
     customer: <CustomerStep {...stepProps} />,
-    payment: <PaymentStep {...stepProps} options={options.data} pricing={pricing} dropped={dropped} />,
+    payment: <PaymentStep {...stepProps} options={optionsState} pricing={pricing} dropped={dropped} />,
     after: <AfterStep {...stepProps} webhooks={(webhooks.data ?? []).map((w) => ({ id: w.id, url: w.url }))} />,
     settlement: <SettlementStep {...stepProps} />,
     lifecycle: <LifecycleStep {...stepProps} />,

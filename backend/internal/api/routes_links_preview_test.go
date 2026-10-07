@@ -69,8 +69,12 @@ func previewRouter(t *testing.T, creator links.PaymentCreator) *gin.Engine {
 	svc := links.NewService(store, previewFees{}, creator, links.WithCheckoutBaseURL("https://checkout.test"))
 	r := gin.New()
 	auth := func(c *gin.Context) {
+		platform := uint(3)
+		if c.GetHeader("X-Test-Platform") == "4" {
+			platform = 4
+		}
 		c.Set("memberID", uint(7))
-		c.Set("externalPlatformID", uint(3))
+		c.Set("externalPlatformID", platform)
 	}
 	RegisterLinksRoutes(r.Group("/api/v2"), &modules.LinksModule{Port: svc}, LinksAuth{Merchant: auth})
 	return r
@@ -195,6 +199,41 @@ func TestLinksOptionsListsOnlyPublishableOfferings(t *testing.T) {
 	w, out = do(previewRouter(t, &linksCreator{}), http.MethodGet, "/api/v2/links/options", "")
 	if w.Code != http.StatusOK || len(out["methods"].([]any)) != 0 || len(out["currencies"].([]any)) != 0 {
 		t.Fatalf("options without a catalog %d %v", w.Code, out)
+	}
+}
+
+func TestLinksPreviewRefusesAnotherMerchantsLink(t *testing.T) {
+	r := previewRouter(t, &linksCreator{})
+	w, out := do(r, http.MethodPost, "/api/v2/links", `{"title": "Theirs", "amount": "5", "currency": "USD"}`, "X-Test-Platform", "4")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create %d %s", w.Code, w.Body)
+	}
+	w, out = do(r, http.MethodPost, "/api/v2/links/preview?link_id="+out["id"].(string), `{"title": "Mine", "currency": "USD"}`)
+	if w.Code != http.StatusNotFound || out["code"] != "link_not_found" {
+		t.Fatalf("cross-merchant preview %d %v", w.Code, out)
+	}
+}
+
+func TestLinksPreviewWritesNothing(t *testing.T) {
+	r := previewRouter(t, &linksCreator{})
+	body := `{"title": "Beans", "amount": "25.00", "currency": "USD", "methods": [{"method": "card"}]}`
+	httpJSON(t, r, http.MethodPost, "/api/v2/links/preview", body)
+	if list := httpJSON(t, r, http.MethodGet, "/api/v2/links", ""); list["total"] != float64(0) {
+		t.Fatalf("preview created a link: %v", list)
+	}
+
+	w, created := do(r, http.MethodPost, "/api/v2/links", body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create %d %s", w.Code, w.Body)
+	}
+	id := created["id"].(string)
+	httpJSON(t, r, http.MethodPost, "/api/v2/links/preview?link_id="+id, `{"title": "Other", "amount": "99.00", "currency": "USD"}`)
+	after := httpJSON(t, r, http.MethodGet, "/api/v2/links/"+id, "")
+	if after["title"] != "Beans" || after["amount"] != created["amount"] || after["revision"] != created["revision"] || after["updated_at"] != created["updated_at"] {
+		t.Fatalf("preview changed the stored link: before %v after %v", created, after)
+	}
+	if list := httpJSON(t, r, http.MethodGet, "/api/v2/links", ""); list["total"] != float64(1) {
+		t.Fatalf("links after preview: %v", list)
 	}
 }
 
