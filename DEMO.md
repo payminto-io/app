@@ -4,14 +4,17 @@ Everything below runs locally. Nothing is deployed to a public network. Screens 
 
 ## Demo video
 
-Check demo here: [watch the Payminto demo video (88s, 1080p)](https://github.com/payminto-io/app/releases/download/demo-video/payminto-demo.mp4).
-Release page: [payminto-io/app releases / demo-video](https://github.com/payminto-io/app/releases/tag/demo-video).
-Google Drive copy (720p): [payminto-demo.mp4](https://drive.google.com/file/d/13POEbpjWp8JizZvbvDrBnDwHbbNwgTzd/view).
+**Check demo here:** [watch the Payminto demo in your browser (88s)](https://drive.google.com/file/d/16598TrZ1iaGPIQKRVm_gZ0wkX82eXABI/view)
+
+[![Watch the Payminto demo](docs/demo/payminto-demo-poster.jpg)](https://drive.google.com/file/d/16598TrZ1iaGPIQKRVm_gZ0wkX82eXABI/view)
+
 It covers the problem, who it is for, the market, the product, why multichain and composable, why Solana, Chainlink CRE and NOWNodes verification, and traction.
+Full-quality 1080p download: [payminto-demo.mp4](https://github.com/payminto-io/app/releases/download/demo-video/payminto-demo.mp4) from the [demo-video release](https://github.com/payminto-io/app/releases/tag/demo-video).
+All hackathon material (video and pitch deck): [Google Drive folder](https://drive.google.com/drive/folders/1LC3jWfza6qiMsV1Xc-qfu8zydhRSwOJk).
 
 ## Pitch deck
 
-Check the pitch deck here: [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1QpXIgz82kQVeH15eYvIeyOrCwypKGi2K/view).
+Check the pitch deck here: [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1S9ZHGs2dDlsVGEZDbhm7Yf9ZtG1Gy-TT/view).
 It covers the product, the AWS reference deployment, the NOWNodes, Chainlink CRE, and Solana settlement flow, and screenshots of the running product.
 
 ## The story (60 seconds)
