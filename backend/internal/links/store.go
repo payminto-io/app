@@ -17,8 +17,9 @@ var (
 )
 
 const (
-	paymentPending = "pending"
-	paymentCreated = "created"
+	paymentPending  = "pending"
+	paymentCreated  = "created"
+	paymentReleased = "released"
 )
 
 type Answer struct {
@@ -81,16 +82,23 @@ type Store interface {
 	DeleteDraft(ctx context.Context, platformID uint, id string, revision int) error
 	WebhookExists(ctx context.Context, platformID, webhookID uint) (bool, error)
 	MerchantName(ctx context.Context, platformID uint) (string, error)
+	// FindPayment returns the use of key on the link that is not released, or nil.
 	FindPayment(ctx context.Context, linkID, key string) (*LinkPayment, error)
+	// Link reads a link by id without platform scope, for the resolver.
+	Link(ctx context.Context, id string) (Link, error)
 	// Reserve atomically re-checks status, expiry, fee bearer, use limit and open-payment caps under a lock and
 	// takes one use. When the key already exists it returns that payment as existing instead.
 	Reserve(ctx context.Context, p LinkPayment, now time.Time, limits ReserveLimits) (reserved LinkPayment, existing *LinkPayment, err error)
 	// Complete records the created payment on a pending use (else ErrStale).
 	Complete(ctx context.Context, paymentID string, created CreatedPayment, openUntil time.Time) error
-	// Release deletes a pending use and gives it back; only for a payment that definitively does not exist.
+	// Release marks a pending use released and gives it back; only once its payment cannot exist (fenced or refused).
 	Release(ctx context.Context, paymentID string) error
 	// ExpiredPending lists pending uses whose lease ended before now, oldest first.
 	ExpiredPending(ctx context.Context, now time.Time, limit int) ([]LinkPayment, error)
+	// OpenCreated lists the link's created uses still counted as open at now (at most limit).
+	OpenCreated(ctx context.Context, linkID string, now time.Time, limit int) ([]LinkPayment, error)
+	// CloseUses stops counting these created uses as open from now (their payment was paid, cancelled or expired).
+	CloseUses(ctx context.Context, ids []string, now time.Time) error
 }
 
 // openPaymentsError is the shared cap check; open counts uses still pending or not yet expired.

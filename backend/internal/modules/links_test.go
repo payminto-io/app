@@ -19,8 +19,12 @@ func (nopCreator) Connectors(context.Context, links.Environment, string, links.M
 func (nopCreator) CreatePayment(context.Context, links.PaymentRequest) (links.CreatedPayment, error) {
 	return links.CreatedPayment{}, nil
 }
-func (nopCreator) FindPayment(context.Context, string) (links.CreatedPayment, bool, error) {
+func (nopCreator) FencePayment(context.Context, links.PaymentRequest) (links.CreatedPayment, bool, error) {
 	return links.CreatedPayment{}, false, nil
+}
+func (nopCreator) CancelPayment(context.Context, string) error { return nil }
+func (nopCreator) OpenPayments(context.Context, []string) (map[string]bool, error) {
+	return map[string]bool{}, nil
 }
 
 func linksDeps(t *testing.T, server string, env environment.Environment, fc config.FeesConfig) Deps {

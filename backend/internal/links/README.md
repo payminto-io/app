@@ -11,7 +11,7 @@ Design source: ticket `.scratch/payments-v1/issues/03-payment-link-model.md` and
 - `Render(short_code)` returns the `RenderModel` for checkout; `Pay(short_code, PayRequest)` creates the payment.
 - Ports this module depends on:
   - `FeeQuoter` (`Resolve`, `Preview`), satisfied by `fees.Port`. Links never snapshot or post fees; the switch does that per attempt (fees README, "Payment path").
-  - `PaymentCreator` turns one reserved use into a payment. `Connectors` says which connectors take a method in an environment; `CreatePayment` creates it and must be idempotent on `LinkPaymentID`; `FindPayment` looks a payment up by it. Only an error wrapping `ErrNotCreated`, or a `*links.Error`, promises nothing was created. The default is `service.LinkPaymentCreator` (Payminto's payment service, reference `pl_<LinkPaymentID>`); the switch (ticket 05) provides another.
+  - `PaymentCreator` turns one reserved use into a payment. `Connectors` says which connectors take a method in an environment; `CreatePayment` creates it, with `LinkPaymentID` as the payment's unique reference, so it is idempotent and a second payment for one use is impossible; `FencePayment` returns the use's payment or makes it impossible to create from then on; `CancelPayment` cancels the payment of a use the link no longer tracks; `OpenPayments` says which uses' payments are still open and unpaid. Only an error wrapping `ErrNotCreated`, or a `*links.Error`, promises nothing was created. The default is `service.LinkPaymentCreator` (Payminto's payment service, reference `pl_<LinkPaymentID>`); the switch (ticket 05) provides another.
   - `environment.Guard` (`WithGuard`): links are tagged with the process environment and `Pay` calls `guard.Require` before reserving (`link_environment_mismatch`).
   - `DestinationVerifier` answers whether a settlement override's destination is verified. The default `NoDestinations` verifies nothing, so an override cannot publish until ticket 11 supplies a real one.
 - Every refusal is a `*links.Error` with a typed `Code` and the `Field` it concerns; when several rules fail, `Errors` carries all of them.
@@ -84,11 +84,12 @@ Publishing (and any edit of a published link) also requires completeness and che
 6. `Store.Reserve` locks the link row, re-checks availability, the fee bearer the quote used, the use limit and the open-payment caps, and records a `pending` use with `reserved_until` (the lease, `LINKS_LEASE_SECONDS`, default 300). The use row is the record of intent: its id is the `LinkPaymentID` the creator is called with.
 7. `CreatePayment` runs outside that transaction, bounded to half the lease.
    - Success: the use becomes `created`.
-   - `ErrNotCreated` or a `*links.Error`: the use is deleted and given back; the same key may retry.
+   - `ErrNotCreated` or a `*links.Error`: the use is marked `released` (the row and its answers stay) and given back; the same key may retry.
    - Any other error, or a failed `Complete`: the use stays `pending` and the payer gets `payment_in_progress` with `Retry-After` at the lease end.
-8. A pending use whose lease ended is resolved by `FindPayment(LinkPaymentID)`: found completes it, definitively absent releases it, a failed lookup leaves it. The same-key retry does this inline (and starts afresh after a release); the `link_reservation_resolver` worker does it every 30 seconds for uses nobody retries.
+8. A pending use whose lease ended is resolved by `FencePayment`: a payment found completes the use; otherwise the reference is fenced (Payminto writes a cancelled placeholder under the unique `reference_id`) and only then is the use released, so a creation still stalled in flight fails on the unique index instead of making a live, untracked payment. A failed fence leaves the use pending. The same-key retry does this inline (and starts afresh after a release); the `link_reservation_resolver` worker does it every 30 seconds for uses nobody retries.
+9. If `Complete` finds the use already settled as released, the payment just created is cancelled through `CancelPayment` and logged as an anomaly (`links: anomaly: payment created for a released use`); the payer gets `payment_creation_failed` and the same-key retry starts afresh. With a creator that fences, this path is unreachable; it exists for creators that cannot.
 
-Open-payment caps (multi-use links only): a use counts as open while pending and then until its payment expires (the creator's `expires_at`, else the link's quote expiry). At most `LINKS_MAX_OPEN_PAYMENTS` (default 100) per link and `LINKS_MAX_OPEN_PAYMENTS_PER_CLIENT` (default 3) per payer IP (stored as a hash) are open at once; beyond that `open_payments_limit` (HTTP 429). This keeps an anonymous payer from draining the deposit-address pool.
+Open-payment caps (multi-use links only): a use counts as open while pending and then while its payment is open and unpaid. Before each reservation the link's counted uses are checked with `OpenPayments`, and paid, cancelled or expired ones stop counting; a payment's expiry (the creator's `expires_at`, else the link's quote expiry) also ends it. IPv6 payers are grouped by /64. At most `LINKS_MAX_OPEN_PAYMENTS` (default 100) per link and `LINKS_MAX_OPEN_PAYMENTS_PER_CLIENT` (default 3) per payer IP (stored as a hash) are open at once; beyond that `open_payments_limit` (HTTP 429). This keeps an anonymous payer from draining the deposit-address pool.
 
 The effective use limit is 1 for a single-use link, else the lower of `use_limit` and `expires_after_payments`, else unlimited.
 A use is counted when the payment is created, not when it is paid; an abandoned payment keeps its use (see "Open questions").
@@ -114,7 +115,7 @@ Migration `2026100706_links_payment_links` repeats `schema.sql` verbatim (`schem
 
 - `payment_links`: every form field as a column (see `schema.sql`), plus `environment` (`live`/`test`, default `test`), `status`, `short_code` (unique), `uses_count`, `revision`, `published_at`. Check constraints keep `uses_count` within the single-use, `use_limit` and `expires_after_payments` bounds, and require a short code on active and paused links.
 - `payment_link_line_items`, `payment_link_questions`: children ordered by `position`, replaced on save.
-- `payment_link_payments`: one use of a link (pending, then created), unique on `(link_id, idempotency_key)`, with the request hash, method, connector, amount, fee preview and `(fee_rule_id, fee_rule_version)` (foreign key to `fee_rules`), customer fields, addresses, the processor's response, `client_key` (hash of the payer IP), `reserved_until` and `open_until`.
+- `payment_link_payments`: one use of a link (pending, then created or released), one live use per key (partial unique index excluding released), unique on `(link_id, idempotency_key)`, with the request hash, method, connector, amount, fee preview and `(fee_rule_id, fee_rule_version)` (foreign key to `fee_rules`), customer fields, addresses, the processor's response, `client_key` (hash of the payer IP), `reserved_until` and `open_until`.
 
 `payment_links` and `payment_link_payments` carry `environment`; the environment module's `VerifySchema` requires the column and counts both tables as data. The Payminto creator also writes the use's fee rule onto `payment_requests.fee_rule_id/fee_rule_version`.
 - `payment_link_answers`: one row per answered question per use, with the question's label as asked.
@@ -129,7 +130,7 @@ Migration `2026100706_links_payment_links` repeats `schema.sql` verbatim (`schem
 | `TRUSTED_PROXIES` | empty | proxies whose `X-Forwarded-For` sets the client IP; empty trusts none |
 
 It also reads `CHECKOUT_BASE_URL` and `FEES_ASSET_PRECISION`. The environment is the process's (`GATEWAY_ENVIRONMENT`), from the environment module.
-The public routes are limited per client IP (120 reads, 20 pays per minute) in Redis when it answers and in process memory when it does not; they never run unlimited.
+The public routes are limited per client IP (120 reads, 20 pays per minute) in Redis when it answers (count and TTL set in one script) and in process memory when it does not; they never run unlimited. Behind a proxy `TRUSTED_PROXIES` must name it (docs/OPERATIONS.md, "Client IPs behind a proxy").
 
 ## HTTP
 
@@ -145,3 +146,4 @@ None yet. Link-paid and use-limit events belong with the switch's payment events
 - `fees.Snapshot` takes the rule's own fee bearer; the switch must carry the link's bearer into the attempt's snapshot.
 - The Payminto creator honours the quote expiry, but Payminto's payment requests have no amount tolerance and no per-payment webhook; `chain_tolerance_bps` and `webhook_id` are passed to the creator for the switch to honour.
 - If writing the fee rule onto the payment request fails after creation, the use stays pending and is completed by the resolver, but that payment request keeps no fee rule; the use row still records it.
+- A fence that finds a payment whose deposit address is still being assigned completes the use with that payment; if the assignment then fails, Payminto cancels the payment and the use counts no longer as open, but the link's use is not given back.

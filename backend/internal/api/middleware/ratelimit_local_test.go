@@ -36,10 +36,14 @@ func strictRouter(rdb *redis.Client, limit int) *gin.Engine {
 	return r
 }
 
-func hit(r *gin.Engine, xff string) int {
+func hit(r *gin.Engine, xff string) int { return hitWith(r, "198.51.100.7:1234", xff) }
+
+func hitFrom(r *gin.Engine, remote string) int { return hitWith(r, remote, "") }
+
+func hitWith(r *gin.Engine, remote, xff string) int {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
-	req.RemoteAddr = "198.51.100.7:1234"
+	req.RemoteAddr = remote
 	if xff != "" {
 		req.Header.Set("X-Forwarded-For", xff)
 	}

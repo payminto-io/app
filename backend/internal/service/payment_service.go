@@ -137,8 +137,10 @@ func (s *PaymentService) CreatePayment(input CreatePaymentInput, memberID, platf
 	if input.BlockchainCode != "" && s.depositAddressService != nil {
 		da, err := s.depositAddressService.AssignForPayment(payment, input.BlockchainCode, input.CurrencyCode)
 		if err != nil {
-			// Roll back: cancel the payment row we just created
-			_ = s.paymentRepo.UpdateState(payment.ID, models.PaymentStateCancelled)
+			// Roll back: cancel the payment row we just created; a failed cancel leaves an open, address-less payment.
+			if cerr := s.paymentRepo.UpdateState(payment.ID, models.PaymentStateCancelled); cerr != nil {
+				return nil, fmt.Errorf("assign deposit address: %w; cancel payment %s: %v", err, payment.ReferenceID, cerr)
+			}
 			return nil, fmt.Errorf("assign deposit address: %w", err)
 		}
 		result.DepositAddress = da

@@ -52,8 +52,18 @@ func (c *linksCreator) CreatePayment(_ context.Context, req links.PaymentRequest
 	return links.CreatedPayment{Reference: "pr_" + req.LinkPaymentID, CheckoutURL: "https://checkout.test/pay/pr_" + req.LinkPaymentID}, nil
 }
 
-func (c *linksCreator) FindPayment(_ context.Context, id string) (links.CreatedPayment, bool, error) {
+func (c *linksCreator) FencePayment(context.Context, links.PaymentRequest) (links.CreatedPayment, bool, error) {
 	return links.CreatedPayment{}, false, nil
+}
+
+func (c *linksCreator) CancelPayment(context.Context, string) error { return nil }
+
+func (c *linksCreator) OpenPayments(_ context.Context, ids []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
 }
 
 func linksRouter(t *testing.T) (*gin.Engine, *links.MemStore, *linksCreator) {

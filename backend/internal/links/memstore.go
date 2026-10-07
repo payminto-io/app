@@ -214,7 +214,7 @@ func (s *MemStore) MerchantName(_ context.Context, platformID uint) (string, err
 
 func (s *MemStore) findLocked(linkID, key string) *LinkPayment {
 	for _, p := range s.payments {
-		if p.LinkID == linkID && p.IdempotencyKey == key {
+		if p.LinkID == linkID && p.IdempotencyKey == key && p.Status != paymentReleased {
 			c := p
 			return &c
 		}
@@ -246,7 +246,7 @@ func (s *MemStore) Reserve(_ context.Context, p LinkPayment, now time.Time, limi
 	}
 	open, mine := 0, 0
 	for _, q := range s.payments {
-		if q.LinkID == p.LinkID && q.OpenUntil.After(now) {
+		if q.LinkID == p.LinkID && q.Status != paymentReleased && q.OpenUntil.After(now) {
 			open++
 			if q.ClientKey == p.ClientKey {
 				mine++
@@ -286,7 +286,8 @@ func (s *MemStore) Release(_ context.Context, id string) error {
 	if !ok || p.Status != paymentPending {
 		return ErrStale
 	}
-	delete(s.payments, id)
+	p.Status = paymentReleased
+	s.payments[id] = p
 	if l, ok := s.links[p.LinkID]; ok {
 		l.UsesCount--
 		s.links[l.ID] = l
@@ -310,6 +311,44 @@ func (s *MemStore) ExpiredPending(_ context.Context, now time.Time, limit int) (
 	return out, nil
 }
 
+func (s *MemStore) Link(_ context.Context, id string) (Link, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	l, ok := s.links[id]
+	if !ok {
+		return Link{}, ErrStoreNotFound
+	}
+	return cloneLink(l), nil
+}
+
+func (s *MemStore) OpenCreated(_ context.Context, linkID string, now time.Time, limit int) ([]LinkPayment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []LinkPayment
+	for _, p := range s.payments {
+		if p.LinkID == linkID && p.Status == paymentCreated && p.OpenUntil.After(now) {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *MemStore) CloseUses(_ context.Context, ids []string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range ids {
+		if p, ok := s.payments[id]; ok && p.Status == paymentCreated && p.OpenUntil.After(now) {
+			p.OpenUntil = now
+			s.payments[id] = p
+		}
+	}
+	return nil
+}
+
 // FailNextComplete makes the next Complete return err without writing, to test the window after creation.
 func (s *MemStore) FailNextComplete(err error) {
 	s.mu.Lock()
@@ -317,13 +356,13 @@ func (s *MemStore) FailNextComplete(err error) {
 	s.failComplete = err
 }
 
-// Payments returns every stored use of a link, for tests.
+// Payments returns every stored use of a link that is not released, for tests.
 func (s *MemStore) Payments(linkID string) []LinkPayment {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []LinkPayment
 	for _, p := range s.payments {
-		if p.LinkID == linkID {
+		if p.LinkID == linkID && p.Status != paymentReleased {
 			out = append(out, p)
 		}
 	}

@@ -96,6 +96,9 @@ type RouterConfig struct {
 
 	// TrustedProxies are the proxies whose X-Forwarded-For sets the client IP; empty trusts none.
 	TrustedProxies []string
+
+	// forwardingWarning replaces the untrusted X-Forwarded-For log line, for tests.
+	forwardingWarning func(peer string)
 }
 
 // processEnvironment is the environment every request is tagged with; there is no default.
@@ -113,6 +116,7 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		panic("api: TRUSTED_PROXIES: " + err.Error())
 	}
+	r.Use(middleware.WarnUntrustedForwarding(cfg.forwardingWarning))
 
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Environment(cfg.processEnvironment()))

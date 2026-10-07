@@ -117,9 +117,6 @@ func TestLinkPaymentCreatorIsIdempotentAndFindsByLinkPaymentID(t *testing.T) {
 	db := linkCreatorDB(t)
 	c := NewLinkPaymentCreator(NewPaymentService(repository.NewPaymentRepository(db)), db, "")
 	ctx := context.Background()
-	if _, found, err := c.FindPayment(ctx, "lp-2"); found || err != nil {
-		t.Fatalf("found before creation: %v %v", found, err)
-	}
 	first, err := c.CreatePayment(ctx, linkPayReq("lp-2"))
 	if err != nil {
 		t.Fatal(err)
@@ -133,13 +130,75 @@ func TestLinkPaymentCreatorIsIdempotentAndFindsByLinkPaymentID(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("%d payments for one link payment id", n)
 	}
-	got, found, err := c.FindPayment(ctx, "lp-2")
+	got, found, err := c.FencePayment(ctx, linkPayReq("lp-2"))
 	if err != nil || !found || got.Reference != first.Reference {
-		t.Fatalf("find %+v %v %v", got, found, err)
+		t.Fatalf("fence of a live payment %+v %v %v", got, found, err)
 	}
-	db.Model(&models.PaymentRequest{}).Where("reference_id = ?", "pl_lp-2").Update("state", models.PaymentStateCancelled)
-	if _, found, _ := c.FindPayment(ctx, "lp-2"); found {
-		t.Fatal("a cancelled payment counts as created")
+	if open, err := c.OpenPayments(ctx, []string{"lp-2", "lp-none"}); err != nil || !open["lp-2"] || open["lp-none"] {
+		t.Fatalf("open %v %v", open, err)
+	}
+	if err := c.CancelPayment(ctx, "lp-2"); err != nil {
+		t.Fatal(err)
+	}
+	if open, _ := c.OpenPayments(ctx, []string{"lp-2"}); open["lp-2"] {
+		t.Fatal("a cancelled payment is open")
+	}
+}
+
+func TestLinkPaymentCreatorFenceMakesALateCreationFail(t *testing.T) {
+	db := linkCreatorDB(t)
+	c := NewLinkPaymentCreator(NewPaymentService(repository.NewPaymentRepository(db)), db, "")
+	ctx := context.Background()
+	if _, found, err := c.FencePayment(ctx, linkPayReq("lp-6")); found || err != nil {
+		t.Fatalf("fence before creation: %v %v", found, err)
+	}
+	if _, found, err := c.FencePayment(ctx, linkPayReq("lp-6")); found || err != nil {
+		t.Fatalf("second fence: %v %v", found, err)
+	}
+	if _, err := c.CreatePayment(ctx, linkPayReq("lp-6")); !errors.Is(err, links.ErrNotCreated) {
+		t.Fatalf("creation after the fence: %v", err)
+	}
+	// The stalled path: the payment service itself inserting after the fence hits the unique index.
+	if _, err := c.payments.CreatePayment(CreatePaymentInput{AmountInUSD: decimal.NewFromInt(1), ReferenceID: LinkPaymentReference("lp-6")}, 4, 9); err == nil {
+		t.Fatal("a second payment took a fenced reference")
+	}
+	var live int64
+	db.Model(&models.PaymentRequest{}).Where("reference_id = ? AND state <> ?", "pl_lp-6", models.PaymentStateCancelled).Count(&live)
+	if live != 0 {
+		t.Fatalf("%d live payments behind a fence", live)
+	}
+}
+
+// failingAfterInsert writes the payment and then fails, as a payment service whose rollback also failed would.
+type failingAfterInsert struct {
+	repository.PaymentRepository
+	db    *gorm.DB
+	state string
+}
+
+func (r failingAfterInsert) Create(p *models.PaymentRequest) error {
+	if err := r.PaymentRepository.Create(p); err != nil {
+		return err
+	}
+	r.db.Model(p).Update("state", r.state)
+	return errors.New("address pool exhausted")
+}
+
+func TestLinkPaymentCreatorCancelsAHalfCreatedPayment(t *testing.T) {
+	for _, tc := range []struct {
+		state      string
+		notCreated bool
+	}{{models.PaymentStateOpen, true}, {models.PaymentStatePartiallyFilled, false}} {
+		db := linkCreatorDB(t)
+		svc := NewPaymentService(failingAfterInsert{repository.NewPaymentRepository(db), db, tc.state})
+		c := NewLinkPaymentCreator(svc, db, "")
+		_, err := c.CreatePayment(context.Background(), linkPayReq("lp-7"))
+		if errors.Is(err, links.ErrNotCreated) != tc.notCreated || err == nil {
+			t.Fatalf("%s: %v", tc.state, err)
+		}
+		if _, found, _ := c.FencePayment(context.Background(), linkPayReq("lp-7")); found == tc.notCreated {
+			t.Fatalf("%s: half-created payment live=%v", tc.state, found)
+		}
 	}
 }
 

@@ -151,6 +151,16 @@ func Run(t *testing.T, newFixture func(t *testing.T) Fixture) {
 		if got, _ := f.Store.FindPayment(ctx, l.ID, "k2"); got != nil {
 			t.Fatal("released use is still findable")
 		}
+		again, existing, err := f.Store.Reserve(ctx, use(l, "k2", now), now, links.ReserveLimits{})
+		if err != nil || existing != nil || again.ID == r2.ID {
+			t.Fatalf("a released key cannot be reserved afresh: %+v %v", existing, err)
+		}
+		if err := f.Store.Release(ctx, r2.ID); !errors.Is(err, links.ErrStale) {
+			t.Fatalf("second release: %v", err)
+		}
+		if got, err := f.Store.Link(ctx, l.ID); err != nil || got.ID != l.ID {
+			t.Fatalf("unscoped link read %v", err)
+		}
 	})
 
 	t.Run("reserve enforces availability limits and fee bearer", func(t *testing.T) {
@@ -192,6 +202,37 @@ func Run(t *testing.T, newFixture func(t *testing.T) Fixture) {
 		other.IdempotencyKey = "o3"
 		if _, _, err := f.Store.Reserve(ctx, other, later, caps); err != nil {
 			t.Fatalf("caps after the uses stopped being open: %v", err)
+		}
+	})
+
+	t.Run("finished uses stop counting as open", func(t *testing.T) {
+		f := newFixture(t)
+		l := active(t, f, func(l *links.Link) { l.MultiUse = true })
+		var ids []string
+		for i := range 2 {
+			r, _, err := f.Store.Reserve(ctx, use(l, fmt.Sprint("o", i), now), now, links.ReserveLimits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Store.Complete(ctx, r.ID, links.CreatedPayment{Reference: r.ID}, now.Add(time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, r.ID)
+		}
+		open, err := f.Store.OpenCreated(ctx, l.ID, now, 10)
+		if err != nil || len(open) != 2 {
+			t.Fatalf("open %d %v", len(open), err)
+		}
+		if err := f.Store.CloseUses(ctx, ids[:1], now); err != nil {
+			t.Fatal(err)
+		}
+		open, _ = f.Store.OpenCreated(ctx, l.ID, now, 10)
+		if len(open) != 1 || open[0].ID != ids[1] {
+			t.Fatalf("after close %+v", open)
+		}
+		caps := links.ReserveLimits{MaxOpenPerClient: 2}
+		if _, _, err := f.Store.Reserve(ctx, use(l, "o2", now), now, caps); err != nil {
+			t.Fatalf("a closed use still counted: %v", err)
 		}
 	})
 

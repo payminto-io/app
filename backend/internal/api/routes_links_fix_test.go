@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -136,5 +137,37 @@ func TestRouterIgnoresSpoofedForwardedForAndLimitsWithoutRedis(t *testing.T) {
 	}
 	if limited != 5 {
 		t.Fatalf("%d of %d requests limited; X-Forwarded-For must not mint new clients and no Redis must not mean no limit", limited, linksPublicPayPerMinute+5)
+	}
+}
+
+func TestRouterTrustsConfiguredProxyAndWarnsAboutOthers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := links.NewService(links.NewMemStore(), linksFees{}, &linksCreator{})
+	var warned []string
+	r := NewRouter(RouterConfig{
+		Links: &modules.LinksModule{Port: svc}, Environment: &modules.EnvironmentModule{Environment: environment.Test},
+		TrustedProxies: []string{"172.29.86.10"}, forwardingWarning: func(peer string) { warned = append(warned, peer) },
+	})
+	send := func(remote, xff string) int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v2/public/links/AAAAAAAAAAAA/pay", strings.NewReader(`{}`))
+		req.RemoteAddr = remote
+		req.Header.Set("X-Forwarded-For", xff)
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	// Through the trusted proxy, each forwarded client has its own budget.
+	for i := range linksPublicPayPerMinute + 5 {
+		if code := send("172.29.86.10:5000", "203.0.113."+strconv.Itoa(i)); code == http.StatusTooManyRequests {
+			t.Fatalf("distinct client %d behind the trusted proxy was limited", i)
+		}
+	}
+	if len(warned) != 0 {
+		t.Fatalf("warned about the trusted proxy: %v", warned)
+	}
+	send("198.51.100.20:5000", "203.0.113.1")
+	send("198.51.100.21:5000", "203.0.113.1")
+	if len(warned) != 1 || warned[0] != "198.51.100.20" {
+		t.Fatalf("warnings %v, want one for the first untrusted forwarder", warned)
 	}
 }

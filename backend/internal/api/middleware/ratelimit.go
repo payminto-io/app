@@ -27,13 +27,10 @@ func RateLimitScoped(rdb *redis.Client, scope string, limit int, window time.Dur
 		key := rateLimitKey(scope, c.ClientIP())
 		ctx := context.Background()
 
-		count, err := rdb.Incr(ctx, key).Result()
+		count, err := incrWindow(ctx, rdb, key, window)
 		if err != nil {
 			c.Next()
 			return
-		}
-		if count == 1 {
-			rdb.Expire(ctx, key, window)
 		}
 		if count > int64(limit) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
@@ -52,4 +49,17 @@ func rateLimitKey(scope, ip string) string {
 		return fmt.Sprintf("ratelimit:%s", ip)
 	}
 	return fmt.Sprintf("ratelimit:%s:%s", scope, ip)
+}
+
+// incrWindowScript counts and sets the TTL in one atomic step, and restores a TTL a key somehow lost.
+var incrWindowScript = redis.NewScript(`
+local count = redis.call('INCR', KEYS[1])
+if redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return count`)
+
+// incrWindow counts one request in key's window; the key always expires.
+func incrWindow(ctx context.Context, rdb *redis.Client, key string, window time.Duration) (int64, error) {
+	return incrWindowScript.Run(ctx, rdb, []string{key}, window.Milliseconds()).Int64()
 }

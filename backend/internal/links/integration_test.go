@@ -35,20 +35,39 @@ type creator struct {
 	delay     time.Duration
 	mu        sync.Mutex
 	made      map[string]links.CreatedPayment
+	fenced    map[string]bool
 }
 
-func (c *creator) FindPayment(_ context.Context, id string) (links.CreatedPayment, bool, error) {
+func (c *creator) FencePayment(_ context.Context, req links.PaymentRequest) (links.CreatedPayment, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	got, ok := c.made[id]
-	return got, ok, nil
+	if got, ok := c.made[req.LinkPaymentID]; ok {
+		return got, true, nil
+	}
+	if c.fenced == nil {
+		c.fenced = map[string]bool{}
+	}
+	c.fenced[req.LinkPaymentID] = true
+	return links.CreatedPayment{}, false, nil
 }
+
+func (c *creator) CancelPayment(context.Context, string) error { return nil }
 
 func (c *creator) Connectors(_ context.Context, _ links.Environment, _ string, m links.MethodSpec) ([]string, error) {
 	if m.Method == fees.MethodBank {
 		return nil, nil
 	}
 	return []string{""}, nil
+}
+
+func (c *creator) OpenPayments(_ context.Context, ids []string) (map[string]bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := map[string]bool{}
+	for _, id := range ids {
+		_, out[id] = c.made[id]
+	}
+	return out, nil
 }
 
 func (c *creator) CreatePayment(_ context.Context, req links.PaymentRequest) (links.CreatedPayment, error) {
@@ -61,6 +80,9 @@ func (c *creator) CreatePayment(_ context.Context, req links.PaymentRequest) (li
 	defer c.mu.Unlock()
 	if got, ok := c.made[req.LinkPaymentID]; ok {
 		return got, nil
+	}
+	if c.fenced[req.LinkPaymentID] {
+		return links.CreatedPayment{}, fmt.Errorf("%w: fenced", links.ErrNotCreated)
 	}
 	created := links.CreatedPayment{Reference: "ref-" + req.LinkPaymentID, CheckoutURL: "https://checkout.test/pay/ref-" + req.LinkPaymentID}
 	if c.made == nil {
@@ -413,7 +435,7 @@ func TestIntegration_DefinitiveRefusalReleasesTheUse(t *testing.T) {
 	}
 	var uses, rows int64
 	s.db.Raw(`SELECT uses_count FROM payment_links WHERE id = ?`, l.ID).Scan(&uses)
-	s.db.Raw(`SELECT count(*) FROM payment_link_payments WHERE link_id = ?`, l.ID).Scan(&rows)
+	s.db.Raw(`SELECT count(*) FROM payment_link_payments WHERE link_id = ? AND status <> 'released'`, l.ID).Scan(&rows)
 	if uses != 0 || rows != 0 {
 		t.Fatalf("uses %d rows %d after a failed creation", uses, rows)
 	}

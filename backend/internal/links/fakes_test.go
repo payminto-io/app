@@ -3,6 +3,7 @@ package links
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,10 +97,16 @@ type fakeCreator struct {
 	findErr    error
 	calls      atomic.Int64
 	delay      time.Duration
+	cancelled  map[string]bool
+	fenced     map[string]bool
+	paid       map[string]bool
+	// leaky makes the fence a no-op, to exercise the cancel path for a creator that cannot fence.
+	leaky bool
 }
 
 func newFakeCreator() *fakeCreator {
-	return &fakeCreator{connectors: map[string][]string{}, byID: map[string]CreatedPayment{}}
+	return &fakeCreator{connectors: map[string][]string{}, byID: map[string]CreatedPayment{},
+		cancelled: map[string]bool{}, fenced: map[string]bool{}, paid: map[string]bool{}}
 }
 
 func (c *fakeCreator) offer(m MethodSpec, conns ...string) {
@@ -127,6 +134,9 @@ func (c *fakeCreator) CreatePayment(ctx context.Context, req PaymentRequest) (Cr
 	if got, ok := c.byID[req.LinkPaymentID]; ok {
 		return got, nil
 	}
+	if c.fenced[req.LinkPaymentID] {
+		return CreatedPayment{}, fmt.Errorf("%w: reference is fenced", ErrNotCreated)
+	}
 	if err := ctx.Err(); err != nil {
 		return CreatedPayment{}, err
 	}
@@ -139,14 +149,60 @@ func (c *fakeCreator) CreatePayment(ctx context.Context, req PaymentRequest) (Cr
 	return created, nil
 }
 
-func (c *fakeCreator) FindPayment(_ context.Context, id string) (CreatedPayment, bool, error) {
+func (c *fakeCreator) FencePayment(_ context.Context, req PaymentRequest) (CreatedPayment, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.findErr != nil {
 		return CreatedPayment{}, false, c.findErr
 	}
-	got, ok := c.byID[id]
-	return got, ok, nil
+	if got, ok := c.byID[req.LinkPaymentID]; ok && !c.cancelled[req.LinkPaymentID] {
+		return got, true, nil
+	}
+	if !c.leaky {
+		c.fenced[req.LinkPaymentID] = true
+	}
+	return CreatedPayment{}, false, nil
+}
+
+func (c *fakeCreator) CancelPayment(_ context.Context, id string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cancelled[id] = true
+	return nil
+}
+
+func (c *fakeCreator) OpenPayments(_ context.Context, ids []string) (map[string]bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := map[string]bool{}
+	for _, id := range ids {
+		_, made := c.byID[id]
+		out[id] = made && !c.paid[id] && !c.cancelled[id]
+	}
+	return out, nil
+}
+
+func (c *fakeCreator) markPaid(ref string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for id, got := range c.byID {
+		if got.Reference == ref {
+			c.paid[id] = true
+		}
+	}
+}
+
+// livePayments counts payments created and not cancelled.
+func (c *fakeCreator) livePayments() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, r := range c.created {
+		if !c.cancelled[r.LinkPaymentID] {
+			n++
+		}
+	}
+	return n
 }
 
 func (c *fakeCreator) payments() int {
