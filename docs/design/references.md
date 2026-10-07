@@ -115,3 +115,17 @@ Mobbin has almost no hosted crypto checkout screens, so these come from wallets,
 - Ramp: dense tables, 13px type, black primary buttons, status as coloured text not pills. Taken: black primary, status-as-text option in dense tables.
 - Brex: strong left nav with icons, large balance number with a smaller currency code after it. Taken: currency code after the number, 60% size.
 - Adyen Customer Area: a payment's lifecycle shown as a horizontal stepper (Authorised, Captured, Settled). Taken directly as our settlement rail (see DESIGN.md, "The rail").
+
+## Checkout
+
+Added 2026-10-07 for the hosted checkout redesign (`checkout/`). The earlier "Checkout, desktop and mobile" and "Stablecoin pay states" tables above still apply; these are the extra screens opened for this pass.
+
+| Reference | Screen | Good | Take | Avoid |
+| --- | --- | --- | --- | --- |
+| Stripe accept-payment preview | https://mobbin.com/screens/f3d0a91f-6277-46f2-99b5-f6481f3e5a43 | Left: merchant, amount, line items with subtotal and total due. Right: contact, payment method tiles (Card, GrabPay), fields, one button. | Line items with a single "Total due" line as the only bold one; method choice as tiles above the fields. | The brand-blue left pane. Ours is ink on canvas. |
+| Lemon Squeezy checkout preview | https://mobbin.com/screens/e6993f5b-8386-4400-8eff-090087cb802b | Product with description on the left, variant radio cards with prices, "Payment details" with one field and "Continue" on the right. | Radio cards for the choice with a consequence line under each. | Purple primary button. |
+| Ro pay sheet (iOS) | https://mobbin.com/screens/53ede06d-f872-4f28-8509-c0df284af099 | Method rows (card with lock, Apple Pay, PayPal), "Pay $35 today" black button, the exact charge sentence under it. | Method rows at 56px with a radio, a mark and a title; the amount on the button. | The TLS badge line. |
+| American Airlines review and pay (iOS) | https://mobbin.com/screens/bb5fa997-be4e-47b8-baa1-260802501055 | Collapsible trip summary with a chevron, "Total amount due" card, method radios, total and pay button pinned at the bottom. | The collapsible summary header on mobile and the pinned pay button above the safe area. | Blue link colour for everything. |
+| Coinbase select network (iOS) | https://mobbin.com/screens/f185d754-4fcf-4f5e-9e60-9ba6dd632a4b | Network rows with the chain mark, name and an estimated fee column; an info strip explaining what to pick. | Network is a first-class choice with the chain named in words, never an icon alone. | A fee column we do not hold data for. |
+| Coinbase request summary (iOS) | https://mobbin.com/screens/e6f998cc-237e-4e04-b94f-de110dab55fb | Large amount, asset under it, label/value rows (From, Note, Amount, Asset), one button. | Label/value rows for the receipt. | Brand-blue amount. |
+| Cash App pay with bitcoin sheet (iOS) | https://mobbin.com/screens/51169081-3312-445f-b486-4e5fcf7abeba | Merchant name as the heading, one sentence about the rail (Lightning), two buttons. | Name the rail in a sentence next to the merchant. | Full-bleed map. |
