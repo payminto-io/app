@@ -204,13 +204,17 @@ func TestSolanaDeposit_I5_WatchWindowCadenceAndBatching(t *testing.T) {
 	if f.rpc.Count("getMultipleAccounts") != before+1 {
 		t.Fatalf("late cadence not applied: %d", f.rpc.Count("getMultipleAccounts")-before)
 	}
-	// After watch_until the account is expired and never polled again.
+	// After watch_until the account gets one final balance read, then only the slow expired scan.
 	f.svc.now = func() time.Time { return expires.Add(48 * time.Hour) }
 	before = f.rpc.Count("getMultipleAccounts")
 	f.mustPoll(ctx)
 	got, _ := f.accounts.GetByDepositAddressID(acct.DepositAddressID)
-	if got.Status != models.SolanaDepositAccountExpired || f.rpc.Count("getMultipleAccounts") != before {
+	if got.Status != models.SolanaDepositAccountExpired || f.rpc.Count("getMultipleAccounts") != before+1 {
 		t.Fatalf("status = %s calls = %d", got.Status, f.rpc.Count("getMultipleAccounts")-before)
+	}
+	f.mustPoll(ctx)
+	if f.rpc.Count("getMultipleAccounts") != before+1 {
+		t.Fatal("expired account polled again before the expired scan cadence")
 	}
 }
 

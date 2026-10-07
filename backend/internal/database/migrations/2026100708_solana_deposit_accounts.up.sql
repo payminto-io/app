@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS solana_deposit_accounts (
     owner_poll_after timestamptz,
     held_signature varchar(128),
     held_attempts integer DEFAULT 0,
-    unresolved_signatures text
+    unresolved_signatures text,
+    balance_hold_attempts integer DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_deposit_accounts_deposit_address_id ON solana_deposit_accounts (deposit_address_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_deposit_accounts_token_account ON solana_deposit_accounts (token_account);
@@ -64,6 +65,6 @@ CREATE TABLE IF NOT EXISTS solana_sweep_deposits (
     sweep_id bigint NOT NULL,
     deposit_id bigint NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_solana_sweep_deposits_sweep_id ON solana_sweep_deposits (sweep_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_sweep_deposits_deposit_id ON solana_sweep_deposits (deposit_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_sweep_deposits_sweep_deposit ON solana_sweep_deposits (sweep_id, deposit_id);
+CREATE INDEX IF NOT EXISTS idx_solana_sweep_deposits_deposit_id ON solana_sweep_deposits (deposit_id);
 CREATE INDEX IF NOT EXISTS idx_solana_sweep_deposits_deleted_at ON solana_sweep_deposits (deleted_at);

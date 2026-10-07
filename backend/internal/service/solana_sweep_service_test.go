@@ -183,6 +183,7 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 	}
 
 	// Finalized: fee 10000 lamports, two closed ATAs refund 2 * 2039280 to the fee payer.
+	f.rpc.Result("getAccountInfo", solana.ContextValue(1, nil))
 	f.statuses(map[string]any{"slot": 300, "confirmations": nil, "err": nil, "confirmationStatus": "finalized"})
 	// Account order: fee payer, ATA A (closed), ATA B (closed), hot ATA (created, receives 40).
 	f.rpc.Result("getTransaction", map[string]any{
@@ -318,9 +319,11 @@ func TestSolanaSweep_BroadcastFailureReleasesClaim(t *testing.T) {
 	if f.depositStatus(deps[0].ID) != models.DepositStatusConfirmed {
 		t.Fatalf("deposit = %s, want confirmed", f.depositStatus(deps[0].ID))
 	}
-	var count int64
-	f.db.Model(&models.Sweep{}).Count(&count)
-	if count != 0 {
-		t.Fatal("sweep row for nothing broadcast")
+	// Rows are written before the broadcast; a failed broadcast leaves a failed sweep with no attempt.
+	if f.sweepStatus(1) != SweepStatusFailed || len(f.attempts(1)) != 0 {
+		t.Fatalf("sweep = %s attempts = %d", f.sweepStatus(1), len(f.attempts(1)))
+	}
+	if n, _ := f.svc.SweepConfirmed(context.Background()); n != 0 {
+		t.Fatal("second round broadcast again (send still failing)")
 	}
 }

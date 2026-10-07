@@ -67,6 +67,7 @@ func newSolanaFixture(t *testing.T) *solanaFixture {
 		t.Fatal(err)
 	}
 	f := &solanaFixture{t: t, db: db, rpc: solana.NewScriptedCaller(), now: time.Now()}
+	f.rpc.Nodes = 2 // "absent on two nodes" needs two endpoints; single-endpoint tests set 1
 
 	family := models.BlockchainFamily{Name: "Solana", Code: "sol", Family: "SOL_Family"}
 	must(t, db.Create(&family).Error)

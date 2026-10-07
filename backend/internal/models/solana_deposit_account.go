@@ -35,6 +35,8 @@ type SolanaDepositAccount struct {
 	HeldSignature        string `gorm:"type:varchar(128)" json:"heldSignature"`
 	HeldAttempts         int    `gorm:"default:0" json:"heldAttempts"`
 	UnresolvedSignatures string `gorm:"type:text" json:"unresolvedSignatures"`
+	// BalanceHoldAttempts counts ticks a balance movement went unexplained by any listed signature.
+	BalanceHoldAttempts int `gorm:"default:0" json:"balanceHoldAttempts"`
 
 	DepositAddress *DepositAddress `gorm:"foreignKey:DepositAddressID" json:"-"`
 }
@@ -73,10 +75,11 @@ const (
 )
 
 // SolanaSweepDeposit links the deposits a sweep claimed, so a failed sweep releases exactly those.
+// A deposit released by a failed sweep is claimed again by a later sweep, so uniqueness is per sweep.
 type SolanaSweepDeposit struct {
 	PaymintoModel
-	SweepID   uint `gorm:"not null;index" json:"sweepID"`
-	DepositID uint `gorm:"not null;uniqueIndex" json:"depositID"`
+	SweepID   uint `gorm:"not null;uniqueIndex:idx_solana_sweep_deposits_sweep_deposit,priority:1" json:"sweepID"`
+	DepositID uint `gorm:"not null;index;uniqueIndex:idx_solana_sweep_deposits_sweep_deposit,priority:2" json:"depositID"`
 }
 
 func (SolanaSweepDeposit) TableName() string { return "solana_sweep_deposits" }

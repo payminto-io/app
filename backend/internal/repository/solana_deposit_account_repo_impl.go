@@ -15,6 +15,10 @@ type SolanaDepositAccountRepository interface {
 	ListByStatus(status string, limit int) ([]models.SolanaDepositAccount, error)
 	// ListDue returns watching accounts whose token poll is due, least recently polled first.
 	ListDue(now time.Time, limit int) ([]models.SolanaDepositAccount, error)
+	// ListExpiring returns watching accounts past watch_until.
+	ListExpiring(now time.Time, limit int) ([]models.SolanaDepositAccount, error)
+	// ListExpiredDue returns expired accounts whose slow balance scan is due.
+	ListExpiredDue(now time.Time, limit int) ([]models.SolanaDepositAccount, error)
 	// ExpireWatching moves watching accounts past watch_until to expired; returns how many.
 	ExpireWatching(now time.Time) (int64, error)
 	// Update applies column updates by id.
@@ -68,6 +72,24 @@ func (r *solanaDepositAccountRepository) ListDue(now time.Time, limit int) ([]mo
 	var out []models.SolanaDepositAccount
 	q := r.db.Where("status = ? AND (token_poll_after IS NULL OR token_poll_after <= ?)", models.SolanaDepositAccountWatching, now).
 		Order("last_polled_at ASC NULLS FIRST").Order("id ASC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	return out, q.Find(&out).Error
+}
+
+func (r *solanaDepositAccountRepository) ListExpiring(now time.Time, limit int) ([]models.SolanaDepositAccount, error) {
+	var out []models.SolanaDepositAccount
+	q := r.db.Where("status = ? AND watch_until IS NOT NULL AND watch_until < ?", models.SolanaDepositAccountWatching, now).Order("id ASC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	return out, q.Find(&out).Error
+}
+
+func (r *solanaDepositAccountRepository) ListExpiredDue(now time.Time, limit int) ([]models.SolanaDepositAccount, error) {
+	var out []models.SolanaDepositAccount
+	q := r.db.Where("status = ? AND (token_poll_after IS NULL OR token_poll_after <= ?)", models.SolanaDepositAccountExpired, now).Order("token_poll_after ASC NULLS FIRST").Order("id ASC")
 	if limit > 0 {
 		q = q.Limit(limit)
 	}

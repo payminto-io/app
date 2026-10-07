@@ -148,7 +148,11 @@ func WireSolana(deps Deps) (*SolanaModule, error) {
 			if env == environment.Live {
 				return nil, fmt.Errorf("%w: %v", environment.ErrBoot, err)
 			}
-			log.Printf("[solana] MINT MISMATCH, deposits for %s will not credit: %v", row.CurrencyCode, err)
+			log.Printf("[solana] MINT MISMATCH, deposits for %s disabled until the seed is fixed: %v", row.CurrencyCode, err)
+			row.DepositEnabled = false
+			if uerr := currencies.Update(&row); uerr != nil {
+				log.Printf("[solana] disable %s deposits: %v", row.CurrencyCode, uerr)
+			}
 			continue
 		}
 		m.Tokens = append(m.Tokens, row)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"slices"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/repository"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -42,6 +44,8 @@ type SolanaDepositConfig struct {
 	LateWindow time.Duration
 	// MaxAnomaliesPerAccountPerDay bounds missed_deposits rows per destination (dust spam).
 	MaxAnomaliesPerAccountPerDay int
+	// ExpiredScan is how often an expired account's balance is read for late money.
+	ExpiredScan time.Duration
 }
 
 func (c SolanaDepositConfig) withDefaults() SolanaDepositConfig {
@@ -77,8 +81,19 @@ func (c SolanaDepositConfig) withDefaults() SolanaDepositConfig {
 	if c.MaxAnomaliesPerAccountPerDay <= 0 {
 		c.MaxAnomaliesPerAccountPerDay = 5
 	}
+	if c.ExpiredScan <= 0 {
+		c.ExpiredScan = 24 * time.Hour
+	}
 	return c
 }
+
+// Anomaly reasons the watcher writes beyond the parser's kinds.
+const (
+	anomalyUnexplainedBalance   = "solana_unexplained_balance"
+	anomalyLateBalance          = "solana_late_balance"
+	anomalyLatePayment          = "late_payment"
+	anomalyDropCheckUnavailable = "solana_evidence_unavailable"
+)
 
 // SolanaDepositService detects SPL deposits by polling signatures per watched account, records
 // them through DepositService, finalizes them on the finalized commitment and posts the ledger
@@ -122,15 +137,18 @@ func NewSolanaDepositService(
 // errTransientFetch marks a listed signature no node returned a transaction for.
 var errTransientFetch = errors.New("solana: transaction not yet available from any node")
 
-// PollOnce expires accounts past their window, reads every due token account in getMultipleAccounts
-// batches, and polls signatures only for accounts whose balance moved or whose cadence is due.
-// Returns how many deposits were newly recorded. Per-account errors are logged and skipped.
+// PollOnce expires accounts past their window (after a final balance read; held or unresolved
+// signatures keep an account watched), scans expired accounts for late money on a slow cadence,
+// reads every due token account in getMultipleAccounts batches, and polls signatures only for
+// accounts whose balance moved or whose cadence is due. Returns how many deposits were newly
+// recorded. Per-account errors are logged and skipped.
 func (s *SolanaDepositService) PollOnce(ctx context.Context) (int, error) {
 	now := s.now()
-	if n, err := s.accounts.ExpireWatching(now); err != nil {
-		return 0, fmt.Errorf("expire watched accounts: %w", err)
-	} else if n > 0 {
-		log.Printf("[solana] %d accounts passed watch_until and are no longer polled", n)
+	if err := s.expireAccounts(ctx, now); err != nil {
+		log.Printf("[solana] expire accounts: %v", err)
+	}
+	if err := s.scanExpired(ctx, now); err != nil {
+		log.Printf("[solana] expired scan: %v", err)
 	}
 	accounts, err := s.accounts.ListDue(now, s.cfg.AccountsPerPoll)
 	if err != nil {
@@ -157,6 +175,82 @@ func (s *SolanaDepositService) PollOnce(ctx context.Context) (int, error) {
 		recorded += n
 	}
 	return recorded, nil
+}
+
+// expireAccounts reads each account past watch_until once more: a balance with no deposit recorded
+// is late money and an anomaly; accounts holding a held or unresolved signature stay watched.
+func (s *SolanaDepositService) expireAccounts(ctx context.Context, now time.Time) error {
+	due, err := s.accounts.ListExpiring(now, 200)
+	if err != nil {
+		return err
+	}
+	if len(due) == 0 {
+		return nil
+	}
+	balances, err := s.tokenBalances(ctx, due)
+	if err != nil {
+		return err
+	}
+	for i := range due {
+		acct := &due[i]
+		if acct.HeldSignature != "" || len(decodeSignatures(acct.UnresolvedSignatures)) > 0 {
+			continue
+		}
+		bal := balances[acct.TokenAccount]
+		s.flagLateBalance(acct, bal)
+		if err := s.accounts.Update(acct.ID, map[string]any{"status": models.SolanaDepositAccountExpired, "last_balance_raw": bal, "token_poll_after": now.Add(s.cfg.ExpiredScan)}); err != nil {
+			return err
+		}
+	}
+	log.Printf("[solana] %d accounts passed watch_until; now on the expired scan", len(due))
+	return nil
+}
+
+// scanExpired reads expired accounts' balances on ExpiredScan and flags anything that arrived.
+func (s *SolanaDepositService) scanExpired(ctx context.Context, now time.Time) error {
+	list, err := s.accounts.ListExpiredDue(now, 500)
+	if err != nil || len(list) == 0 {
+		return err
+	}
+	balances, err := s.tokenBalances(ctx, list)
+	if err != nil {
+		return err
+	}
+	for i := range list {
+		acct := &list[i]
+		bal := balances[acct.TokenAccount]
+		if bal != acct.LastBalanceRaw {
+			s.flagLateBalance(acct, bal)
+		}
+		if err := s.accounts.Update(acct.ID, map[string]any{"last_balance_raw": bal, "token_poll_after": now.Add(s.cfg.ExpiredScan), "last_polled_at": now}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// flagLateBalance records an anomaly when an account holds more than its recorded deposits.
+func (s *SolanaDepositService) flagLateBalance(acct *models.SolanaDepositAccount, raw string) {
+	if raw == "" || raw == "0" {
+		return
+	}
+	bal, ok := new(big.Int).SetString(raw, 10)
+	if !ok {
+		return
+	}
+	var recorded decimal.Decimal
+	s.db.Model(&models.Deposit{}).Where("to_address = ? AND blockchain_currency_id = ? AND status IN ?", acct.TokenAccount, acct.BlockchainCurrencyID,
+		[]string{models.DepositStatusPending, models.DepositStatusConfirming, models.DepositStatusConfirmed}).
+		Select("COALESCE(SUM(amount), 0)").Scan(&recorded)
+	have := decimal.NewFromBigInt(bal, -int32(acct.Decimals))
+	if !have.GreaterThan(recorded) {
+		return
+	}
+	a := solana.Anomaly{Kind: anomalyLateBalance, Signature: "late:" + acct.TokenAccount + ":" + raw, To: acct.TokenAccount, Mint: acct.Mint, Amount: have.Sub(recorded),
+		Detail: "balance after watch_until exceeds recorded deposits"}
+	if err := s.recordAnomaly(acct, a); err != nil {
+		log.Printf("[solana] late balance anomaly for %s: %v", acct.TokenAccount, err)
+	}
 }
 
 // tokenBalances reads the token accounts in batches of 100; a missing account reads as "".
@@ -225,6 +319,7 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 	// Unresolved signatures are retried on their own before anything else.
 	unresolved := decodeSignatures(acct.UnresolvedSignatures)
 	if len(unresolved) > 0 {
+		// Changing the list here is what the held-budget branch below reads back.
 		var still []string
 		for _, sig := range unresolved {
 			n, err := s.processSignature(ctx, acct, watch, sig)
@@ -242,13 +337,15 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 	}
 
 	balanceMoved := balance != acct.LastBalanceRaw
-	updates["last_balance_raw"] = balance
 	ownerDue := acct.OwnerPollAfter == nil || !now.Before(*acct.OwnerPollAfter)
 	if late {
 		ownerDue = true
 	}
-	if balanceMoved || acct.HeldSignature != "" || late {
-		n, cursor, err := s.pollAddress(ctx, acct, watch, acct.TokenAccount, acct.TokenAccountCursor, seen)
+	// The new balance is persisted only once the signature poll explained the movement; an
+	// unexplained movement keeps re-triggering the poll under its own budget (NEW-C2).
+	explained := !balanceMoved
+	if balanceMoved || acct.HeldSignature != "" || late || acct.BalanceHoldAttempts > 0 {
+		n, cursor, listed, err := s.pollAddress(ctx, acct, watch, acct.TokenAccount, acct.TokenAccountCursor, seen)
 		recorded += n
 		held, attempts := "", 0
 		var hold *heldError
@@ -260,11 +357,20 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 			if attempts >= s.cfg.MaxHeldAttempts {
 				// Budget spent: record it, track it on its own, and let later signatures proceed.
 				s.recordUnresolved(acct, hold.signature, attempts)
-				updates["unresolved_signatures"] = encodeSignatures(append(decodeSignatures(fmt.Sprint(updates["unresolved_signatures"])), hold.signature))
+				current := decodeSignatures(acct.UnresolvedSignatures)
+				if v, ok := updates["unresolved_signatures"].(string); ok {
+					current = decodeSignatures(v)
+				}
+				updates["unresolved_signatures"] = encodeSignatures(append(current, hold.signature))
 				seen[hold.signature] = true
-				n, cursor, err = s.pollAddress(ctx, acct, watch, acct.TokenAccount, acct.TokenAccountCursor, seen)
-				recorded += n
+				var n2 int
+				var hold2 *heldError
+				n2, cursor, listed, err = s.pollAddress(ctx, acct, watch, acct.TokenAccount, acct.TokenAccountCursor, seen)
+				recorded += n2
 				held, attempts = "", 0
+				if errors.As(err, &hold2) {
+					held, attempts = hold2.signature, 1
+				}
 			}
 		}
 		if cursor != "" {
@@ -275,9 +381,24 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 		if err != nil {
 			pollErr = err
 		}
+		// Listed signatures or a transient hold explain the movement; nothing listed and no error
+		// means the node that reported the balance and the node that listed signatures disagree.
+		explained = explained || listed > 0 || held != ""
+	}
+	if explained {
+		updates["last_balance_raw"] = balance
+		updates["balance_hold_attempts"] = 0
+	} else {
+		holdAttempts := acct.BalanceHoldAttempts + 1
+		updates["balance_hold_attempts"] = holdAttempts
+		if holdAttempts >= s.cfg.MaxHeldAttempts {
+			s.recordBalanceHold(acct, balance, holdAttempts)
+			updates["last_balance_raw"] = balance
+			updates["balance_hold_attempts"] = 0
+		}
 	}
 	if ownerDue {
-		n, cursor, err := s.pollAddress(ctx, acct, watch, acct.OwnerAddress, acct.OwnerCursor, seen)
+		n, cursor, _, err := s.pollAddress(ctx, acct, watch, acct.OwnerAddress, acct.OwnerCursor, seen)
 		recorded += n
 		if cursor != "" {
 			updates["owner_cursor"] = cursor
@@ -305,18 +426,18 @@ type heldError struct{ signature string }
 func (e *heldError) Error() string        { return "solana: holding cursor below " + e.signature }
 func (e *heldError) Is(target error) bool { return target == errTransientFetch }
 
-// pollAddress fetches new signatures for one address and processes them oldest first. The returned
-// cursor is the newest fully processed signature; a transient failure holds it below that signature.
-func (s *SolanaDepositService) pollAddress(ctx context.Context, acct *models.SolanaDepositAccount, watch solana.Watch, address, cursor string, seen map[string]bool) (int, string, error) {
+// pollAddress fetches new signatures for one address and processes them oldest first. It returns
+// the newest fully processed signature as the cursor (a transient failure holds it below that
+// signature) and how many new signatures the node listed.
+func (s *SolanaDepositService) pollAddress(ctx context.Context, acct *models.SolanaDepositAccount, watch solana.Watch, address, cursor string, seen map[string]bool) (recorded int, newCursor string, listed int, err error) {
 	sigs, err := s.newSignatures(ctx, address, cursor)
 	if err != nil {
-		return 0, "", err
+		return 0, "", 0, err
 	}
 	if len(sigs) == 0 {
-		return 0, "", nil
+		return 0, "", 0, nil
 	}
-	recorded := 0
-	newCursor := sigs[0].Signature
+	newCursor = sigs[0].Signature
 	for i := len(sigs) - 1; i >= 0; i-- {
 		info := sigs[i]
 		if seen[info.Signature] || info.Failed() {
@@ -330,14 +451,23 @@ func (s *SolanaDepositService) pollAddress(ctx context.Context, acct *models.Sol
 				newCursor = sigs[i+1].Signature
 			}
 			if errors.Is(err, errTransientFetch) {
-				return recorded, newCursor, &heldError{signature: info.Signature}
+				return recorded, newCursor, len(sigs), &heldError{signature: info.Signature}
 			}
 			log.Printf("[solana] %s: %v", info.Signature, err)
-			return recorded, newCursor, err
+			return recorded, newCursor, len(sigs), err
 		}
 		recorded += n
 	}
-	return recorded, newCursor, nil
+	return recorded, newCursor, len(sigs), nil
+}
+
+// recordBalanceHold writes the anomaly for a balance movement no signature explained within the budget.
+func (s *SolanaDepositService) recordBalanceHold(acct *models.SolanaDepositAccount, balance string, attempts int) {
+	a := solana.Anomaly{Kind: anomalyUnexplainedBalance, Signature: "balance:" + acct.TokenAccount + ":" + balance, To: acct.TokenAccount, Mint: acct.Mint,
+		Detail: fmt.Sprintf("balance %s -> %s with no signature listed in %d polls", acct.LastBalanceRaw, balance, attempts)}
+	if err := s.recordAnomaly(acct, a); err != nil {
+		log.Printf("[solana] unexplained balance anomaly for %s: %v", acct.TokenAccount, err)
+	}
 }
 
 // newSignatures pages getSignaturesForAddress from the tip back to the cursor, newest first.
@@ -472,8 +602,8 @@ func (s *SolanaDepositService) ConfirmOnce(ctx context.Context) (int, error) {
 	var deposits []models.Deposit
 	err := s.db.WithContext(ctx).
 		Joins("JOIN blockchain_currencies ON blockchain_currencies.id = deposits.blockchain_currency_id").
-		Where("blockchain_currencies.blockchain_id = ? AND (deposits.status IN ? OR (deposits.status = ? AND deposits.created_at > ?))",
-			s.chain.ID, []string{models.DepositStatusPending, models.DepositStatusConfirming}, models.DepositStatusFailed, s.now().Add(-s.cfg.ReviveWindow)).
+		Where("blockchain_currencies.blockchain_id = ? AND (deposits.status IN ? OR (deposits.status = ? AND deposits.created_at > ? AND deposits.updated_at < ?))",
+			s.chain.ID, []string{models.DepositStatusPending, models.DepositStatusConfirming}, models.DepositStatusFailed, s.now().Add(-s.cfg.ReviveWindow), s.now().Add(-s.cfg.LateCadence)).
 		Order("deposits.updated_at ASC").Limit(200).
 		Find(&deposits).Error
 	if err != nil {
@@ -564,11 +694,23 @@ func (s *SolanaDepositService) evidencedDrop(ctx context.Context, d *models.Depo
 	if d.BlockNumber <= 0 || finalizedSlot <= uint64(d.BlockNumber) {
 		return false, nil
 	}
-	tx, err := s.client.GetTransactionFromNodes(ctx, d.TxID, solana.CommitmentFinalized, max(2, s.cfg.FetchNodes))
+	tx, reached, err := s.client.GetTransactionFromDistinctNodes(ctx, d.TxID, solana.CommitmentFinalized, max(2, s.cfg.FetchNodes))
 	if err != nil {
 		return false, err
 	}
-	return tx == nil, nil
+	if tx != nil {
+		return false, nil
+	}
+	if reached < 2 {
+		// One endpoint cannot evidence a drop: the deposit stays pending and the anomaly says why.
+		acct, _ := s.accounts.GetByTokenAccount(d.ToAddress)
+		if acct != nil {
+			_ = s.recordAnomaly(acct, solana.Anomaly{Kind: anomalyDropCheckUnavailable, Signature: d.TxID, To: d.ToAddress, Slot: uint64(d.BlockNumber),
+				Detail: "one rpc endpoint; a drop cannot be evidenced on two nodes"})
+		}
+		return false, nil
+	}
+	return true, nil
 }
 
 func (s *SolanaDepositService) fail(d *models.Deposit) error {
@@ -618,6 +760,13 @@ func (s *SolanaDepositService) finalize(ctx context.Context, d *models.Deposit) 
 		var pr models.PaymentRequest
 		if err := s.db.Select("state").First(&pr, *d.PaymentRequestID).Error; err == nil && pr.State != "" {
 			state = pr.State
+		}
+		if state != models.PaymentStateFilled && state != models.PaymentStatePartiallyFilled && state != models.PaymentStateOverFilled {
+			// Money for a payment that already closed: the late window exists to catch exactly this.
+			if acct, err := s.accounts.GetByTokenAccount(d.ToAddress); err == nil {
+				_ = s.recordAnomaly(acct, solana.Anomaly{Kind: anomalyLatePayment, Signature: d.TxID, From: d.FromAddress, To: d.ToAddress, Slot: uint64(d.BlockNumber),
+					Amount: d.Amount, Mint: acct.Mint, Detail: "deposit finalized while the payment is " + state})
+			}
 		}
 		metrics.PaymentConfirmed()
 	}
