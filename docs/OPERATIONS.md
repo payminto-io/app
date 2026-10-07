@@ -66,9 +66,16 @@ The double-entry ledger (`ledger_accounts`, `ledger_journals`, `ledger_lines`) i
 by trigger. A role that owns those tables can disable the triggers, so two roles are required:
 
 - A privileged migration role runs `cmd/migrate`. Migration `2026100701` creates a `NOLOGIN`
-  role `ledger_owner` and moves the ledger tables and trigger functions to it, keeping
-  `SELECT, INSERT` for the migrator. This needs `CREATEROLE` or superuser; without it the
-  migration logs a notice and the transfer must be done by hand with the same statements.
+  role `ledger_owner`, grants it to the migrator (`WITH SET TRUE, INHERIT TRUE`) and moves the
+  ledger tables and trigger functions to it, keeping `SELECT, INSERT` for the migrator. This works
+  for a superuser and for a `CREATEROLE` role that owns the database (a managed-Postgres admin user),
+  since the new owner must be granted `CREATE` on the schema by its owner.
+  Without either, the migration logs a NOTICE, leaves ownership with the migrator, and a DBA runs:
+  `CREATE ROLE ledger_owner NOLOGIN; GRANT ledger_owner TO <migrator> WITH SET TRUE, INHERIT TRUE;
+  GRANT USAGE, CREATE ON SCHEMA public TO ledger_owner;` then `ALTER TABLE ledger_accounts, ledger_journals, ledger_lines OWNER TO ledger_owner` (one
+  statement per table) and `ALTER FUNCTION ledger_* OWNER TO ledger_owner` for the five trigger
+  functions, then `GRANT SELECT, INSERT` on the tables and `USAGE, SELECT` on their sequences to the
+  migrator. A role that is a member of `ledger_owner` must never be the server's role.
 - The server connects as a separate application role with ordinary rights on every other table
   and only `SELECT, INSERT` plus sequence `USAGE` on the ledger. `cmd/migrate --ledger-app-role
   <role>` (or `POSTGRES_LEDGER_APP_ROLE`) applies exactly that grant set.
