@@ -32,6 +32,10 @@ If a task would change one of those three folders, stop: the work belongs here.
 - One backend language: Go. Frontends are TypeScript.
 - Open core: everything is Apache 2.0 unless the spec's enterprise list names it (white-label, SSO, extra custody adapters, PCI vault, extra conversion and payout connectors). Enterprise code lives only in `backend/internal/ee/` and `frontend/ee/`, behind a licence key, and core never imports it.
 
+## Modules
+
+Every capability is a module behind a port, with providers chosen by configuration. Read `docs/architecture/MODULES.md` before writing backend code; it is the contract that lets agents work in parallel.
+
 ## Running and checks
 
 ```bash
@@ -40,6 +44,7 @@ make frontend     # dashboard :3003
 make checkout     # checkout :3002
 make landing      # landing :3001
 cd backend && go test ./...
+make test-integration   # Postgres testcontainers; fails loudly without Docker
 make smoke-local  # health, CORS, admin and merchant sign-in, core APIs
 ```
 
