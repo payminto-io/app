@@ -1,0 +1,21 @@
+{
+  "name": "@gateway/cre-workflows",
+  "version": "1.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Chainlink CRE workflows for the gateway's attestation module (docs/cre/SPEC.md section 5)",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p workflows/solvency/tsconfig.json",
+    "test": "bun test workflows",
+    "simulate:solvency": "cre workflow simulate workflows/solvency --target local-simulation --non-interactive --trigger-index 0"
+  },
+  "dependencies": {
+    "@chainlink/cre-sdk": "1.23.0",
+    "viem": "^2.54.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.21",
+    "typescript": "5.9.3"
+  }
+}

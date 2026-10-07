@@ -118,9 +118,10 @@ services:
     environment:
       CRE_PUBLIC_BASE_URL: http://backend:8080
       CRE_SIMULATE_INTERVAL: ${CRE_SIMULATE_INTERVAL:-300}
-      CRE_READ_TOKEN_SOLVENCY: ${CRE_READ_TOKEN_SOLVENCY:-}
-      CRE_READ_TOKEN_DEPOSIT_FINALITY: ${CRE_READ_TOKEN_DEPOSIT_FINALITY:-}
-      CRE_READ_TOKEN_CONVERSION_REFERENCE: ${CRE_READ_TOKEN_CONVERSION_REFERENCE:-}
+      # Secret values for simulation, named as cre/secrets.yaml maps them (the CLI refuses a run with any unset).
+      SOLVENCY_READ_TOKEN: ${CRE_READ_TOKEN_SOLVENCY:-}
+      CUSTODIAN_API_KEY_VALUE: ${CUSTODIAN_API_KEY_VALUE:-not-used-when-custodian-is-null}
+      CRE_LOCAL_EVM_RPC_URL: ${CRE_LOCAL_EVM_RPC_URL:-http://host.docker.internal:8545}
     volumes:
       - ./cre:/workspace/cre:ro
     depends_on:

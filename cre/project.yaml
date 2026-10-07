@@ -1,0 +1,19 @@
+# CRE project settings (docs/cre/SPEC.md section 3). Three targets, one per workflow.yaml target:
+#   local-simulation  cre workflow simulate only; RPC is a local Anvil; the workflow returns before any write
+#   staging           Base Sepolia; also the target to use with --broadcast against a local Anvil (cre/README.md)
+#   production        Base mainnet
+# RPC URLs may reference environment variables with ${VAR}; values come from cre/.env (git-ignored) or the shell.
+local-simulation:
+  rpcs:
+    - chain-name: ethereum-testnet-sepolia-base-1
+      url: ${CRE_LOCAL_EVM_RPC_URL}
+
+staging:
+  rpcs:
+    - chain-name: ethereum-testnet-sepolia-base-1
+      url: ${CRE_STAGING_EVM_RPC_URL}
+
+production:
+  rpcs:
+    - chain-name: ethereum-mainnet-base-1
+      url: ${CRE_PRODUCTION_EVM_RPC_URL}
