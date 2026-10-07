@@ -30,6 +30,8 @@ type Config struct {
 // SwitchConfig configures the payment switch (internal/paymentswitch) and which connectors every merchant
 // may use until routing (ticket 06) owns that per merchant. The mock connector is refused in deployment environments.
 type SwitchConfig struct {
+	// Connectors is SWITCH_CONNECTORS; nil when unset, and the wiring then follows the environment contract:
+	// mock and chaindeposit in test, CONNECTORS_PROVIDER or nothing in live (never the mock).
 	Connectors        []string
 	MockWebhookSecret string
 	// ClaimLease is how long a claimed connector operation is trusted to be in flight before Sync may roll it back.
@@ -222,7 +224,7 @@ func Load() (*Config, error) {
 			SentryDSN:      envStr("SENTRY_DSN", ""),
 		},
 		Switch: SwitchConfig{
-			Connectors:           envCSVDefault("SWITCH_CONNECTORS", []string{"mock", "chaindeposit"}),
+			Connectors:           envCSVDefault("SWITCH_CONNECTORS", nil),
 			MockWebhookSecret:    envStr("SWITCH_MOCK_WEBHOOK_SECRET", "mock-webhook-secret"),
 			ClaimLease:           envDuration("SWITCH_CLAIM_LEASE", 2*time.Minute),
 			LateReceiptRetention: envDuration("SWITCH_LATE_RECEIPT_RETENTION", 30*24*time.Hour),

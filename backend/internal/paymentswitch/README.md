@@ -80,7 +80,7 @@ A fresh install has no fee rule and the switch refuses a confirm without one (`n
 
 ## Config
 
-`SWITCH_CONNECTORS` (default `mock,chaindeposit`), `SWITCH_MOCK_WEBHOOK_SECRET`, `SWITCH_CLAIM_LEASE` (default `2m`), `SWITCH_LATE_RECEIPT_RETENTION` (default `720h`); see `internal/modules/paymentswitch.go`.
+`SWITCH_CONNECTORS` (unset follows the environment contract: `mock,chaindeposit` in test, `CONNECTORS_PROVIDER` or nothing in live), `SWITCH_MOCK_WEBHOOK_SECRET`, `SWITCH_CLAIM_LEASE` (default `2m`), `SWITCH_LATE_RECEIPT_RETENTION` (default `720h`); see `internal/modules/paymentswitch.go`.
 The mock refuses to wire in staging and production.
 
 ## Routes

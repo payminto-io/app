@@ -101,3 +101,32 @@ func TestWirePaymentSwitch_RefusesMockInDeploymentAndUnknownCodes(t *testing.T) 
 		t.Fatal("production without the fees module must not wire")
 	}
 }
+
+// An unset SWITCH_CONNECTORS follows the environment contract: the mock in test, nothing or CONNECTORS_PROVIDER in live.
+func TestWirePaymentSwitch_UnsetConnectorsFollowTheEnvironmentContract(t *testing.T) {
+	test := deps(t, config.EnvironmentDevelopment)
+	test.Config.Switch.Connectors = nil
+	m, err := WirePaymentSwitch(test)
+	if err != nil || len(m.Enabled) != 2 || m.Enabled[0] != "mock" {
+		t.Fatalf("test default = %+v, %v", m, err)
+	}
+	live := deps(t, config.EnvironmentProduction)
+	live.Config.Switch.Connectors = nil
+	m, err = WirePaymentSwitch(live)
+	if err != nil || len(m.Enabled) != 0 {
+		t.Fatalf("live with nothing configured must boot with no connector, got %+v, %v", m, err)
+	}
+	live.Config.Modules.Providers = map[string]string{ConnectorsSlot: "chaindeposit"}
+	m, err = WirePaymentSwitch(live)
+	if err != nil || len(m.Enabled) != 1 || m.Enabled[0] != "chaindeposit" {
+		t.Fatalf("live CONNECTORS_PROVIDER = %+v, %v", m, err)
+	}
+	live.Config.Modules.Providers = map[string]string{ConnectorsSlot: "mock"}
+	if _, err := WirePaymentSwitch(live); !errors.Is(err, environment.ErrProvider) {
+		t.Fatalf("live CONNECTORS_PROVIDER=mock err = %v", err)
+	}
+	explicit := deps(t, config.EnvironmentDevelopment, "chaindeposit")
+	if m, err := WirePaymentSwitch(explicit); err != nil || len(m.Enabled) != 1 {
+		t.Fatalf("explicit list = %+v, %v", m, err)
+	}
+}

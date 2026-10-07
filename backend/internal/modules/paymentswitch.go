@@ -18,6 +18,24 @@ import (
 // ConnectorsSlot is the slot name of environment.KnownSlots the connectors module answers to.
 const ConnectorsSlot = "connectors"
 
+// DefaultConnectors is the enabled list: SWITCH_CONNECTORS when set; otherwise the environment contract's
+// default, the mock and chaindeposit in test, CONNECTORS_PROVIDER or nothing at all in live. A live process with
+// nothing configured boots with no connector rather than with the mock.
+func DefaultConnectors(env environment.Environment, cfg *config.Config) []string {
+	if cfg.Switch.Connectors != nil {
+		return cfg.Switch.Connectors
+	}
+	resolved := environment.ResolveProvider(env, cfg.Modules.Providers[ConnectorsSlot])
+	switch {
+	case resolved == "":
+		return nil
+	case resolved == environment.MockProvider:
+		return []string{environment.MockProvider, "chaindeposit"}
+	default:
+		return []string{resolved}
+	}
+}
+
 type PaymentSwitchModule struct {
 	Service    *paymentswitch.Service
 	Connectors *connectors.Registry
@@ -65,7 +83,7 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 	}
 	registry := connectors.NewRegistry()
 	var enabled []connectors.Code
-	for _, raw := range deps.Config.Switch.Connectors {
+	for _, raw := range DefaultConnectors(guard.Current(), deps.Config) {
 		code := connectors.Code(strings.ToLower(strings.TrimSpace(raw)))
 		if code == "" || slices.Contains(enabled, code) {
 			continue
