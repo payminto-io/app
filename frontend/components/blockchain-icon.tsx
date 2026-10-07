@@ -18,7 +18,7 @@ const CHAIN_CONFIG: Record<BlockchainNetwork, { label: string; abbr: string }> =
 }
 
 const SIZE_MAP = {
-  sm: "size-5 text-[11px]",
+  sm: "size-5 text-caption",
   md: "size-6 text-label",
   lg: "size-8 text-body-sm",
 }

@@ -282,6 +282,22 @@ Shipped in this pass (`frontend/components`):
 | AuthShell | `auth-shell.tsx` | One centred column: mark, heading, fields, button, one link. No product copy (owner decision 2026-10-07) |
 | Logo | `logo.tsx` | The rail mark and wordmark |
 
+Added in the page pass (`frontend/components`):
+
+| Component | File | Notes |
+| --- | --- | --- |
+| Pagination | `pagination.tsx` | "21-40 of 134" and two icon buttons; sits in `DataTable`'s `footer` |
+| SearchInput | `search-input.tsx` | Input with a search glyph; needs an `aria-label` |
+| DetailList, DetailItem | `detail-list.tsx` | Label/value rows; an empty value omits the row |
+| DateTime | `date-time.tsx` | Tabular timestamp with the ISO value on hover; renders nothing when missing |
+| CopyField | `copy-field.tsx` | Mono identifier with copy; `boxed` for a hero value, inline in tables |
+| RowActions | `row-actions.tsx` | The row kebab |
+| TableEmpty | `table-empty.tsx` | Empty list with the real header, two ghost rows, one sentence and one action; used by `DataTable` |
+| RouteTabs | `route-tabs.tsx` | Underline tabs that link sibling pages (wallets, settings) |
+| Notice | `notice.tsx` | One-line strip for a condition the page cannot hide |
+| SettingsSection | `settings-section.tsx` | Title left, controls in a card right |
+| EventList | `event-list.tsx` | Webhook event names as mono chips |
+
 ## 15. Screens
 
 Captured with Chrome DevTools at 390 and 1440px, light and dark, from the local dev server on :3013.
@@ -296,3 +312,8 @@ Files live in `docs/design/screens/`.
 
 The dashboard captures are of `/design`, a development-only route (`frontend/app/(public)/design`) that renders the primitives inside the real `AppShell`; `/dashboard` itself needs a session and no local seed account existed when these were taken.
 The values on that page are labelled samples, not data.
+
+Page captures from the page pass live in `docs/design/screens/pages/` as `<page>-<width>-<scheme>.png`.
+They are taken from `/design/preview/*`, a development-only route (404 in production) that renders the real page components inside the real shell.
+It answers API calls with labelled sample fixtures from `frontend/app/(public)/design/preview/fixtures.ts` and intercepts nothing outside that prefix.
+Append `?state=empty` or `?state=error` to see the empty and error states.

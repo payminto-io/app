@@ -264,7 +264,7 @@ function CreatePayoutDialog({
                 aria-describedby="otp-help"
                 value={otpCode}
                 onChange={(e) => setOtpCode(e.target.value)}
-                className="num font-mono tracking-widest"
+                className="num font-mono"
               />
             </FormField>
             <p id="otp-help" className="sr-only">

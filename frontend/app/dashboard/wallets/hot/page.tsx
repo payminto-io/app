@@ -74,7 +74,7 @@ function truncateAddress(address: string): string {
 
 /**
  * Validate a private key for a given family. Returns an error string or
- * null when valid. Deliberately lenient — the backend enforces the real
+ * null when valid. Deliberately lenient - the backend enforces the real
  * rules when storing in the vault.
  */
 function validatePrivateKey(
