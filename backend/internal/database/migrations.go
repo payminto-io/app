@@ -39,6 +39,7 @@ var migrationManifest = []struct {
 	path    string
 }{
 	{2026082701, "payment_lifecycle_open", "migrations/2026082701_payment_lifecycle_open.up.sql"},
+	{2026100701, "ledger_double_entry", "migrations/2026100701_ledger_double_entry.up.sql"},
 }
 
 // ApplyMigrations is the production schema-evolution seam. It accepts only a

@@ -30,6 +30,10 @@ func NewTestDB(t *testing.T) (*gorm.DB, func()) {
 		cleanup()
 		t.Fatalf("migrate test db: %v", err)
 	}
+	if err := MigrateExpandSchema(db); err != nil {
+		cleanup()
+		t.Fatalf("migrate test db: %v", err)
+	}
 	return db, cleanup
 }
 
