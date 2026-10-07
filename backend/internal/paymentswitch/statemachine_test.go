@@ -57,6 +57,7 @@ var expectedAttemptEdges = map[attemptEdge]bool{
 	{AttemptAuthenticationPending, AttemptAuthorized}:          true,
 	{AttemptAuthenticationPending, AttemptCharged}:             true,
 	{AttemptAuthenticationPending, AttemptAuthorizationFailed}: true,
+	{AttemptAuthenticationPending, AttemptVoided}:              true,
 	{AttemptAuthenticationPending, AttemptFailure}:             true,
 	{AttemptAuthorized, AttemptCaptureInitiated}:               true,
 	{AttemptAuthorized, AttemptCharged}:                        true,

@@ -82,10 +82,11 @@ type Connector struct {
 	secret []byte
 	now    func() time.Time
 
-	mu   sync.Mutex
-	txs  map[string]*transaction
-	seq  int
-	rseq int
+	mu        sync.Mutex
+	txs       map[string]*transaction
+	byAttempt map[string]string
+	seq       int
+	rseq      int
 }
 
 type Option func(*Connector)
@@ -96,7 +97,7 @@ func WithClock(now func() time.Time) Option {
 }
 
 func New(opts ...Option) *Connector {
-	c := &Connector{secret: []byte(defaultSecret), now: time.Now, txs: map[string]*transaction{}}
+	c := &Connector{secret: []byte(defaultSecret), now: time.Now, txs: map[string]*transaction{}, byAttempt: map[string]string{}}
 	for _, o := range opts {
 		o(c)
 	}
@@ -138,6 +139,9 @@ func (c *Connector) Authorize(_ context.Context, req connectors.AuthorizeRequest
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if existing, ok := c.byAttempt[req.AttemptID]; ok && req.AttemptID != "" {
+		return connectors.AuthorizeResponse{}, fmt.Errorf("%w: attempt %q already authorized as %s", connectors.ErrInvalidRequest, req.AttemptID, existing)
+	}
 	c.seq++
 	tx := &transaction{
 		id:            fmt.Sprintf("mock_tx_%d", c.seq),
@@ -145,6 +149,9 @@ func (c *Connector) Authorize(_ context.Context, req connectors.AuthorizeRequest
 		asset:         req.Money.Asset,
 		captureMethod: req.CaptureMethod,
 		refunds:       map[string]*refund{},
+	}
+	if req.AttemptID != "" {
+		c.byAttempt[req.AttemptID] = tx.id
 	}
 	resp := connectors.AuthorizeResponse{ConnectorTransactionID: tx.id}
 	switch scenario {
@@ -249,11 +256,15 @@ func (c *Connector) Refund(_ context.Context, req connectors.RefundRequest) (con
 func (c *Connector) Sync(_ context.Context, req connectors.SyncRequest) (connectors.SyncResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	tx, ok := c.txs[req.ConnectorTransactionID]
+	id := req.ConnectorTransactionID
+	if id == "" {
+		id = c.byAttempt[req.AttemptID]
+	}
+	tx, ok := c.txs[id]
 	if !ok {
 		return connectors.SyncResponse{}, connectors.ErrNotFound
 	}
-	resp := connectors.SyncResponse{RawStatus: tx.status}
+	resp := connectors.SyncResponse{ConnectorTransactionID: tx.id, RawStatus: tx.status}
 	if tx.status == StatusCaptured || tx.status == StatusPartiallyCaptured {
 		captured := tx.captured
 		resp.AmountCaptured = &captured

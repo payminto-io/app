@@ -23,7 +23,7 @@ var intentTransitions = map[IntentStatus][]IntentStatus{
 var attemptTransitions = map[AttemptStatus][]AttemptStatus{
 	AttemptStarted:               {AttemptPending, AttemptAuthenticationPending, AttemptAuthorized, AttemptCharged, AttemptPartiallyPaid, AttemptAuthorizationFailed, AttemptFailure},
 	AttemptPending:               {AttemptAuthenticationPending, AttemptAuthorized, AttemptCharged, AttemptPartiallyPaid, AttemptOverpaid, AttemptAuthorizationFailed, AttemptVoided, AttemptFailure},
-	AttemptAuthenticationPending: {AttemptPending, AttemptAuthorized, AttemptCharged, AttemptAuthorizationFailed, AttemptFailure},
+	AttemptAuthenticationPending: {AttemptPending, AttemptAuthorized, AttemptCharged, AttemptAuthorizationFailed, AttemptVoided, AttemptFailure},
 	AttemptAuthorized:            {AttemptCaptureInitiated, AttemptCharged, AttemptPartialCharged, AttemptVoidInitiated, AttemptVoided, AttemptFailure},
 	AttemptCaptureInitiated:      {AttemptCharged, AttemptPartialCharged, AttemptCaptureFailed},
 	AttemptCaptureFailed:         {AttemptCaptureInitiated, AttemptVoidInitiated, AttemptVoided, AttemptFailure},

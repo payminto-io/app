@@ -153,18 +153,20 @@ type RefundResponse struct {
 	ErrorMessage      string
 }
 
+// SyncRequest carries our attempt id as well, because after ErrTimeout the switch holds no connector id.
 type SyncRequest struct {
 	AttemptID              string
 	ConnectorTransactionID string
 }
 
 type SyncResponse struct {
-	RawStatus      RawStatus
-	AmountCaptured *decimal.Decimal
-	AmountReceived *decimal.Decimal
-	NextAction     *NextAction
-	ErrorCode      string
-	ErrorMessage   string
+	ConnectorTransactionID string
+	RawStatus              RawStatus
+	AmountCaptured         *decimal.Decimal
+	AmountReceived         *decimal.Decimal
+	NextAction             *NextAction
+	ErrorCode              string
+	ErrorMessage           string
 }
 
 // WebhookKind says which object a webhook event is about.

@@ -3,6 +3,7 @@ package mock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -14,10 +15,13 @@ func usd(n int64) connectors.Money {
 	return connectors.Money{Amount: decimal.NewFromInt(n), Asset: "USD"}
 }
 
+var attemptSeq int
+
 func authorize(t *testing.T, c *Connector, scenario string, capture connectors.CaptureMethod) (connectors.AuthorizeResponse, error) {
 	t.Helper()
+	attemptSeq++
 	return c.Authorize(context.Background(), connectors.AuthorizeRequest{
-		AttemptID:     "pa_1",
+		AttemptID:     fmt.Sprintf("pa_%d", attemptSeq),
 		Money:         usd(100),
 		CaptureMethod: capture,
 		PaymentMethod: connectors.PaymentMethod{Type: connectors.MethodCard, Token: scenario},
@@ -57,8 +61,8 @@ func TestTimeout_TransactionIsFoundBySync(t *testing.T) {
 	if _, err := authorize(t, c, ScenarioTimeout, connectors.CaptureAutomatic); !errors.Is(err, connectors.ErrTimeout) {
 		t.Fatalf("err = %v", err)
 	}
-	sync, err := c.Sync(context.Background(), connectors.SyncRequest{ConnectorTransactionID: c.LastTransactionID()})
-	if err != nil || sync.RawStatus != StatusCaptured || sync.AmountCaptured == nil || !sync.AmountCaptured.Equal(decimal.NewFromInt(100)) {
+	sync, err := c.Sync(context.Background(), connectors.SyncRequest{AttemptID: fmt.Sprintf("pa_%d", attemptSeq)})
+	if err != nil || sync.ConnectorTransactionID != c.LastTransactionID() || sync.RawStatus != StatusCaptured || sync.AmountCaptured == nil || !sync.AmountCaptured.Equal(decimal.NewFromInt(100)) {
 		t.Fatalf("sync = %+v, %v", sync, err)
 	}
 }
