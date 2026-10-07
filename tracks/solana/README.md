@@ -1,6 +1,6 @@
 # Solana track: stablecoin acceptance and settlement on Solana
 
-An open-source, self-hostable payment gateway that accepts USDC and USDT on Solana side by side with cards and UPI, books every movement in one double-entry ledger, and sweeps funds safely under a state model that survives crashes, lagging RPC nodes and racing workers.
+An open-source, self-hostable payment gateway that accepts USDC and USDT on Solana side by side with multiple connected payment providers, books every movement in one double-entry ledger, and sweeps funds safely under a state model that survives crashes, lagging RPC nodes and racing workers.
 
 ## Why Solana
 
@@ -22,7 +22,7 @@ The money in stablecoins today is business-to-business settlement, and that sett
 | Stablecoin PSP take rate | 0.8% to 1.5% | same |
 | Recent acquisitions | Stripe bought Bridge for $1.1B; Mastercard agreed to buy BVNK for up to $1.8B; MoonPay bought Solana payments firm Helio for $175M | [WhiteSight](https://whitesight.net/stripes-1-1-billion-bridge-to-programmable-money/), [The Block](https://www.theblock.co/post/393898/mastercard-to-acquire-stablecoin-infrastructure-firm-bvnk-for-up-to-1-8-billion), [The Block](https://www.theblock.co/post/334269/moonpay-acquires-premiere-solana-payment-firm-helio-in-175-million-deal) |
 
-The gap we fill: no open-source, self-hostable codebase joins card and UPI acceptance with stablecoin settlement.
+The gap we fill: no open-source, self-hostable codebase joins multiple payment providers with stablecoin settlement.
 The open-source orchestrator at scale, Hyperswitch (45.3k stars), has two crypto connectors, and one of them (Coinbase Commerce) shut on 2026-03-31 ([Hyperswitch docs](https://docs.hyperswitch.io/integrations/connectors-integrations/payment-processor-capabilities/payment-methods-setup/crypto)).
 
 ## What we built

@@ -1,6 +1,6 @@
 # Payminto
 
-An open-source, self-hostable payment gateway where cards, UPI and stablecoins are peer rails on one double-entry ledger, with an optional Chainlink CRE workflow that proves the gateway is solvent.
+An open-source, self-hostable payment gateway that connects multiple payment providers and stablecoins as peer rails on one double-entry ledger, with an optional Chainlink CRE workflow that proves the gateway is solvent.
 
 ![Dashboard](docs/design/screens/pages/home-1440-light.png)
 
@@ -9,7 +9,7 @@ An open-source, self-hostable payment gateway where cards, UPI and stablecoins a
 | Track | Read this | What we built |
 | --- | --- | --- |
 | **Chainlink** | [tracks/chainlink/README.md](tracks/chainlink/README.md) | A CRE workflow that attests a gateway's liabilities against on-chain reserves; audited consumer contract; gateway-side verifier; proven end to end on a local chain |
-| **Solana** | [tracks/solana/README.md](tracks/solana/README.md) | USDC and USDT accepted on Solana beside cards and UPI, one ledger, crash-safe sweeps |
+| **Solana** | [tracks/solana/README.md](tracks/solana/README.md) | USDC and USDT accepted on Solana beside the connected payment providers, one ledger, crash-safe sweeps |
 | **NOWNodes** | [tracks/nownodes/README.md](tracks/nownodes/README.md) | RPC for Solana and the EVM chains, treated as evidence: two distinct providers for every money decision |
 | **AWS** | [tracks/aws/README.md](tracks/aws/README.md) | How the gateway runs on AWS with isolated keys and environments (deployment design) |
 
