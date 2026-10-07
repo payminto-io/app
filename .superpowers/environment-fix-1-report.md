@@ -64,5 +64,5 @@ Tests: `environment/database_test.go` (fourteen name/host/stamp cases incl. trai
 ## Checks
 
 - `cd backend && go build ./... && go vet ./... && go test ./...`: exit 0.
-- `make test-integration` (Docker testcontainers): every package `ok` except `internal/paymentlifecycle/postgres`, which hit `go test`'s default 10-minute timeout while 26 packages shared one Docker daemon (it took 443s in the previous round and 462s alone now). It is untouched by this ticket and passes alone; the Makefile target now passes `-timeout 45m` so the gate measures correctness, not daemon contention (`0b1a6b3`, this commit).
+- `make test-integration` (Docker testcontainers): every package `ok` except `internal/paymentlifecycle/postgres`, which hit `go test`'s default 10-minute timeout while 26 packages shared one Docker daemon (it took 443s in the previous round and 462s alone now). It is untouched by this ticket and passes alone; the Makefile target now passes `-timeout 45m` so the gate measures correctness, not daemon contention (`a8f7c7f`).
 - Integration packages exercised by this round: `cmd/server` (311s: six subprocess refusals, test and live boots, stamp refusals both ways, first-boot stamp, key refusal over HTTP), `internal/modules` (adoption on Postgres), `internal/ledger` (separation, rolling-deploy arbiter, schema convergence), `internal/database`.
