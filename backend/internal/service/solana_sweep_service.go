@@ -377,7 +377,7 @@ func (s *SolanaSweepService) trackSweep(ctx context.Context, sw *models.Sweep) (
 		return false, fmt.Errorf("finalized %s has no transaction record", sig)
 	}
 	fee := solana.LamportsToSOL(tx.Meta.Fee)
-	rent := solana.FeePayerRentRefund(tx)
+	reclaimed, funded := solana.RentMovements(tx)
 	total := decimal.Zero
 	for _, t := range txs {
 		total = total.Add(t.Amount)
@@ -399,39 +399,51 @@ func (s *SolanaSweepService) trackSweep(ctx context.Context, sw *models.Sweep) (
 		if err := s.sweepSvc.completeIn(ctx, dbTx, sw.ID, total, fee, bcID); err != nil {
 			return err
 		}
-		return s.recordRentReclaim(ctx, dbTx, sw.ID, bcID, rent)
+		return s.recordRent(ctx, dbTx, sw.ID, bcID, reclaimed, funded)
 	})
 	if err != nil {
 		return false, err
 	}
-	log.Printf("[solana sweep] sweep %d finalized (%s): %s moved, fee %s SOL, rent reclaimed %d lamports", sw.ID, sig, total, fee, rent)
+	log.Printf("[solana sweep] sweep %d finalized (%s): %s moved, fee %s SOL, rent reclaimed %d lamports, rent funded %d lamports", sw.ID, sig, total, fee, reclaimed, funded)
 	return true, nil
 }
 
-// recordRentReclaim books the lamports closing deposit ATAs returned to the fee payer.
-func (s *SolanaSweepService) recordRentReclaim(ctx context.Context, tx *gorm.DB, sweepID, bcID uint, lamports uint64) error {
-	if lamports == 0 {
+// recordRent books rent in SOL: closing deposit ATAs returns lamports to the fee payer (income),
+// creating the hot wallet ATA locks lamports in an account we still own (asset reclassification).
+func (s *SolanaSweepService) recordRent(ctx context.Context, tx *gorm.DB, sweepID, bcID uint, reclaimed, funded uint64) error {
+	if reclaimed == 0 && funded == 0 {
 		return nil
 	}
 	if s.journal == nil {
-		log.Printf("[solana sweep] sweep %d reclaimed %d lamports of rent; no journal wired to book it", sweepID, lamports)
+		log.Printf("[solana sweep] sweep %d rent reclaimed %d funded %d lamports; no journal wired to book it", sweepID, reclaimed, funded)
 		return nil
 	}
 	native, err := nativeAssetFor(tx, bcID)
 	if err != nil {
 		return err
 	}
-	amount := solana.LamportsToSOL(lamports)
+	var lines []ledger.Line
+	if reclaimed > 0 {
+		amount := solana.LamportsToSOL(reclaimed)
+		lines = append(lines,
+			ledger.Line{Account: legacyAccount("crypto_assets", native, ledger.KindAsset), Amount: amount},
+			ledger.Line{Account: legacyAccount("rent_reclaimed", native, ledger.KindIncome), Amount: amount.Neg()},
+		)
+	}
+	if funded > 0 {
+		amount := solana.LamportsToSOL(funded)
+		lines = append(lines,
+			ledger.Line{Account: legacyAccount("token_account_rent", native, ledger.KindAsset), Amount: amount},
+			ledger.Line{Account: legacyAccount("crypto_assets", native, ledger.KindAsset), Amount: amount.Neg()},
+		)
+	}
 	id := strconv.FormatUint(uint64(sweepID), 10)
 	_, err = s.journal.PostIn(ctx, tx, ledger.Journal{
 		Kind:           ledger.KindAdjustment,
-		Reference:      ledger.Reference{Type: "solana_rent_reclaim", ID: id},
-		IdempotencyKey: "payminto:solana_rent_reclaim:" + id,
-		Metadata:       map[string]any{"blockchain_currency_id": bcID, "lamports": lamports},
-		Lines: []ledger.Line{
-			{Account: legacyAccount("crypto_assets", native, ledger.KindAsset), Amount: amount},
-			{Account: legacyAccount("rent_reclaimed", native, ledger.KindIncome), Amount: amount.Neg()},
-		},
+		Reference:      ledger.Reference{Type: "solana_rent", ID: id},
+		IdempotencyKey: "payminto:solana_rent:" + id,
+		Metadata:       map[string]any{"blockchain_currency_id": bcID, "reclaimed_lamports": reclaimed, "funded_lamports": funded},
+		Lines:          lines,
 	})
 	return err
 }

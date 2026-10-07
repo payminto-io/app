@@ -188,9 +188,15 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 
 	// Finalized: fee 10000 lamports, two closed ATAs refund 2 * 2039280 to the fee payer.
 	f.statuses(map[string]any{"slot": 300, "confirmations": nil, "err": nil, "confirmationStatus": "finalized"})
+	// Account order: fee payer, ATA A (closed), ATA B (closed), hot ATA (created).
 	f.rpc.Result("getTransaction", map[string]any{
-		"slot": 300, "transaction": map[string]any{"signatures": []string{"SWEEPSIG1"}, "message": map[string]any{"accountKeys": []any{map[string]any{"pubkey": f.feePayer.PublicKey().String(), "signer": true, "writable": true}}, "instructions": []any{}}},
-		"meta": map[string]any{"err": nil, "fee": 10000, "preBalances": []uint64{1_000_000_000}, "postBalances": []uint64{1_000_000_000 - 10000 + 2*2039280}, "innerInstructions": []any{}, "preTokenBalances": []any{}, "postTokenBalances": []any{}},
+		"slot": 300, "transaction": map[string]any{"signatures": []string{"SWEEPSIG1"}, "message": map[string]any{"accountKeys": []any{
+			map[string]any{"pubkey": f.feePayer.PublicKey().String(), "signer": true, "writable": true},
+			map[string]any{"pubkey": ataA, "signer": false, "writable": true},
+			map[string]any{"pubkey": ataB, "signer": false, "writable": true},
+			map[string]any{"pubkey": hotATA.String(), "signer": false, "writable": true},
+		}, "instructions": []any{}}},
+		"meta": map[string]any{"err": nil, "fee": 10000, "preBalances": []uint64{1_000_000_000, 2039280, 2039280, 0}, "postBalances": []uint64{1_000_000_000 - 10000 + 2039280, 0, 0, 2039280}, "innerInstructions": []any{}, "preTokenBalances": []any{}, "postTokenBalances": []any{}},
 	})
 	done, err = f.svc.TrackConfirmations(context.Background())
 	must(t, err)
@@ -225,8 +231,17 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 			t.Fatalf("sweep journal %s = %s, want %s (all: %+v)", k, got, v, lines)
 		}
 	}
-	rent := f.journalLines("solana_rent_reclaim", "1")
-	if len(rent) != 2 || rent[0].Asset != "SOL.SOLANA" || !rent[0].Amount.Equal(decimal.RequireFromString("0.00407856")) || rent[1].OwnerID != "rent_reclaimed" || rent[1].Kind != "income" {
+	rent := f.journalLines("solana_rent", "1")
+	rentByKey := map[string]decimal.Decimal{}
+	for _, l := range rent {
+		rentByKey[l.OwnerID+"/"+l.Kind] = rentByKey[l.OwnerID+"/"+l.Kind].Add(l.Amount)
+		if l.Asset != "SOL.SOLANA" {
+			t.Fatalf("rent line in %s", l.Asset)
+		}
+	}
+	if len(rent) != 4 || !rentByKey["rent_reclaimed/income"].Equal(decimal.RequireFromString("-0.00407856")) ||
+		!rentByKey["token_account_rent/asset"].Equal(decimal.RequireFromString("0.00203928")) ||
+		!rentByKey["crypto_assets/asset"].Equal(decimal.RequireFromString("0.00203928")) {
 		t.Fatalf("rent journal = %+v", rent)
 	}
 	// Tracking again is a no-op.

@@ -144,13 +144,15 @@ func TestExtractDeposits_Token2022ProgramRejectedForSPLAsset(t *testing.T) {
 	}
 }
 
-func TestFeePayerRentRefund(t *testing.T) {
+func TestRentMovements(t *testing.T) {
 	tx := fixtureTx(t, "usdc_transfer_checked.json")
-	if got := FeePayerRentRefund(tx); got != 0 {
-		t.Fatalf("refund = %d, want 0", got)
+	if r, f := RentMovements(tx); r != 0 || f != 0 {
+		t.Fatalf("plain transfer: reclaimed %d funded %d", r, f)
 	}
-	tx.Meta.PostBalances[0] = tx.Meta.PreBalances[0] - tx.Meta.Fee + 2039280
-	if got := FeePayerRentRefund(tx); got != 2039280 {
-		t.Fatalf("refund = %d, want 2039280", got)
+	// A sweep closes the deposit ATA (index 1) and creates the hot ATA (index 2).
+	tx.Meta.PreBalances = []uint64{1_000_000_000, 2039280, 0, 374004672, 934087680}
+	tx.Meta.PostBalances = []uint64{1_000_000_000 - 5000, 0, 2039280, 374004672, 934087680}
+	if r, f := RentMovements(tx); r != 2039280 || f != 2039280 {
+		t.Fatalf("sweep: reclaimed %d funded %d", r, f)
 	}
 }

@@ -205,14 +205,21 @@ func tokenDelta(tx *ParsedTransaction, account, mint string) *big.Int {
 	return new(big.Int).Sub(post, pre)
 }
 
-// FeePayerRentRefund returns lamports the fee payer gained beyond the fee (rent from closed accounts).
-func FeePayerRentRefund(tx *ParsedTransaction) uint64 {
-	if tx == nil || tx.Meta == nil || len(tx.Meta.PreBalances) == 0 || len(tx.Meta.PostBalances) == 0 {
-		return 0
+// RentMovements reads per-account lamport changes: reclaimed is the rent of accounts emptied to zero
+// (closed deposit ATAs), funded the rent of accounts created from zero (a new hot wallet ATA).
+// The fee payer (index 0) is excluded; its delta is fee plus funded minus reclaimed.
+func RentMovements(tx *ParsedTransaction) (reclaimed, funded uint64) {
+	if tx == nil || tx.Meta == nil {
+		return 0, 0
 	}
-	pre, post := tx.Meta.PreBalances[0], tx.Meta.PostBalances[0]
-	if post+tx.Meta.Fee <= pre {
-		return 0
+	for i := 1; i < len(tx.Meta.PreBalances) && i < len(tx.Meta.PostBalances); i++ {
+		pre, post := tx.Meta.PreBalances[i], tx.Meta.PostBalances[i]
+		switch {
+		case pre > 0 && post == 0:
+			reclaimed += pre
+		case pre == 0 && post > 0:
+			funded += post
+		}
 	}
-	return post + tx.Meta.Fee - pre
+	return reclaimed, funded
 }
