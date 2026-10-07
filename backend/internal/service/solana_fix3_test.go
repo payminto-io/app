@@ -264,3 +264,35 @@ func TestSolanaSweep_LockIsUniquePerAccount(t *testing.T) {
 		t.Fatal("second lock on one account accepted")
 	}
 }
+
+// Two workers rebuilding one sweep: the (sweep_id, attempt_no) index lets one attempt through and the
+// other is never sent; a sweep failed meanwhile takes no attempt at all.
+func TestSolanaSweep_ConcurrentRebuildAndFailedSweepSendNothing(t *testing.T) {
+	f := newSweepFixture(t)
+	f.newOwner("25")
+	f.balanceAlways("25000000")
+	f.blockhash(500)
+	sent := 0
+	f.rpc.On("sendTransaction", func(p []any) (any, error) {
+		sent++
+		tx, _ := solana.DecodeTransactionBase64(solana.FirstParamString(p))
+		return tx.Signature(), nil
+	})
+	ctx := context.Background()
+	f.svc.SweepConfirmed(ctx)
+	// Another worker already persisted attempt 2.
+	must(t, f.db.Create(&models.SolanaSweepAttempt{SweepID: 1, AttemptNo: 2, Signature: "OTHER", Blockhash: "x", LastValidBlockHeight: 900, Status: models.SolanaSweepAttemptSigned}).Error)
+	f.unknownEverywhere()
+	f.rpc.Result("getBlockHeight", 600)
+	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "7pWqF1vXjQ2nD4sT8kL6mB3cR5yH9wE2aG7uN1xP4zV8", "lastValidBlockHeight": 750}))
+	sweep := models.Sweep{}
+	must(t, f.db.First(&sweep, 1).Error)
+	att := f.attempts(1)
+	if err := f.svc.rebuildOrFail(ctx, &sweep, att[:1]); err == nil || sent != 1 {
+		t.Fatalf("duplicate attempt number sent: err=%v sends=%d", err, sent)
+	}
+	must(t, f.sweepSvc.MarkFailed(1))
+	if err := f.svc.rebuildOrFail(ctx, &sweep, f.attempts(1)[:1]); err == nil || sent != 1 || f.sweepStatus(1) != SweepStatusFailed {
+		t.Fatalf("failed sweep revived by a rebuild: err=%v sends=%d status=%s", err, sent, f.sweepStatus(1))
+	}
+}

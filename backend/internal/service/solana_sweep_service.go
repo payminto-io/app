@@ -357,17 +357,23 @@ func (s *SolanaSweepService) signAndSend(ctx context.Context, sw *models.Sweep, 
 		}
 		return fmt.Errorf("attempt %s already exists; waiting for a fresh blockhash", signed.Signature)
 	}
-	attempt := &models.SolanaSweepAttempt{SweepID: sw.ID, Signature: signed.Signature, Blockhash: signed.Blockhash,
+	attempt := &models.SolanaSweepAttempt{SweepID: sw.ID, AttemptNo: attemptNo, Signature: signed.Signature, Blockhash: signed.Blockhash,
 		LastValidBlockHeight: signed.LastValidBlockHeight, Status: models.SolanaSweepAttemptSigned}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Only a sweep still in flight takes an attempt: one the reconciler failed meanwhile must not be revived here.
+		res := tx.Model(&models.Sweep{}).Where("id = ? AND status IN ?", sw.ID, []string{SweepStatusProcessing, SweepStatusPending}).Update("status", SweepStatusPending)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return fmt.Errorf("sweep %d is no longer in flight", sw.ID)
+		}
+		// The (sweep_id, attempt_no) unique index refuses a second worker's attempt with the same number.
 		if err := tx.Create(attempt).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&models.SweepTransaction{}).Where("sweep_id = ?", sw.ID).
-			Updates(map[string]any{"tx_hash": signed.Signature, "status": SweepTxStatusBroadcast}).Error; err != nil {
-			return err
-		}
-		return tx.Model(&models.Sweep{}).Where("id = ?", sw.ID).Update("status", SweepStatusPending).Error
+		return tx.Model(&models.SweepTransaction{}).Where("sweep_id = ?", sw.ID).
+			Updates(map[string]any{"tx_hash": signed.Signature, "status": SweepTxStatusBroadcast}).Error
 	})
 	if err != nil {
 		// Not sent: the sweep stays processing and the reconciler resolves it from the chain.
@@ -565,7 +571,11 @@ func (s *SolanaSweepService) explainDrain(ctx context.Context, acct *models.Sola
 			}
 			log.Printf("[solana sweep] %s drained by our untracked transaction %s; recording it as sweep %d's attempt", acct.TokenAccount, info.Signature, inflight.ID)
 			err = s.db.Transaction(func(dbTx *gorm.DB) error {
-				if err := dbTx.Create(&models.SolanaSweepAttempt{SweepID: inflight.ID, Signature: info.Signature, Blockhash: tx.Transaction.Message.RecentBlockhash,
+				var n int64
+				if err := dbTx.Model(&models.SolanaSweepAttempt{}).Where("sweep_id = ?", inflight.ID).Count(&n).Error; err != nil {
+					return err
+				}
+				if err := dbTx.Create(&models.SolanaSweepAttempt{SweepID: inflight.ID, AttemptNo: int(n) + 1, Signature: info.Signature, Blockhash: tx.Transaction.Message.RecentBlockhash,
 					LastValidBlockHeight: height + solana.BlockhashValidityBlocks, Status: models.SolanaSweepAttemptSent}).Error; err != nil {
 					return err
 				}

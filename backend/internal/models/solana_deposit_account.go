@@ -56,11 +56,13 @@ const (
 	SolanaDepositAccountDrained = "drained"
 )
 
-// SolanaSweepAttempt is one broadcast of a sweep; a rebuild after blockhash expiry adds another.
-// The tracker checks every attempt so a late-landing earlier attempt is booked, never lost.
+// SolanaSweepAttempt is one signed transaction of a sweep, persisted before it is sent; a rebuild after
+// blockhash expiry adds another. The tracker checks every attempt so a late-landing earlier attempt is
+// booked, never lost. (sweep_id, attempt_no) is unique so two workers cannot both rebuild one sweep.
 type SolanaSweepAttempt struct {
 	PaymintoModel
-	SweepID              uint   `gorm:"not null;index" json:"sweepID"`
+	SweepID              uint   `gorm:"not null;index;uniqueIndex:idx_solana_sweep_attempts_sweep_attempt,priority:1" json:"sweepID"`
+	AttemptNo            int    `gorm:"not null;default:1;uniqueIndex:idx_solana_sweep_attempts_sweep_attempt,priority:2" json:"attemptNo"`
 	Signature            string `gorm:"type:varchar(128);not null;uniqueIndex" json:"signature"`
 	Blockhash            string `gorm:"type:varchar(64);not null" json:"blockhash"`
 	LastValidBlockHeight uint64 `gorm:"not null" json:"lastValidBlockHeight"`

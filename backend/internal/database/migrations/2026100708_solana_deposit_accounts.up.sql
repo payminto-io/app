@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS solana_sweep_attempts (
     updated_at timestamptz,
     deleted_at timestamptz,
     sweep_id bigint NOT NULL,
+    attempt_no integer NOT NULL DEFAULT 1,
     signature varchar(128) NOT NULL,
     blockhash varchar(64) NOT NULL,
     last_valid_block_height bigint NOT NULL,
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS solana_sweep_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_solana_sweep_attempts_sweep_id ON solana_sweep_attempts (sweep_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_sweep_attempts_signature ON solana_sweep_attempts (signature);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_sweep_attempts_sweep_attempt ON solana_sweep_attempts (sweep_id, attempt_no);
 CREATE INDEX IF NOT EXISTS idx_solana_sweep_attempts_deleted_at ON solana_sweep_attempts (deleted_at);
 
 CREATE TABLE IF NOT EXISTS solana_sweep_deposits (

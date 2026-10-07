@@ -9,7 +9,7 @@ Tables:
 - `sweeps` - the sweep and its status.
 - `sweep_transactions` - one per token account: the claim (amount), the source account, the hot ATA.
 - `solana_sweep_deposits` - the deposits a sweep claimed, unique on `(sweep_id, deposit_id)`.
-- `solana_sweep_attempts` - every signature ever signed for a sweep, unique on `signature`, with `blockhash`, `last_valid_block_height` and `created_at`.
+- `solana_sweep_attempts` - every signature ever signed for a sweep, unique on `signature` and on `(sweep_id, attempt_no)`, with `blockhash`, `last_valid_block_height` and `created_at`.
 - `solana_sweep_locks` - one row per token account with a sweep in flight, unique on `token_account`, hard-deleted.
 - `solana_deposit_accounts` - the account status (`watching`, `expired`, `drained`, `closed`).
 
@@ -23,6 +23,7 @@ Tables:
 5. Deposits become `swept` only in `book`, through the links of the sweep whose attempt finalized; `failSweep` returns exactly the sweep's own deposits to `confirmed`.
 6. No attempt is ever written with `last_valid_block_height = 0`.
    A transaction recovered from an account's history gets the finalized height at recovery plus the validity span (150 blocks), an upper bound that can only delay expiry evidence.
+7. An attempt is persisted only while its sweep is `processing` or `pending` (checked in the same transaction), and under the next `attempt_no`: a sweep the reconciler failed meanwhile is never revived by a late signer, and two workers rebuilding one sweep cannot both send.
 
 ## Account states
 
