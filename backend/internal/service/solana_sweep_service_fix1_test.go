@@ -40,7 +40,7 @@ func TestSolanaSweep_L5_SendDoesNotBlockOnConfirmation(t *testing.T) {
 		t.Fatalf("SweepConfirmed waited: %s, status calls %d", time.Since(start), f.rpc.Count("getSignatureStatuses"))
 	}
 	att := f.attempts(1)
-	if len(att) != 1 || att[0].Signature != "SIG1" || att[0].LastValidBlockHeight != 500 || att[0].Status != models.SolanaSweepAttemptSent {
+	if len(att) != 1 || att[0].Signature != f.sig("SIG1") || att[0].LastValidBlockHeight != 500 || att[0].Status != models.SolanaSweepAttemptSent {
 		t.Fatalf("attempts = %+v", att)
 	}
 }
@@ -76,7 +76,7 @@ func TestSolanaSweep_I2_LandedRebuildIsBookedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	att := f.attempts(1)
-	if len(att) != 2 || att[0].Status != models.SolanaSweepAttemptExpired || att[1].Signature != "SIG2" {
+	if len(att) != 2 || att[0].Status != models.SolanaSweepAttemptExpired || att[1].Signature != f.sig("SIG2") {
 		t.Fatalf("attempts after rebuild = %+v", att)
 	}
 	// The cluster catches up: SIG1 finalized, SIG2 failed (account already drained).

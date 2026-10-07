@@ -214,27 +214,65 @@ type Sent struct {
 	LastValidBlockHeight uint64
 }
 
-// SendOnce builds against a fresh blockhash, signs and broadcasts without waiting. Rebuilding on
-// expiry is the tracker's decision, taken with the finalized block height, never on one node's "unknown".
-func SendOnce(ctx context.Context, c *Client, build func(blockhash string) (Message, error), signers []Signer) (Sent, error) {
+// BlockhashValidityBlocks is how many blocks past its own a blockhash stays usable.
+const BlockhashValidityBlocks = 150
+
+// Signed is a transaction ready to send: its signature is known before any node sees it, so the
+// caller persists it first and a transport failure can never lose it.
+type Signed struct {
+	Tx                   Transaction
+	Signature            string
+	Blockhash            string
+	LastValidBlockHeight uint64
+}
+
+// SignForSend builds against a fresh blockhash and signs; nothing is sent.
+func SignForSend(ctx context.Context, c *Client, build func(blockhash string) (Message, error), signers []Signer) (Signed, error) {
 	bh, err := c.GetLatestBlockhash(ctx, CommitmentConfirmed)
 	if err != nil {
-		return Sent{}, fmt.Errorf("solana: latest blockhash: %w", err)
+		return Signed{}, fmt.Errorf("solana: latest blockhash: %w", err)
 	}
 	msg, err := build(bh.Blockhash)
 	if err != nil {
-		return Sent{}, err
+		return Signed{}, err
 	}
 	tx, err := Sign(msg, signers)
 	if err != nil {
-		return Sent{}, err
+		return Signed{}, err
 	}
 	if size := len(tx.Serialize()); size > MaxTransactionSize {
-		return Sent{}, fmt.Errorf("solana: transaction is %d bytes, limit %d", size, MaxTransactionSize)
+		return Signed{}, fmt.Errorf("solana: transaction is %d bytes, limit %d", size, MaxTransactionSize)
 	}
-	sig, err := c.SendTransaction(ctx, tx, false, 0)
+	return Signed{Tx: tx, Signature: tx.Signature(), Blockhash: bh.Blockhash, LastValidBlockHeight: bh.LastValidBlockHeight}, nil
+}
+
+// SendSigned broadcasts a signed transaction. A *RPCError means the node answered and refused
+// (IsRejection); any other error is transport and the transaction may still have been forwarded.
+func SendSigned(ctx context.Context, c *Client, s Signed) error {
+	sig, err := c.SendTransaction(ctx, s.Tx, false, 0)
 	if err != nil {
+		return err
+	}
+	if sig != "" && sig != s.Signature {
+		return fmt.Errorf("solana: node returned signature %s for %s", sig, s.Signature)
+	}
+	return nil
+}
+
+// IsRejection reports a JSON-RPC error: the node refused the transaction, it was never forwarded.
+func IsRejection(err error) bool {
+	var rpcErr *RPCError
+	return errors.As(err, &rpcErr)
+}
+
+// SendOnce is SignForSend then SendSigned for callers that do not persist between the two (tests, tools).
+func SendOnce(ctx context.Context, c *Client, build func(blockhash string) (Message, error), signers []Signer) (Sent, error) {
+	signed, err := SignForSend(ctx, c, build, signers)
+	if err != nil {
+		return Sent{}, err
+	}
+	if err := SendSigned(ctx, c, signed); err != nil {
 		return Sent{}, fmt.Errorf("solana: send: %w", err)
 	}
-	return Sent{Signature: sig, Blockhash: bh.Blockhash, LastValidBlockHeight: bh.LastValidBlockHeight}, nil
+	return Sent{Signature: signed.Signature, Blockhash: signed.Blockhash, LastValidBlockHeight: signed.LastValidBlockHeight}, nil
 }

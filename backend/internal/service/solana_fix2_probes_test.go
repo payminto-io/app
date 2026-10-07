@@ -40,6 +40,7 @@ func TestProbe_ResweepAfterFailedSweep(t *testing.T) {
 		t.Fatalf("sweep 1 = %s deposit = %s", f.sweepStatus(1), f.depositStatus(deps[0].ID))
 	}
 	// Second round re-sweeps the same deposit.
+	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "7pWqF1vXjQ2nD4sT8kL6mB3cR5yH9wE2aG7uN1xP4zV8", "lastValidBlockHeight": 700}))
 	if n, err := f.svc.SweepConfirmed(ctx); err != nil || n != 1 {
 		t.Fatalf("re-sweep: %d %v", n, err)
 	}

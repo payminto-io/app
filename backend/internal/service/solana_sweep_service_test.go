@@ -31,7 +31,11 @@ type sweepFixture struct {
 	hot      solana.PublicKey
 	svc      *SolanaSweepService
 	sweepSvc *SweepService
+	alias    *aliasCaller
 }
+
+// sig is the real signature behind a scripted fake name.
+func (f *sweepFixture) sig(fake string) string { return f.alias.real(fake) }
 
 func newSweepFixture(t *testing.T) *sweepFixture {
 	t.Helper()
@@ -46,7 +50,8 @@ func newSweepFixture(t *testing.T) *sweepFixture {
 	sweepTxRepo := repository.NewSweepTransactionRepository(f.db)
 	f.sweepSvc = NewSweepService(f.db, sweepRepo, sweepTxRepo, repository.NewBlockchainRepository(f.db), f.ledger)
 	sweepTxSvc := NewSweepTransactionService(sweepTxRepo, sweepRepo, f.ledger)
-	f.svc = NewSolanaSweepService(f.db, solana.NewClient(f.rpc), f.chain, f.deposits, f.accounts, repository.NewBlockchainCurrencyRepository(f.db), f.missed,
+	f.alias = newAliasCaller(f.rpc)
+	f.svc = NewSolanaSweepService(f.db, solana.NewClient(f.alias), f.chain, f.deposits, f.accounts, repository.NewBlockchainCurrencyRepository(f.db), f.missed,
 		sweepRepo, sweepTxRepo, f.sweepSvc, sweepTxSvc, f.keys, f.feePayer, f.hot, f.journal,
 		SolanaSweepConfig{CloseAccounts: true})
 	f.svc.now = func() time.Time { return f.now }
@@ -163,7 +168,7 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 	}
 	var sweepTxs []models.SweepTransaction
 	must(t, f.db.Order("id").Find(&sweepTxs).Error)
-	if len(sweepTxs) != 2 || sweepTxs[0].TxHash != "SWEEPSIG1" || !sweepTxs[0].Amount.Equal(decimal.RequireFromString("30")) || !sweepTxs[1].Amount.Equal(decimal.RequireFromString("10")) || sweepTxs[0].ToAddress != hotATA.String() {
+	if len(sweepTxs) != 2 || sweepTxs[0].TxHash != f.sig("SWEEPSIG1") || !sweepTxs[0].Amount.Equal(decimal.RequireFromString("30")) || !sweepTxs[1].Amount.Equal(decimal.RequireFromString("10")) || sweepTxs[0].ToAddress != hotATA.String() {
 		t.Fatalf("sweep txs = %+v", sweepTxs)
 	}
 	// A second round finds nothing to sweep.
@@ -319,9 +324,9 @@ func TestSolanaSweep_BroadcastFailureReleasesClaim(t *testing.T) {
 	if f.depositStatus(deps[0].ID) != models.DepositStatusConfirmed {
 		t.Fatalf("deposit = %s, want confirmed", f.depositStatus(deps[0].ID))
 	}
-	// Rows are written before the broadcast; a failed broadcast leaves a failed sweep with no attempt.
-	if f.sweepStatus(1) != SweepStatusFailed || len(f.attempts(1)) != 0 {
-		t.Fatalf("sweep = %s attempts = %d", f.sweepStatus(1), len(f.attempts(1)))
+	// The attempt is persisted before the send; a node rejection marks it failed and fails the sweep.
+	if att := f.attempts(1); f.sweepStatus(1) != SweepStatusFailed || len(att) != 1 || att[0].Status != models.SolanaSweepAttemptFailed {
+		t.Fatalf("sweep = %s attempts = %+v", f.sweepStatus(1), att)
 	}
 	if n, _ := f.svc.SweepConfirmed(context.Background()); n != 0 {
 		t.Fatal("second round broadcast again (send still failing)")

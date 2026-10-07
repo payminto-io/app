@@ -26,8 +26,15 @@ type SolanaSweepConfig struct {
 	CloseAccounts            bool
 	// MaxAttempts bounds rebuilds after blockhash expiry before the sweep is failed and released.
 	MaxAttempts int
-	// FetchNodes is how many pool picks confirm a signature's absence before an attempt is called expired.
+	// FetchNodes is how many distinct endpoints confirm a signature's absence before an attempt is called expired.
 	FetchNodes int
+	// ValidityWindow is how long a blockhash stays usable; a sweep or attempt with no evidence after it is resolved by age.
+	ValidityWindow time.Duration
+	// HistoryPages bounds how far explainDrain reads an account's signature history (pages of 100).
+	HistoryPages int
+	// DrainWait is how long a sweep waits on an account below its claim, with nothing finalized, before
+	// the account's history must explain the drain or the sweep fails with an anomaly.
+	DrainWait time.Duration
 }
 
 func (c SolanaSweepConfig) withDefaults() SolanaSweepConfig {
@@ -43,6 +50,15 @@ func (c SolanaSweepConfig) withDefaults() SolanaSweepConfig {
 	if c.FetchNodes <= 0 {
 		c.FetchNodes = 2
 	}
+	if c.ValidityWindow <= 0 {
+		c.ValidityWindow = 2 * time.Minute
+	}
+	if c.HistoryPages <= 0 {
+		c.HistoryPages = 5
+	}
+	if c.DrainWait <= 0 {
+		c.DrainWait = time.Hour
+	}
 	return c
 }
 
@@ -50,15 +66,19 @@ func (c SolanaSweepConfig) withDefaults() SolanaSweepConfig {
 const (
 	anomalyUnexplainedDrain    = "solana_unexplained_drain"
 	anomalySweepMismatch       = "solana_sweep_mismatch"
-	anomalyUnrecordedBroadcast = "solana_unrecorded_broadcast"
 	anomalyFailedSweepLanded   = "solana_failed_sweep_landed"
 	anomalyEvidenceUnavailable = "solana_evidence_unavailable"
+	anomalySweepNeverSent      = "solana_sweep_never_sent"
+	anomalyUntrackedSweep      = "solana_untracked_sweep"
 )
 
 // SolanaSweepService drains confirmed SPL deposits into the hot wallet's ATA with a sponsored fee
-// payer. SweepConfirmed only broadcasts and records; TrackConfirmations follows every attempt a
-// sweep ever broadcast, books exactly one landed attempt, rebuilds on evidenced expiry and
-// releases the sweep's own deposits when it fails. Deposits become swept only through a booked sweep.
+// payer. SweepConfirmed writes the rows and the lock, signs, persists the signature, then sends.
+// trackPageSize bounds how many in-flight sweeps one query loads; TrackConfirmations pages by id.
+const trackPageSize = 200
+
+// TrackConfirmations runs the reconciler of SOLANA_SWEEPS.md over every in-flight sweep: every
+// decision is derived from the attempt rows, the deposit links and the chain, never from memory.
 type SolanaSweepService struct {
 	db         *gorm.DB
 	client     *solana.Client
@@ -110,10 +130,11 @@ type sweepGroup struct {
 	deposits     []models.Deposit
 }
 
-// SweepConfirmed broadcasts one transaction per batch of confirmed token deposits and returns how
-// many were sent. It does not wait for confirmation. Per-batch errors are logged; the batch's
-// deposits return to confirmed.
+// SweepConfirmed starts one sweep per batch of confirmed token deposits on accounts with no sweep
+// in flight and returns how many were started. It does not wait for confirmation. Per-batch
+// errors are logged; the batch's deposits return to confirmed.
 func (s *SolanaSweepService) SweepConfirmed(ctx context.Context) (int, error) {
+	s.releaseOrphanLocks()
 	confirmed, err := s.deposits.ListByStatus(models.DepositStatusConfirmed)
 	if err != nil {
 		return 0, err
@@ -163,14 +184,24 @@ func (s *SolanaSweepService) SweepConfirmed(ctx context.Context) (int, error) {
 	return sent, nil
 }
 
-// skipAccount reports accounts that must not be swept again: drained (anomaly recorded) or part
-// of a sweep still being tracked.
+// releaseOrphanLocks deletes locks whose sweep is no longer in flight (completed, failed or gone).
+func (s *SolanaSweepService) releaseOrphanLocks() {
+	if err := s.db.Exec("DELETE FROM solana_sweep_locks WHERE sweep_id NOT IN (SELECT id FROM sweeps WHERE status IN ? AND deleted_at IS NULL)",
+		[]string{SweepStatusPending, SweepStatusProcessing}).Error; err != nil {
+		log.Printf("[solana sweep] release orphan locks: %v", err)
+	}
+}
+
+// skipAccount reports accounts that must not be swept now: drained (anomaly recorded, operator
+// owns it) or holding a lock because a sweep is in flight.
 func (s *SolanaSweepService) skipAccount(tokenAccount string) bool {
 	acct, err := s.accounts.GetByTokenAccount(tokenAccount)
-	if err != nil {
+	if err != nil || acct.Status == models.SolanaDepositAccountDrained {
 		return true
 	}
-	return acct.Status == models.SolanaDepositAccountDrained
+	var locks int64
+	s.db.Model(&models.SolanaSweepLock{}).Where("token_account = ?", tokenAccount).Count(&locks)
+	return locks > 0
 }
 
 type sweepItem struct {
@@ -213,7 +244,7 @@ func (s *SolanaSweepService) sweepBatch(ctx context.Context, bcID uint, groups [
 		return false, err
 	}
 
-	// Claim first so no second worker can broadcast the same deposits.
+	// Claim first so no second worker can start a sweep for the same deposits.
 	var claimed []*sweepGroup
 	for _, g := range groups {
 		if s.claim(g) {
@@ -246,7 +277,7 @@ func (s *SolanaSweepService) sweepBatch(ctx context.Context, bcID uint, groups [
 			// Nothing to move, or less than the claim: never mark swept here. Either a tracked sweep
 			// drained it (the tracker books it) or someone else did (anomaly). Deposits go back to confirmed.
 			s.release(g.deposits)
-			s.explainDrain(ctx, acct, balance)
+			s.explainDrain(ctx, acct, balance, nil)
 			continue
 		}
 		items = append(items, sweepItem{group: g, acct: acct, amount: amount, close: close})
@@ -255,8 +286,8 @@ func (s *SolanaSweepService) sweepBatch(ctx context.Context, bcID uint, groups [
 		return false, nil
 	}
 
-	// Rows first, broadcast second: a signature can never exist without the rows that let the
-	// tracker find it.
+	// Rows and locks first: a signature can never exist without the rows that let the tracker find it,
+	// and the lock's unique index refuses a second sweep on an account already in flight.
 	hotATA, err := solana.AssociatedTokenAddress(params.HotWalletOwner, params.Mint, params.TokenProgram)
 	if err != nil {
 		for _, it := range items {
@@ -281,6 +312,9 @@ func (s *SolanaSweepService) sweepBatch(ctx context.Context, bcID uint, groups [
 					return err
 				}
 			}
+			if err := tx.Create(&models.SolanaSweepLock{TokenAccount: it.acct.TokenAccount, SweepID: sweep.ID}).Error; err != nil {
+				return fmt.Errorf("account %s already has a sweep in flight: %w", it.acct.TokenAccount, err)
+			}
 		}
 		return nil
 	})
@@ -290,63 +324,72 @@ func (s *SolanaSweepService) sweepBatch(ctx context.Context, bcID uint, groups [
 		}
 		return false, fmt.Errorf("sweep rows: %w", err)
 	}
-
-	sent, _, err := s.broadcast(ctx, params, items)
-	if err != nil {
-		if ferr := s.failSweep(sweep, "broadcast failed: "+err.Error()); ferr != nil {
-			log.Printf("[solana sweep] sweep %d fail after broadcast error: %v", sweep.ID, ferr)
-		}
-		return false, fmt.Errorf("broadcast: %w", err)
+	if err := s.signAndSend(ctx, sweep, params, items, 1); err != nil {
+		return false, err
 	}
-	if err := s.recordAttempt(ctx, sweep.ID, sent); err != nil {
-		// The signature exists on chain; the anomaly carries it and the tracker recovers it from there.
-		s.recordAnomaly(sent.Signature, hotATA.String(), decimal.Zero, fmt.Sprintf("%s: sweep %d", anomalyUnrecordedBroadcast, sweep.ID))
-		return true, fmt.Errorf("sweep %d broadcast as %s but the attempt row failed; anomaly recorded: %w", sweep.ID, sent.Signature, err)
-	}
-	log.Printf("[solana sweep] sent %s: %d accounts of %s to %s", sent.Signature, len(items), bc.CurrencyCode, hotATA)
+	log.Printf("[solana sweep] sweep %d started: %d accounts of %s to %s", sweep.ID, len(items), bc.CurrencyCode, hotATA)
 	return true, nil
 }
 
-// recordAttempt writes the attempt and moves the sweep from processing to pending; retried a few
-// times because the alternative is a signature only an anomaly row knows.
-func (s *SolanaSweepService) recordAttempt(ctx context.Context, sweepID uint, sent solana.Sent) error {
-	var err error
-	for i := 0; i < 3; i++ {
-		err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if err := tx.Create(&models.SolanaSweepAttempt{SweepID: sweepID, Signature: sent.Signature, Blockhash: sent.Blockhash,
-				LastValidBlockHeight: sent.LastValidBlockHeight, Status: models.SolanaSweepAttemptSent}).Error; err != nil {
-				return err
+// signAndSend builds and signs an attempt, persists its signature and last valid block height,
+// then sends. A node rejection fails the attempt (and the sweep, when it is the first); a
+// transport error leaves the attempt "signed" for the reconciler, which resolves it by lookup.
+func (s *SolanaSweepService) signAndSend(ctx context.Context, sw *models.Sweep, params solana.SweepParams, items []sweepItem, attemptNo int) error {
+	signed, err := s.sign(ctx, params, items)
+	if err != nil {
+		if attemptNo == 1 {
+			if ferr := s.failSweep(sw, "could not sign: "+err.Error()); ferr != nil {
+				log.Printf("[solana sweep] sweep %d fail after sign error: %v", sw.ID, ferr)
 			}
-			if err := tx.Model(&models.SweepTransaction{}).Where("sweep_id = ?", sweepID).
-				Updates(map[string]any{"tx_hash": sent.Signature, "status": SweepTxStatusBroadcast}).Error; err != nil {
-				return err
+		}
+		return fmt.Errorf("sign: %w", err)
+	}
+	var seen int64
+	if err := s.db.WithContext(ctx).Model(&models.SolanaSweepAttempt{}).Where("signature = ?", signed.Signature).Count(&seen).Error; err != nil {
+		return fmt.Errorf("check attempt %s: %w", signed.Signature, err)
+	}
+	if seen > 0 {
+		// Same message against the same blockhash: nothing new to send. A fresh blockhash next pass differs.
+		if attemptNo == 1 {
+			if ferr := s.failSweep(sw, "blockhash not fresh, transaction identical to an earlier attempt"); ferr != nil {
+				log.Printf("[solana sweep] sweep %d fail on a repeated signature: %v", sw.ID, ferr)
 			}
-			return tx.Model(&models.Sweep{}).Where("id = ?", sweepID).Update("status", SweepStatusPending).Error
-		})
-		if err == nil {
-			return nil
 		}
+		return fmt.Errorf("attempt %s already exists; waiting for a fresh blockhash", signed.Signature)
 	}
-	return err
-}
-
-// recoverUnrecorded turns a solana_unrecorded_broadcast anomaly back into an attempt row.
-func (s *SolanaSweepService) recoverUnrecorded(ctx context.Context, sw *models.Sweep) (bool, error) {
-	var rows []models.MissedDeposit
-	if err := s.db.Where("blockchain_id = ? AND reason = ?", s.chain.ID, fmt.Sprintf("%s: sweep %d", anomalyUnrecordedBroadcast, sw.ID)).Find(&rows).Error; err != nil {
-		return false, err
-	}
-	for _, r := range rows {
-		if r.TxHash == "" || r.TxHash == "none" {
-			continue
+	attempt := &models.SolanaSweepAttempt{SweepID: sw.ID, Signature: signed.Signature, Blockhash: signed.Blockhash,
+		LastValidBlockHeight: signed.LastValidBlockHeight, Status: models.SolanaSweepAttemptSigned}
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(attempt).Error; err != nil {
+			return err
 		}
-		if err := s.recordAttempt(ctx, sw.ID, solana.Sent{Signature: r.TxHash, Blockhash: "unknown"}); err != nil {
-			return false, err
+		if err := tx.Model(&models.SweepTransaction{}).Where("sweep_id = ?", sw.ID).
+			Updates(map[string]any{"tx_hash": signed.Signature, "status": SweepTxStatusBroadcast}).Error; err != nil {
+			return err
 		}
-		log.Printf("[solana sweep] sweep %d recovered attempt %s from its anomaly row", sw.ID, r.TxHash)
-		return true, nil
+		return tx.Model(&models.Sweep{}).Where("id = ?", sw.ID).Update("status", SweepStatusPending).Error
+	})
+	if err != nil {
+		// Not sent: the sweep stays processing and the reconciler resolves it from the chain.
+		return fmt.Errorf("persist attempt %s before send: %w", signed.Signature, err)
 	}
-	return false, nil
+	err = solana.SendSigned(ctx, s.client, signed)
+	switch {
+	case err == nil:
+		s.db.Model(attempt).Update("status", models.SolanaSweepAttemptSent)
+		return nil
+	case solana.IsRejection(err):
+		s.db.Model(attempt).Update("status", models.SolanaSweepAttemptFailed)
+		if attemptNo == 1 {
+			if ferr := s.failSweep(sw, "node rejected the transaction: "+err.Error()); ferr != nil {
+				log.Printf("[solana sweep] sweep %d fail after rejection: %v", sw.ID, ferr)
+			}
+		}
+		return fmt.Errorf("send rejected: %w", err)
+	default:
+		log.Printf("[solana sweep] sweep %d attempt %s: send transport error, signature persisted, tracker resolves it: %v", sw.ID, signed.Signature, err)
+		return nil
+	}
 }
 
 func (s *SolanaSweepService) paramsFor(bc *models.BlockchainCurrency) (solana.SweepParams, error) {
@@ -364,9 +407,9 @@ func (s *SolanaSweepService) paramsFor(bc *models.BlockchainCurrency) (solana.Sw
 	}, nil
 }
 
-// balance reads a token account's base units; a missing account is 0.
+// balance reads a token account's finalized base units; a missing account is 0.
 func (s *SolanaSweepService) balance(ctx context.Context, tokenAccount string) (uint64, error) {
-	bal, err := s.client.GetTokenAccountBalance(ctx, tokenAccount, solana.CommitmentConfirmed)
+	bal, err := s.client.GetTokenAccountBalance(ctx, tokenAccount, solana.CommitmentFinalized)
 	if errors.Is(err, solana.ErrAccountNotFound) {
 		return 0, nil
 	}
@@ -376,8 +419,8 @@ func (s *SolanaSweepService) balance(ctx context.Context, tokenAccount string) (
 	return strconv.ParseUint(bal.Amount, 10, 64)
 }
 
-// broadcast resolves the owner keys, signs with the fee payer and sends once.
-func (s *SolanaSweepService) broadcast(ctx context.Context, params solana.SweepParams, items []sweepItem) (solana.Sent, solana.PublicKey, error) {
+// sign resolves the owner keys and signs with the fee payer; keys are zeroed before returning.
+func (s *SolanaSweepService) sign(ctx context.Context, params solana.SweepParams, items []sweepItem) (solana.Signed, error) {
 	signers := []solana.Signer{s.feePayer}
 	var owners []solana.Ed25519Signer
 	defer func() {
@@ -389,37 +432,34 @@ func (s *SolanaSweepService) broadcast(ctx context.Context, params solana.SweepP
 	for _, it := range items {
 		owner, err := solana.ParsePublicKey(it.acct.OwnerAddress)
 		if err != nil {
-			return solana.Sent{}, solana.PublicKey{}, err
+			return solana.Signed{}, err
 		}
 		ata, _ := solana.ParsePublicKey(it.acct.TokenAccount)
 		priv, _, err := s.keys.PrivateKeyForAddress(it.acct.OwnerAddress)
 		if err != nil {
-			return solana.Sent{}, solana.PublicKey{}, fmt.Errorf("key for %s: %w", it.acct.OwnerAddress, err)
+			return solana.Signed{}, fmt.Errorf("key for %s: %w", it.acct.OwnerAddress, err)
 		}
 		signer, err := solana.NewEd25519Signer(priv)
 		zeroBytes(priv)
 		if err != nil {
-			return solana.Sent{}, solana.PublicKey{}, err
+			return solana.Signed{}, err
 		}
 		owners = append(owners, signer)
 		signers = append(signers, signer)
 		params.Items = append(params.Items, solana.SweepItem{Owner: owner, TokenAccount: ata, Amount: it.amount, Close: it.close})
 	}
-	var hotATA solana.PublicKey
 	build := func(blockhash string) (solana.Message, error) {
-		ixs, ata, err := solana.SweepInstructions(params)
+		ixs, _, err := solana.SweepInstructions(params)
 		if err != nil {
 			return solana.Message{}, err
 		}
-		hotATA = ata
 		bh, err := solana.ParsePublicKey(blockhash)
 		if err != nil {
 			return solana.Message{}, err
 		}
 		return solana.CompileMessage(params.FeePayer, bh, ixs)
 	}
-	sent, err := solana.SendOnce(ctx, s.client, build, signers)
-	return sent, hotATA, err
+	return solana.SignForSend(ctx, s.client, build, signers)
 }
 
 func (s *SolanaSweepService) claim(g *sweepGroup) bool {
@@ -443,17 +483,39 @@ func (s *SolanaSweepService) release(deposits []models.Deposit) {
 	}
 }
 
-// explainDrain looks for one of our sweep signatures in the account's recent history. A signature
-// of a sweep still being tracked is left to the tracker; a signature of a sweep booked failed means
-// the failure was wrong: the sweep returns to pending with an anomaly so the tracker books it.
-// Nothing of ours explaining the drain is an anomaly and the account is set aside for an operator.
-func (s *SolanaSweepService) explainDrain(ctx context.Context, acct *models.SolanaDepositAccount, balance uint64) {
-	sigs, err := s.client.GetSignaturesForAddress(ctx, acct.TokenAccount, "", 20, solana.CommitmentConfirmed)
+// history pages an account's signatures, newest first, up to HistoryPages pages.
+func (s *SolanaSweepService) history(ctx context.Context, tokenAccount string) ([]solana.SignatureInfo, error) {
+	var all []solana.SignatureInfo
+	before := ""
+	for page := 0; page < s.cfg.HistoryPages; page++ {
+		sigs, err := s.client.GetSignaturesForAddressPage(ctx, tokenAccount, "", before, 100, solana.CommitmentConfirmed)
+		if err != nil {
+			return all, err
+		}
+		all = append(all, sigs...)
+		if len(sigs) < 100 {
+			break
+		}
+		before = sigs[len(sigs)-1].Signature
+	}
+	return all, nil
+}
+
+// explainDrain looks for one of our sweep signatures in the account's history. A signature of a
+// sweep still tracked is left to the tracker; a signature of a sweep booked failed revives it
+// (the failure was wrong); a transaction our fee payer signed but no attempt row knows is recorded
+// for the given in-flight sweep when there is one, else flagged. Nothing of ours explaining the
+// drain is an anomaly and the account is set aside for an operator.
+func (s *SolanaSweepService) explainDrain(ctx context.Context, acct *models.SolanaDepositAccount, balance uint64, inflight *models.Sweep) (explained bool) {
+	sigs, err := s.history(ctx, acct.TokenAccount)
 	if err != nil {
 		log.Printf("[solana sweep] %s holds %d; history lookup failed: %v", acct.TokenAccount, balance, err)
-		return
+		return true
 	}
 	for _, info := range sigs {
+		if info.Failed() {
+			continue
+		}
 		var attempt models.SolanaSweepAttempt
 		if err := s.db.Where("signature = ?", info.Signature).First(&attempt).Error; err != nil {
 			continue
@@ -465,14 +527,60 @@ func (s *SolanaSweepService) explainDrain(ctx context.Context, acct *models.Sola
 		switch sw.Status {
 		case SweepStatusPending, SweepStatusProcessing:
 			log.Printf("[solana sweep] %s drained by tracked sweep %d (%s); the tracker books it", acct.TokenAccount, sw.ID, info.Signature)
-			return
+			return true
 		case SweepStatusFailed:
 			log.Printf("[solana sweep] %s drained by sweep %d (%s) that was booked failed; reviving it", acct.TokenAccount, sw.ID, info.Signature)
 			s.recordAnomaly(info.Signature, acct.TokenAccount, decimal.Zero, fmt.Sprintf("%s: sweep %d", anomalyFailedSweepLanded, sw.ID))
-			s.db.Model(&models.SolanaSweepAttempt{}).Where("id = ?", attempt.ID).Update("status", models.SolanaSweepAttemptSent)
-			s.db.Model(&models.Sweep{}).Where("id = ?", sw.ID).Update("status", SweepStatusPending)
-			return
+			err := s.db.Transaction(func(tx *gorm.DB) error {
+				if err := tx.Model(&models.SolanaSweepAttempt{}).Where("id = ?", attempt.ID).Update("status", models.SolanaSweepAttemptSent).Error; err != nil {
+					return err
+				}
+				if err := tx.Model(&models.Sweep{}).Where("id = ?", sw.ID).Update("status", SweepStatusPending).Error; err != nil {
+					return err
+				}
+				return tx.Create(&models.SolanaSweepLock{TokenAccount: acct.TokenAccount, SweepID: sw.ID}).Error
+			})
+			if err != nil {
+				log.Printf("[solana sweep] revive sweep %d: %v", sw.ID, err)
+			}
+			return true
 		}
+	}
+	// Last resort: a transaction our fee payer signed that no attempt row knows.
+	for i, info := range sigs {
+		if i >= 20 || info.Failed() {
+			continue
+		}
+		tx, err := s.client.GetTransaction(ctx, info.Signature, solana.CommitmentConfirmed)
+		if err != nil || tx == nil || len(tx.Transaction.Message.AccountKeys) == 0 || tx.Transaction.Message.AccountKeys[0].Pubkey != s.feePayer.PublicKey().String() {
+			continue
+		}
+		if inflight != nil {
+			// The transaction already executed, so its blockhash cannot outlive the current height by more
+			// than the validity span: an upper bound that can only delay expiry evidence, never hasten it.
+			height, err := s.client.GetBlockHeight(ctx, solana.CommitmentFinalized)
+			if err != nil || height == 0 {
+				log.Printf("[solana sweep] %s: untracked transaction %s found; block height unavailable, retrying next pass: %v", acct.TokenAccount, info.Signature, err)
+				return true
+			}
+			log.Printf("[solana sweep] %s drained by our untracked transaction %s; recording it as sweep %d's attempt", acct.TokenAccount, info.Signature, inflight.ID)
+			err = s.db.Transaction(func(dbTx *gorm.DB) error {
+				if err := dbTx.Create(&models.SolanaSweepAttempt{SweepID: inflight.ID, Signature: info.Signature, Blockhash: tx.Transaction.Message.RecentBlockhash,
+					LastValidBlockHeight: height + solana.BlockhashValidityBlocks, Status: models.SolanaSweepAttemptSent}).Error; err != nil {
+					return err
+				}
+				if err := dbTx.Model(&models.SweepTransaction{}).Where("sweep_id = ?", inflight.ID).Updates(map[string]any{"tx_hash": info.Signature, "status": SweepTxStatusBroadcast}).Error; err != nil {
+					return err
+				}
+				return dbTx.Model(&models.Sweep{}).Where("id = ?", inflight.ID).Update("status", SweepStatusPending).Error
+			})
+			if err != nil {
+				log.Printf("[solana sweep] record recovered attempt %s: %v", info.Signature, err)
+			}
+			return true
+		}
+		s.recordAnomaly(info.Signature, acct.TokenAccount, decimal.Zero, anomalyUntrackedSweep+": our fee payer signed it, no attempt row")
+		return true
 	}
 	last := ""
 	if len(sigs) > 0 {
@@ -481,6 +589,7 @@ func (s *SolanaSweepService) explainDrain(ctx context.Context, acct *models.Sola
 	log.Printf("[solana sweep] %s holds %d, below its claim, and no sweep of ours explains it (last signature %s); anomaly recorded", acct.TokenAccount, balance, last)
 	_ = s.accounts.UpdateStatus(acct.ID, models.SolanaDepositAccountDrained)
 	s.recordAnomaly(last, acct.TokenAccount, decimal.Zero, anomalyUnexplainedDrain+": token account below its claimed deposits without a booked sweep")
+	return false
 }
 
 func (s *SolanaSweepService) recordAnomaly(signature, to string, amount decimal.Decimal, reason string) {
@@ -501,48 +610,44 @@ func (s *SolanaSweepService) recordAnomaly(signature, to string, amount decimal.
 	}
 }
 
-// TrackConfirmations follows every attempt of each pending Solana sweep.
+// TrackConfirmations runs the reconciler over every in-flight sweep and releases orphan locks.
 func (s *SolanaSweepService) TrackConfirmations(ctx context.Context) (int, error) {
-	sweeps, err := s.sweepRepo.ListByBlockchain(s.chain.ID)
-	if err != nil {
-		return 0, err
-	}
 	completed := 0
-	for i := range sweeps {
-		sw := &sweeps[i]
-		if sw.Status != SweepStatusPending && sw.Status != SweepStatusProcessing {
-			continue
+	var after uint
+	for {
+		var sweeps []models.Sweep
+		if err := s.db.Where("blockchain_id = ? AND status IN ? AND id > ?", s.chain.ID, []string{SweepStatusPending, SweepStatusProcessing}, after).
+			Order("id").Limit(trackPageSize).Find(&sweeps).Error; err != nil {
+			return completed, err
 		}
-		if ctx.Err() != nil {
-			return completed, ctx.Err()
+		for i := range sweeps {
+			if ctx.Err() != nil {
+				return completed, ctx.Err()
+			}
+			done, err := s.reconcileSweep(ctx, &sweeps[i])
+			if err != nil {
+				log.Printf("[solana sweep] reconcile sweep %d: %v", sweeps[i].ID, err)
+			} else if done {
+				completed++
+			}
 		}
-		done, err := s.trackSweep(ctx, sw)
-		if err != nil {
-			log.Printf("[solana sweep] track sweep %d: %v", sw.ID, err)
-			continue
+		if len(sweeps) < trackPageSize {
+			break
 		}
-		if done {
-			completed++
-		}
+		after = sweeps[len(sweeps)-1].ID
 	}
+	s.releaseOrphanLocks()
 	return completed, nil
 }
 
-func (s *SolanaSweepService) trackSweep(ctx context.Context, sw *models.Sweep) (bool, error) {
+// reconcileSweep applies exactly one transition of SOLANA_SWEEPS.md to a sweep, from its rows and the chain.
+func (s *SolanaSweepService) reconcileSweep(ctx context.Context, sw *models.Sweep) (bool, error) {
 	var attempts []models.SolanaSweepAttempt
 	if err := s.db.Where("sweep_id = ?", sw.ID).Order("id").Find(&attempts).Error; err != nil {
 		return false, err
 	}
 	if len(attempts) == 0 {
-		// A sweep still "processing" has rows but no attempt: either the broadcast is in flight in
-		// another goroutine or the attempt row failed and only the anomaly knows the signature.
-		recovered, err := s.recoverUnrecorded(ctx, sw)
-		if err != nil || !recovered {
-			return false, err
-		}
-		if err := s.db.Where("sweep_id = ?", sw.ID).Order("id").Find(&attempts).Error; err != nil {
-			return false, err
-		}
+		return false, s.resolveNoAttempt(ctx, sw)
 	}
 	sigs := make([]string, len(attempts))
 	for i := range attempts {
@@ -578,30 +683,16 @@ func (s *SolanaSweepService) trackSweep(ctx context.Context, sw *models.Sweep) (
 		return true, s.book(ctx, sw, landed, attempts)
 	}
 	if anyConfirmed {
-		s.markConfirming(sw.ID)
+		s.db.Model(&models.SweepTransaction{}).Where("sweep_id = ? AND status = ?", sw.ID, SweepTxStatusBroadcast).Update("status", SweepTxStatusConfirming)
 		return false, nil
 	}
-	// Every attempt unknown: only the finalized block height past the latest attempt's validity,
-	// with the signature absent at finalized on more than one node, counts as expiry.
 	latest := &attempts[len(attempts)-1]
-	if latest.Status == models.SolanaSweepAttemptFailed {
+	if latest.Status == models.SolanaSweepAttemptFailed || latest.Status == models.SolanaSweepAttemptExpired {
 		return false, s.rebuildOrFail(ctx, sw, attempts)
 	}
-	height, err := s.client.GetBlockHeight(ctx, solana.CommitmentFinalized)
-	if err != nil {
+	expired, err := s.attemptExpired(ctx, sw, latest)
+	if err != nil || !expired {
 		return false, err
-	}
-	if latest.LastValidBlockHeight == 0 || height <= latest.LastValidBlockHeight {
-		return false, nil
-	}
-	tx, reached, err := s.client.GetTransactionFromDistinctNodes(ctx, latest.Signature, solana.CommitmentFinalized, max(2, s.cfg.FetchNodes))
-	if err != nil || tx != nil {
-		return false, err
-	}
-	if reached < 2 {
-		// One endpoint cannot say "absent on two nodes": wait rather than fake the evidence.
-		s.recordAnomaly(latest.Signature, "", decimal.Zero, fmt.Sprintf("%s: sweep %d has one rpc endpoint; expiry cannot be evidenced", anomalyEvidenceUnavailable, sw.ID))
-		return false, nil
 	}
 	if err := s.db.Model(latest).Update("status", models.SolanaSweepAttemptExpired).Error; err != nil {
 		return false, err
@@ -610,14 +701,73 @@ func (s *SolanaSweepService) trackSweep(ctx context.Context, sw *models.Sweep) (
 	return false, s.rebuildOrFail(ctx, sw, attempts)
 }
 
-func (s *SolanaSweepService) markConfirming(sweepID uint) {
-	s.db.Model(&models.SweepTransaction{}).Where("sweep_id = ? AND status = ?", sweepID, SweepTxStatusBroadcast).Update("status", SweepTxStatusConfirming)
+// attemptExpired is the expiry evidence: the finalized block height past the attempt's validity
+// (or, when the height is unknown, the attempt older than the validity window) and the signature
+// absent at finalized on two distinct endpoints. One endpoint cannot evidence it: wait.
+func (s *SolanaSweepService) attemptExpired(ctx context.Context, sw *models.Sweep, latest *models.SolanaSweepAttempt) (bool, error) {
+	if latest.LastValidBlockHeight > 0 {
+		height, err := s.client.GetBlockHeight(ctx, solana.CommitmentFinalized)
+		if err != nil {
+			return false, err
+		}
+		if height <= latest.LastValidBlockHeight {
+			return false, nil
+		}
+	} else if s.now().Sub(latest.CreatedAt) < s.cfg.ValidityWindow {
+		return false, nil
+	}
+	tx, reached, err := s.client.GetTransactionFromDistinctNodes(ctx, latest.Signature, solana.CommitmentFinalized, max(2, s.cfg.FetchNodes))
+	if err != nil || tx != nil {
+		return false, err
+	}
+	if reached < 2 {
+		s.recordAnomaly(latest.Signature, "", decimal.Zero, fmt.Sprintf("%s: sweep %d has one rpc endpoint; expiry cannot be evidenced", anomalyEvidenceUnavailable, sw.ID))
+		return false, nil
+	}
+	return true, nil
 }
 
-// rebuildOrFail re-reads every account against the sweep's claim first: an account at or below
-// zero while no attempt is finalized means an attempt may have landed behind lagging nodes, so the
-// sweep waits (at the budget too). Otherwise a fresh attempt goes out while the budget allows, and
-// past it the sweep fails and releases exactly its deposits.
+// resolveNoAttempt handles a sweep whose rows exist but whose signature was never persisted (a crash
+// or a database error before the attempt row; nothing is sent before it). Past the validity window
+// the chain decides: every account at or above its claim means nothing was sent.
+func (s *SolanaSweepService) resolveNoAttempt(ctx context.Context, sw *models.Sweep) error {
+	if s.now().Sub(sw.CreatedAt) < s.cfg.ValidityWindow {
+		return nil
+	}
+	txs, err := s.sweepTxs.ListBySweep(sw.ID)
+	if err != nil || len(txs) == 0 {
+		return err
+	}
+	bc, err := s.currencies.GetByID(txs[0].BlockchainCurrencyID)
+	if err != nil {
+		return err
+	}
+	for i := range txs {
+		balance, err := s.balance(ctx, txs[i].FromAddress)
+		if err != nil {
+			return err
+		}
+		claimed := txs[i].Amount.Shift(int32(bc.WalletPrecision)).BigInt().Uint64()
+		if balance >= claimed {
+			continue
+		}
+		acct, err := s.accounts.GetByTokenAccount(txs[i].FromAddress)
+		if err != nil {
+			return err
+		}
+		if s.explainDrain(ctx, acct, balance, sw) {
+			return nil
+		}
+		return s.failSweep(sw, "an account drained with nothing of ours in its history")
+	}
+	s.recordAnomaly("none", txs[0].FromAddress, decimal.Zero, fmt.Sprintf("%s: sweep %d had no attempt after %s", anomalySweepNeverSent, sw.ID, s.cfg.ValidityWindow))
+	return s.failSweep(sw, "no attempt was ever signed")
+}
+
+// rebuildOrFail re-reads every account against the sweep's claim first: an account below its claim
+// while no attempt is finalized means an attempt may have landed behind lagging nodes, so the sweep
+// waits (at the budget too). Otherwise a fresh attempt goes out while the budget allows, and past
+// it the sweep fails and releases exactly its deposits.
 func (s *SolanaSweepService) rebuildOrFail(ctx context.Context, sw *models.Sweep, attempts []models.SolanaSweepAttempt) error {
 	txs, err := s.sweepTxs.ListBySweep(sw.ID)
 	if err != nil || len(txs) == 0 {
@@ -644,29 +794,30 @@ func (s *SolanaSweepService) rebuildOrFail(ctx context.Context, sw *models.Sweep
 		claimed := txs[i].Amount.Shift(int32(params.Decimals)).BigInt().Uint64()
 		amount, close, short := amountFor(balance, claimed)
 		if short {
-			log.Printf("[solana sweep] sweep %d: %s holds %d of its %d claim while no attempt is finalized; waiting", sw.ID, txs[i].FromAddress, balance, claimed)
-			return nil
+			if s.now().Sub(attempts[len(attempts)-1].CreatedAt) < s.cfg.DrainWait {
+				log.Printf("[solana sweep] sweep %d: %s holds %d of its %d claim while no attempt is finalized; waiting", sw.ID, txs[i].FromAddress, balance, claimed)
+				return nil
+			}
+			if s.explainDrain(ctx, acct, balance, sw) {
+				return nil
+			}
+			return s.failSweep(sw, "an account drained with nothing of ours in its history")
 		}
 		items = append(items, sweepItem{acct: acct, amount: amount, close: close})
 	}
 	if len(attempts) >= s.cfg.MaxAttempts {
 		return s.failSweep(sw, "no attempt landed in "+strconv.Itoa(len(attempts))+" broadcasts")
 	}
-	sent, _, err := s.broadcast(ctx, params, items)
-	if err != nil {
+	if err := s.signAndSend(ctx, sw, params, items, len(attempts)+1); err != nil {
 		return fmt.Errorf("rebuild: %w", err)
 	}
-	if err := s.recordAttempt(ctx, sw.ID, sent); err != nil {
-		s.recordAnomaly(sent.Signature, txs[0].ToAddress, decimal.Zero, fmt.Sprintf("%s: sweep %d", anomalyUnrecordedBroadcast, sw.ID))
-		return fmt.Errorf("record attempt %s (anomaly recorded): %w", sent.Signature, err)
-	}
-	log.Printf("[solana sweep] sweep %d rebuilt as %s (attempt %d)", sw.ID, sent.Signature, len(attempts)+1)
+	log.Printf("[solana sweep] sweep %d rebuilt (attempt %d)", sw.ID, len(attempts)+1)
 	return nil
 }
 
 // book completes the sweep from the one attempt that finalized: sweep transactions confirmed with
-// their fee share, the sweep journal, rent, the deposits swept, accounts closed, and a reconciliation
-// of the hot ATA's balance delta against the recorded amounts.
+// their fee share, the sweep journal, rent, the linked deposits swept, the lock released, accounts
+// closed when the chain shows them gone, and the hot ATA's balance delta reconciled.
 func (s *SolanaSweepService) book(ctx context.Context, sw *models.Sweep, landed *models.SolanaSweepAttempt, attempts []models.SolanaSweepAttempt) error {
 	tx, err := s.client.GetTransactionFromNodes(ctx, landed.Signature, solana.CommitmentFinalized, s.cfg.FetchNodes)
 	if err != nil {
@@ -714,6 +865,9 @@ func (s *SolanaSweepService) book(ctx context.Context, sw *models.Sweep, landed 
 			models.DepositStatusSwept, sw.ID, []string{models.DepositStatusConfirmed, models.DepositStatusSwept}).Error; err != nil {
 			return err
 		}
+		if err := dbTx.Where("sweep_id = ?", sw.ID).Delete(&models.SolanaSweepLock{}).Error; err != nil {
+			return err
+		}
 		if err := s.sweepSvc.completeIn(ctx, dbTx, sw.ID, total, fee, bcID); err != nil {
 			return err
 		}
@@ -727,7 +881,6 @@ func (s *SolanaSweepService) book(ctx context.Context, sw *models.Sweep, landed 
 		if err != nil || !s.cfg.CloseAccounts {
 			continue
 		}
-		// Closed only when the chain shows the account gone; a kept account (money beyond the claim) stays watched.
 		if info, err := s.client.GetAccountInfo(ctx, t.FromAddress, solana.CommitmentConfirmed); err == nil && info == nil {
 			_ = s.accounts.UpdateStatus(acct.ID, models.SolanaDepositAccountClosed)
 		}
@@ -820,23 +973,23 @@ func nativeAssetFor(tx *gorm.DB, bcID uint) (string, error) {
 	return assets.Native, nil
 }
 
-// failSweep releases exactly the deposits this sweep claimed and returns its accounts to watching.
+// failSweep releases exactly the deposits this sweep claimed, its lock, and marks its rows.
 func (s *SolanaSweepService) failSweep(sw *models.Sweep, reason string) error {
 	log.Printf("[solana sweep] sweep %d %s; releasing its deposits", sw.ID, reason)
-	var links []models.SolanaSweepDeposit
-	if err := s.db.Where("sweep_id = ?", sw.ID).Find(&links).Error; err != nil {
-		return err
-	}
-	for _, l := range links {
-		if err := s.db.Model(&models.Deposit{}).Where("id = ? AND status = ?", l.DepositID, models.DepositStatusSwept).
-			Update("status", models.DepositStatusConfirmed).Error; err != nil {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("UPDATE deposits SET status = ? WHERE id IN (SELECT deposit_id FROM solana_sweep_deposits WHERE sweep_id = ? AND deleted_at IS NULL) AND status = ?",
+			models.DepositStatusConfirmed, sw.ID, models.DepositStatusSwept).Error; err != nil {
 			return err
 		}
-	}
-	txs, _ := s.sweepTxs.ListBySweep(sw.ID)
-	for _, t := range txs {
-		_ = s.sweepTxs.UpdateStatus(t.ID, SweepTxStatusFailed)
-	}
-	s.db.Model(&models.SolanaSweepAttempt{}).Where("sweep_id = ? AND status = ?", sw.ID, models.SolanaSweepAttemptSent).Update("status", models.SolanaSweepAttemptExpired)
-	return s.sweepSvc.MarkFailed(sw.ID)
+		if err := tx.Model(&models.SweepTransaction{}).Where("sweep_id = ?", sw.ID).Update("status", SweepTxStatusFailed).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.SolanaSweepAttempt{}).Where("sweep_id = ? AND status IN ?", sw.ID, []string{models.SolanaSweepAttemptSigned, models.SolanaSweepAttemptSent}).Update("status", models.SolanaSweepAttemptExpired).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("sweep_id = ?", sw.ID).Delete(&models.SolanaSweepLock{}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Sweep{}).Where("id = ?", sw.ID).Update("status", SweepStatusFailed).Error
+	})
 }
