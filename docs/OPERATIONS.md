@@ -74,8 +74,16 @@ by trigger. A role that owns those tables can disable the triggers, so two roles
   <role>` (or `POSTGRES_LEDGER_APP_ROLE`) applies exactly that grant set.
 
 At boot in staging and production the server checks that its role is not a superuser, does not
-own the ledger tables, holds no `UPDATE`, `DELETE`, `TRUNCATE` or `TRIGGER` on them, and can
-`SELECT` and `INSERT`; any other state refuses to start. Every environment also refuses to boot
+own the ledger tables or their trigger functions, holds no `UPDATE`, `DELETE`, `TRUNCATE` or
+`TRIGGER` on the tables, can `SELECT` and `INSERT`, and cannot `CREATE` in the database or in any
+schema; any other state refuses to start. The trigger functions pin `search_path` and qualify
+every reference, so `SET search_path` and temporary objects cannot shadow them.
+
+Backups: a journal is sealed by its posting transaction id and start time. `pg_upgrade` and
+physical (base) backups preserve both; a logical `pg_dump`/`pg_restore` into a fresh cluster
+keeps the stamps but the new cluster reuses low transaction ids, so restore the ledger only
+through `pg_upgrade` or a physical backup. Future migrations that alter a ledger table or
+function must `SET ROLE ledger_owner` first. Every environment also refuses to boot
 when the ledger tables, triggers or functions are missing, and validate mode additionally requires
 migration `2026100701` recorded as applied.
 

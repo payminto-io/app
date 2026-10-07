@@ -27,7 +27,9 @@ var (
 // MigrationVersion is the checksummed migration that creates the ledger; validate mode requires it recorded.
 const MigrationVersion int64 = 2026100701
 
-// ValidateSchema fails when any ledger table, trigger or function is missing. Postgres-only parts are skipped elsewhere.
+// ValidateSchema fails when any ledger table is missing or, on Postgres, when a trigger on the
+// ledger tables in the current schema is missing or disabled, or a trigger function in that schema
+// is missing or lacks the pinned search_path the shipped definition carries.
 func ValidateSchema(db *gorm.DB) error {
 	migrator := db.Migrator()
 	for _, table := range tables {
@@ -40,21 +42,33 @@ func ValidateSchema(db *gorm.DB) error {
 	}
 	var missing []string
 	for _, trigger := range triggers {
-		var n int64
-		if err := db.Raw(`SELECT count(*) FROM pg_trigger WHERE tgname = ? AND NOT tgisinternal`, trigger).Scan(&n).Error; err != nil {
+		var enabled int64
+		err := db.Raw(`
+SELECT count(*) FROM pg_trigger t
+JOIN pg_class c ON c.oid = t.tgrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE t.tgname = ? AND NOT t.tgisinternal AND t.tgenabled = 'O'
+  AND n.nspname = current_schema() AND c.relname IN ('ledger_accounts', 'ledger_journals', 'ledger_lines')`, trigger).Scan(&enabled).Error
+		if err != nil {
 			return fmt.Errorf("ledger: inspect trigger %s: %w", trigger, err)
 		}
-		if n == 0 {
-			missing = append(missing, "trigger "+trigger)
+		if enabled == 0 {
+			missing = append(missing, "trigger "+trigger+" (missing or disabled)")
 		}
 	}
 	for _, fn := range functions {
-		var n int64
-		if err := db.Raw(`SELECT count(*) FROM pg_proc WHERE proname = ?`, fn).Scan(&n).Error; err != nil {
+		var pinned int64
+		err := db.Raw(`
+SELECT count(*) FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.proname = ? AND n.nspname = current_schema()
+  AND p.prorettype = 'trigger'::regtype
+  AND 'search_path=pg_catalog, pg_temp' = ANY(p.proconfig)`, fn).Scan(&pinned).Error
+		if err != nil {
 			return fmt.Errorf("ledger: inspect function %s: %w", fn, err)
 		}
-		if n == 0 {
-			missing = append(missing, "function "+fn)
+		if pinned == 0 {
+			missing = append(missing, "function "+fn+" (missing or without the pinned search_path)")
 		}
 	}
 	if len(missing) > 0 {
@@ -77,16 +91,23 @@ func ValidateMigrationRecorded(db *gorm.DB) error {
 }
 
 type privilegeRow struct {
-	Superuser   bool
-	OwnerMember bool
-	CanMutate   bool
-	CanPost     bool
-	Tables      int64
+	Superuser      bool
+	OwnerMember    bool
+	CanMutate      bool
+	CanPost        bool
+	Tables         int64
+	FunctionOwner  bool
+	Functions      int64
+	CreateDatabase bool
+	CreateSchemas  string
 }
 
 // ValidatePrivileges fails when the connected role could rewrite the ledger: it must not be a
-// superuser, must not own (or be a member of the owner of) the ledger tables, must hold no
-// UPDATE, DELETE, TRUNCATE or TRIGGER privilege on them, and must be able to SELECT and INSERT.
+// superuser, must not own (or be a member of the owner of) the ledger tables or their trigger
+// functions, must hold no UPDATE, DELETE, TRUNCATE or TRIGGER privilege on the tables, must be
+// able to SELECT and INSERT, and must not be able to CREATE objects in the database or any schema
+// (so nothing it creates can ever sit on a search path). TEMP is not refused: the trigger functions
+// pin pg_temp last and qualify every reference, so a temporary object cannot shadow anything.
 func ValidatePrivileges(db *gorm.DB) error {
 	if db.Dialector.Name() != "postgres" {
 		return errors.New("ledger: privilege validation needs Postgres")
@@ -95,6 +116,17 @@ func ValidatePrivileges(db *gorm.DB) error {
 	err := db.Raw(`
 SELECT
     (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS superuser,
+    (SELECT COALESCE(bool_or(pg_has_role(current_user, p.proowner, 'MEMBER')), false)
+       FROM pg_proc p JOIN pg_namespace pn ON pn.oid = p.pronamespace
+      WHERE pn.nspname = current_schema() AND p.proname IN ('ledger_reject_mutation', 'ledger_check_journal_balance',
+            'ledger_check_journal_has_lines', 'ledger_stamp_journal_txid', 'ledger_check_line_same_transaction')) AS function_owner,
+    (SELECT count(*) FROM pg_proc p JOIN pg_namespace pn ON pn.oid = p.pronamespace
+      WHERE pn.nspname = current_schema() AND p.proname IN ('ledger_reject_mutation', 'ledger_check_journal_balance',
+            'ledger_check_journal_has_lines', 'ledger_stamp_journal_txid', 'ledger_check_line_same_transaction')) AS functions,
+    has_database_privilege(current_user, current_database(), 'CREATE') AS create_database,
+    (SELECT COALESCE(string_agg(nspname, ', ' ORDER BY nspname), '') FROM pg_namespace
+      WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema'
+        AND has_schema_privilege(current_user, oid, 'CREATE')) AS create_schemas,
     COALESCE(bool_or(pg_has_role(current_user, c.relowner, 'MEMBER')), false) AS owner_member,
     COALESCE(bool_or(
         has_table_privilege(current_user, c.oid, 'UPDATE')
@@ -122,6 +154,14 @@ WHERE n.nspname = current_schema() AND c.relname IN ('ledger_accounts', 'ledger_
 		return errors.New("ledger: the application role holds UPDATE, DELETE, TRUNCATE or TRIGGER on the ledger tables; revoke them (docs/OPERATIONS.md, Ledger roles)")
 	case !row.CanPost:
 		return errors.New("ledger: the application role lacks SELECT or INSERT on the ledger tables (docs/OPERATIONS.md, Ledger roles)")
+	case row.Functions != 5:
+		return fmt.Errorf("ledger: expected 5 trigger functions in the current schema, found %d", row.Functions)
+	case row.FunctionOwner:
+		return errors.New("ledger: the application role owns a ledger trigger function and could replace it; transfer the functions to ledger_owner (docs/OPERATIONS.md, Ledger roles)")
+	case row.CreateDatabase:
+		return errors.New("ledger: the application role holds CREATE on the database and could add schemas; revoke it (docs/OPERATIONS.md, Ledger roles)")
+	case row.CreateSchemas != "":
+		return fmt.Errorf("ledger: the application role holds CREATE on schema(s) %s and could create shadowing objects; revoke it (docs/OPERATIONS.md, Ledger roles)", row.CreateSchemas)
 	}
 	return nil
 }
