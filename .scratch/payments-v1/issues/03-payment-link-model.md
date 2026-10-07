@@ -1,6 +1,6 @@
 # 03 Payment link model and API
 
-Status: ready-for-agent
+Status: claimed
 Owner: Backend engineer (Opus)
 Blocked by: 02
 
