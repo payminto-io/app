@@ -13,16 +13,16 @@ import { StatusBadge } from "@/components/ui/status-badge";
 const PAGE_SIZE = 25;
 
 const COLUMNS: DataTableColumn<Customer>[] = [
-  { key: "name", header: "Name", className: "font-medium", cell: (c) => c.name },
-  { key: "email", header: "Email", className: "text-ink-soft", cell: (c) => c.email ?? null },
+  { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (c) => c.name },
+  { key: "email", stack: "meta", header: "Email", className: "text-ink-soft", cell: (c) => c.email ?? null },
   {
-    key: "id",
+    key: "id", stack: "meta",
     header: "Customer ID",
     cell: (c) => (c.customerID ? <span className="font-mono text-label text-ink-soft">{c.customerID}</span> : null),
   },
-  { key: "state", header: "Status", cell: (c) => <StatusBadge status={c.state} /> },
+  { key: "state", stack: "trail", header: "Status", cell: (c) => <StatusBadge status={c.state} /> },
   {
-    key: "created",
+    key: "created", stack: "meta",
     header: "Created",
     align: "right",
     className: "text-ink-soft",

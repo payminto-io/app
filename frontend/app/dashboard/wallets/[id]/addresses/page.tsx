@@ -34,16 +34,16 @@ function truncateMiddle(value: string, head: number, tail: number): string {
 
 const COLUMNS: DataTableColumn<AddressPoolItem>[] = [
   {
-    key: "address",
+    key: "address", stack: "lead",
     header: "Address",
     cell: (a) => (
       <CopyField value={a.address} display={truncateMiddle(a.address, 10, 8)} boxed={false} className="max-w-[280px]" />
     ),
   },
-  { key: "index", header: "Index", align: "right", className: "text-ink-soft", cell: (a) => a.pathIndex },
-  { key: "status", header: "Status", cell: (a) => <StatusBadge status={a.status} /> },
+  { key: "index", stack: "detail", header: "Index", align: "right", className: "text-ink-soft", cell: (a) => a.pathIndex },
+  { key: "status", stack: "trail", header: "Status", cell: (a) => <StatusBadge status={a.status} /> },
   {
-    key: "created",
+    key: "created", stack: "meta",
     header: "Created",
     align: "right",
     className: "text-ink-soft",

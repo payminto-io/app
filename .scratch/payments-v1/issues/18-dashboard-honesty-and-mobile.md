@@ -1,6 +1,6 @@
 # 18 Dashboard follow-ups: per-asset totals and mobile tables
 
-Status: ready-for-agent
+Status: done
 Owner: Frontend engineer (Opus) with UI/UX
 Blocked by: 01
 
@@ -11,3 +11,13 @@ Blocked by: 01
 
 ## Acceptance
 Screenshots at 390 and 1440, light and dark; no figure shown that is not a single-asset sum or a ledger-backed value.
+
+## Comments
+
+Done on branch `dash-followups`.
+Commits: `0f0bf83` (stacked rows below 1024px, sticky first column), `a1d4cd6` (per-asset totals, summed figures removed), `f6ff14a` (worker controls, gas floors, dark borders), `c811ef9` (polish after visual review), `4422991` (captures).
+Checks: `npx tsc --noEmit`, `npm run lint`, `npm test` (4 files, 25 tests) pass.
+Screens: `docs/design/screens/pages/` at 390 and 1440, light and dark; DESIGN.md section 15 lists which.
+Home and analytics show paid deposits per asset from `/analytics/revenue`; sweeps shows no figures, because `/analytics/sweeps` is instance-wide and summed across assets.
+API fields needed and the cross-tenant sweep finding: `.superpowers/dash-followups-report.md`.
+

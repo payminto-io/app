@@ -32,18 +32,18 @@ import { ErrorState } from "@/components/ui/states";
 import { StatusBadge } from "@/components/ui/status-badge";
 
 const DELIVERY_COLUMNS: DataTableColumn<WebhookDelivery>[] = [
-  { key: "event", header: "Event", cell: (d) => <span className="font-mono text-label">{d.event}</span> },
-  { key: "status", header: "Status", cell: (d) => <StatusBadge status={d.status} /> },
+  { key: "event", stack: "lead", header: "Event", cell: (d) => <span className="font-mono text-label">{d.event}</span> },
+  { key: "status", stack: "trail", header: "Status", cell: (d) => <StatusBadge status={d.status} /> },
   {
-    key: "code",
+    key: "code", stack: "detail",
     header: "HTTP",
     align: "right",
     className: "text-ink-soft",
     cell: (d) => (d.statusCode !== undefined ? d.statusCode : null),
   },
-  { key: "attempts", header: "Attempts", align: "right", cell: (d) => d.attempts },
+  { key: "attempts", stack: "detail", header: "Attempts", align: "right", cell: (d) => d.attempts },
   {
-    key: "created",
+    key: "created", stack: "meta",
     header: "Created",
     align: "right",
     className: "text-ink-soft",

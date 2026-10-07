@@ -100,7 +100,7 @@ export const analyticsApi = {
     ).then((r) => r.revenue ?? []);
   },
 
-  /** Sweep stats. */
+  /** Sweep stats. Instance-wide and summed across assets; not for merchant display. */
   sweeps: (): Promise<SweepStats> =>
     apiFetch<{ sweeps: SweepStats }>("/analytics/sweeps").then(
       (r) => r.sweeps

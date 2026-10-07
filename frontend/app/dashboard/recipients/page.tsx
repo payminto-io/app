@@ -47,10 +47,10 @@ export default function RecipientsPage() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const columns: DataTableColumn<Recipient>[] = [
-    { key: "name", header: "Name", className: "font-medium", cell: (r) => r.name },
-    { key: "email", header: "Email", className: "text-ink-soft", cell: (r) => r.email ?? null },
+    { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (r) => r.name },
+    { key: "email", stack: "meta", header: "Email", className: "text-ink-soft", cell: (r) => r.email ?? null },
     {
-      key: "asset",
+      key: "asset", stack: "trail",
       header: "Asset",
       cell: (r) => (
         <span className="inline-flex items-baseline gap-1.5">
@@ -60,12 +60,12 @@ export default function RecipientsPage() {
       ),
     },
     {
-      key: "address",
+      key: "address", stack: "meta",
       header: "Address",
       cell: (r) => <CopyField value={r.address} display={truncateAddr(r.address)} boxed={false} />,
     },
     {
-      key: "actions",
+      key: "actions", stack: "action",
       header: <span className="sr-only">Actions</span>,
       align: "right",
       className: "w-0",

@@ -20,7 +20,6 @@ import { CopyField } from "@/components/copy-field";
 import { CurrencyDisplay } from "@/components/currency-display";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Notice } from "@/components/notice";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -190,38 +189,24 @@ export default function HotWalletsPage() {
 
 /* ── Table ─────────────────────────────────────────────── */
 
-/** Native-coin floor below which a hot wallet can no longer reliably fund gas. */
-function lowBalanceThreshold(symbol: string): number {
-  switch (symbol) {
-    case "ETH":
-      return 0.01;
-    case "BTC":
-      return 0.0005;
-    case "TRX":
-      return 50;
-    default:
-      return 0;
-  }
-}
-
 const COLUMNS: DataTableColumn<HotWallet>[] = [
-  { key: "name", header: "Name", className: "font-medium", cell: (w) => w.name },
+  { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (w) => w.name },
   {
-    key: "chain",
+    key: "chain", stack: "meta",
     header: "Chain",
     className: "text-ink-soft",
     cell: (w) => resolveFamily(w.blockchainFamilyCode ?? w.blockchainFamily?.code).label,
   },
   {
-    key: "address",
+    key: "address", stack: "meta",
     header: "Address",
     cell: (w) =>
       w.address ? (
         <CopyField value={w.address} display={truncateAddress(w.address)} boxed={false} className="max-w-[220px]" />
       ) : null,
   },
-  { key: "status", header: "Status", cell: (w) => <StatusBadge status={w.status || "inactive"} /> },
-  { key: "balance", header: "Balance", align: "right", cell: (w) => <HotBalance wallet={w} /> },
+  { key: "status", stack: "trail", header: "Status", cell: (w) => <StatusBadge status={w.status || "inactive"} /> },
+  { key: "balance", stack: "detail", header: "Balance", align: "right", cell: (w) => <HotBalance wallet={w} /> },
 ];
 
 /** Live native balance, fetched per row so the list never waits on RPC. */
@@ -230,13 +215,7 @@ function HotBalance({ wallet }: { wallet: HotWallet }) {
   if (!wallet.address) return null;
   if (isLoading) return <Skeleton className="ml-auto h-3 w-20" />;
   if (!bal) return <span className="text-caption text-ink-faint">Unavailable</span>;
-  const low = parseFloat(bal.balance) < lowBalanceThreshold(bal.symbol);
-  return (
-    <span className="inline-flex items-center gap-2">
-      {low ? <Badge variant="wait">Low</Badge> : null}
-      <CurrencyDisplay amount={bal.balance} currency={bal.symbol} size="sm" />
-    </span>
-  );
+  return <CurrencyDisplay amount={bal.balance} currency={bal.symbol} size="sm" />;
 }
 
 /* ── Add Hot Wallet dialog ─────────────────────────────── */

@@ -33,7 +33,7 @@ export function CurrenciesTable({ platformId }: { platformId: number }) {
 
   const columns: DataTableColumn<Row>[] = [
     {
-      key: "asset",
+      key: "asset", stack: "lead",
       header: "Asset",
       cell: (r) => (
         <span className="inline-flex items-baseline gap-1.5">
@@ -42,14 +42,14 @@ export function CurrenciesTable({ platformId }: { platformId: number }) {
         </span>
       ),
     },
-    { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.active ? "active" : "inactive"} /> },
+    { key: "status", stack: "trail", header: "Status", cell: (r) => <StatusBadge status={r.active ? "active" : "inactive"} /> },
     { key: "auto", header: "Auto-approve up to", align: "right", cell: (r) => amountCell(r, "autoApproveThreshold") },
     { key: "hourly", header: "Hourly cap", align: "right", cell: (r) => amountCell(r, "hourlyCap") },
     { key: "daily", header: "Daily cap", align: "right", cell: (r) => amountCell(r, "dailyCap") },
     { key: "min", header: "Min", align: "right", cell: (r) => amountCell(r, "minAmount") },
     { key: "max", header: "Max", align: "right", cell: (r) => amountCell(r, "maxAmount") },
     {
-      key: "edit",
+      key: "edit", stack: "action",
       header: <span className="sr-only">Edit</span>,
       align: "right",
       className: "w-0",

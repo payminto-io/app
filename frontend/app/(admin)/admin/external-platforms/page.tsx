@@ -16,7 +16,7 @@ import { ApiKeyRevealDialog } from "./api-key-reveal-dialog";
 
 const COLUMNS: DataTableColumn<ExternalPlatform>[] = [
   {
-    key: "name",
+    key: "name", stack: "lead",
     header: "Project",
     cell: (p) => (
       <Link
@@ -29,13 +29,13 @@ const COLUMNS: DataTableColumn<ExternalPlatform>[] = [
     ),
   },
   {
-    key: "website",
+    key: "website", stack: "meta",
     header: "Website",
     cell: (p) => (p.websiteURL ? <span className="font-mono text-label text-ink-soft">{p.websiteURL}</span> : null),
   },
-  { key: "status", header: "Status", cell: (p) => <StatusBadge status={p.active ? "active" : "inactive"} /> },
+  { key: "status", stack: "trail", header: "Status", cell: (p) => <StatusBadge status={p.active ? "active" : "inactive"} /> },
   {
-    key: "created",
+    key: "created", stack: "meta",
     header: "Created",
     align: "right",
     className: "text-ink-soft",

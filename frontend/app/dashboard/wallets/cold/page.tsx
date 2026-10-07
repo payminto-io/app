@@ -88,9 +88,9 @@ function validateAddress(
 /* ── Page ──────────────────────────────────────────────── */
 
 const COLUMNS: DataTableColumn<ColdWallet>[] = [
-  { key: "name", header: "Name", className: "font-medium", cell: (w) => w.name || null },
+  { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (w) => w.name || null },
   {
-    key: "chain",
+    key: "chain", stack: "trail",
     header: "Chain",
     cell: (w) => (
       <span className="inline-flex items-baseline gap-1.5">
@@ -100,7 +100,7 @@ const COLUMNS: DataTableColumn<ColdWallet>[] = [
     ),
   },
   {
-    key: "address",
+    key: "address", stack: "meta",
     header: "Address",
     cell: (w) => (
       <CopyField value={w.address} display={truncateAddress(w.address)} boxed={false} className="max-w-[240px]" />

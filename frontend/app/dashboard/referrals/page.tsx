@@ -1,7 +1,7 @@
 "use client";
 
 import { useReferralOverview, useReferralCampaigns, type ReferralCampaign } from "@/lib/query/hooks/use-merchant-misc";
-import { formatDecimal } from "@/lib/money";
+import { CurrencyDisplay } from "@/components/currency-display";
 import { PageHeader } from "@/components/page-header";
 import { CopyField } from "@/components/copy-field";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -12,17 +12,24 @@ import { ErrorState } from "@/components/ui/states";
 import { StatusBadge } from "@/components/ui/status-badge";
 
 const campaignColumns: DataTableColumn<ReferralCampaign>[] = [
-  { key: "name", header: "Name", className: "font-medium", cell: (r) => r.name },
-  { key: "description", header: "Description", className: "text-ink-soft", cell: (r) => r.description ?? null },
+  { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (r) => r.name },
+  { key: "description", stack: "meta", header: "Description", className: "text-ink-soft", cell: (r) => r.description ?? null },
   {
-    key: "reward",
+    key: "reward", stack: "detail",
     header: "Reward",
     align: "right",
-    cell: (r) => (r.rewardType === "percentage" ? `${r.rewardValue}%` : `${formatDecimal(r.rewardValue, "")} fixed`),
+    cell: (r) => {
+      if (!r.rewardValue) return null;
+      if (r.rewardType === "percentage") return `${r.rewardValue}%`;
+      if (r.rewardType === "fixed" && r.currencyCode) {
+        return <CurrencyDisplay amount={r.rewardValue} currency={r.currencyCode} size="sm" />;
+      }
+      return null;
+    },
   },
-  { key: "active", header: "Status", cell: (r) => <StatusBadge status={r.active ? "active" : "inactive"} /> },
+  { key: "active", stack: "trail", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
   {
-    key: "period",
+    key: "period", stack: "detail",
     header: "Runs",
     className: "text-ink-soft",
     cell: (r) =>
@@ -51,7 +58,7 @@ export default function ReferralsPage() {
         <Skeleton className="h-[120px] rounded-md" />
       ) : (
         <Card>
-          <CardContent className="grid gap-6 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] sm:items-end">
+          <CardContent className="grid gap-6 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] sm:items-end">
             <div className="min-w-0 space-y-1.5">
               <div className="text-label font-medium text-ink-soft">Your code</div>
               {ov.code ? (
@@ -60,8 +67,9 @@ export default function ReferralsPage() {
                 <p className="text-body-sm text-ink-soft">No code issued yet.</p>
               )}
             </div>
-            <Stat label="Referred" value={ov.totalReferred.toLocaleString("en-US")} />
-            <Stat label="Earned" value={formatDecimal(ov.paidRewards || "0", "")} />
+            {ov.totalReferred !== null ? (
+              <Stat label="Referred" value={ov.totalReferred.toLocaleString("en-US")} />
+            ) : null}
           </CardContent>
         </Card>
       )}

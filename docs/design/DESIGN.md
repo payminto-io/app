@@ -46,7 +46,7 @@ Names are the CSS variables without the leading `--`.
 | `surface-sunken` | `#EEF0F3` | `#121419` | Table header rows, code blocks, sunken panels |
 | `surface-raised` | `#FFFFFF` | `#1D2129` | Popovers, dialogs, sheets |
 | `line` | `#E1E4E9` | `#262B33` | Default border and table rules |
-| `line-strong` | `#C8CED6` | `#363D48` | Input borders, dividers that must read |
+| `line-strong` | `#C8CED6` | `#4B5462` | Input borders, dividers that must read |
 | `ink` | `#15181D` | `#EDEFF2` | Primary text, primary button background (light) |
 | `ink-soft` | `#5B6472` | `#A7AFBA` | Secondary text, labels |
 | `ink-faint` | `#8A93A1` | `#6F7886` | Placeholders, captions, disabled text |
@@ -228,7 +228,10 @@ Motion is a response to a user action or a change in money state, never ambient.
 Checkout is designed at 390px first and widened; the dashboard is designed at 1440px and narrowed to 390px.
 
 - Checkout at 390px: single column, summary collapsed into a header row (merchant, amount, chevron), pay button pinned above the safe area, 16px gutters, 48px inputs, 16px input text (prevents iOS zoom).
-- Dashboard below 1024px: sidebar becomes a sheet from the left; the top bar keeps the environment control, the account menu and the menu button. Tables scroll horizontally inside their card; the first column is sticky.
+- Dashboard below 1024px (the tablet breakpoint, Tailwind `lg`): sidebar becomes a sheet from the left; the top bar keeps the environment control, the account menu and the menu button.
+- Tables below 1024px become stacked rows, one card-width row per record: the amount or name and the status on line one, reference, customer and date on line two, other fields as labelled rows under it.
+  `DataTable` does this for every table; a column picks its place with `stack` (`lead`, `trail`, `meta`, `detail`, `action`, `hidden`).
+- Tables at 1024px and up that are wider than their card scroll horizontally inside it; the first column is sticky and gains a 1px rule once the table is scrolled.
 - Nothing is hover-only. Row actions are a kebab, not a hover reveal.
 - No fixed element may sit inside an ancestor with `transform`, `filter` or `backdrop-filter`.
 
@@ -317,3 +320,8 @@ Page captures from the page pass live in `docs/design/screens/pages/` as `<page>
 They are taken from `/design/preview/*`, a development-only route (404 in production) that renders the real page components inside the real shell.
 It answers API calls with labelled sample fixtures from `frontend/app/(public)/design/preview/fixtures.ts` and intercepts nothing outside that prefix.
 Append `?state=empty` or `?state=error` to see the empty and error states.
+
+Ticket 18 refreshed these captures with Chrome DevTools MCP on :3016.
+Every table page has 390 light and dark captures of the stacked rows; home, analytics, sweeps, referrals, hot wallets, admin system and project detail also have 1440 light and dark.
+`admin-project-detail-1100-scrolled-light.png` shows the sticky first column on a table that overflows its card.
+Pages with a chart are captured at a viewport as tall as the page rather than as a full-page capture, because the full-page resize makes Recharts drop the bars.

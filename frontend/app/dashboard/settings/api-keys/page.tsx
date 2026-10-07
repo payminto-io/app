@@ -22,22 +22,22 @@ export default function ApiKeysPage() {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
 
   const columns: DataTableColumn<APIKey>[] = [
-    { key: "name", header: "Name", className: "font-medium", cell: (k) => k.name },
+    { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (k) => k.name },
     {
-      key: "prefix",
+      key: "prefix", stack: "meta",
       header: "Key",
       cell: (k) => <code className="font-mono text-label text-ink-soft">{k.prefix}...</code>,
     },
-    { key: "status", header: "Status", cell: (k) => <StatusBadge status={k.active ? "active" : "inactive"} /> },
+    { key: "status", stack: "trail", header: "Status", cell: (k) => <StatusBadge status={k.active ? "active" : "inactive"} /> },
     {
-      key: "used",
+      key: "used", stack: "detail",
       header: "Last used",
       className: "text-ink-soft",
       cell: (k) => (k.lastUsedAt ? <DateTime value={k.lastUsedAt} /> : "Never"),
     },
-    { key: "created", header: "Created", className: "text-ink-soft", cell: (k) => <DateTime value={k.createdAt} format="date" /> },
+    { key: "created", stack: "detail", header: "Created", className: "text-ink-soft", cell: (k) => <DateTime value={k.createdAt} format="date" /> },
     {
-      key: "actions",
+      key: "actions", stack: "action",
       header: <span className="sr-only">Actions</span>,
       align: "right",
       className: "w-0",

@@ -20,23 +20,23 @@ const TABS = [
 
 const columns: DataTableColumn<OnramperSession>[] = [
   {
-    key: "fiat",
+    key: "fiat", stack: "lead",
     header: "Paid",
     align: "right",
     className: "w-0",
     cell: (r) => <CurrencyDisplay amount={r.fiatAmount} currency={r.fiatCurrency} size="sm" />,
   },
   {
-    key: "crypto",
+    key: "crypto", stack: "detail",
     header: "Received",
     align: "right",
     className: "w-0",
     cell: (r) => (r.cryptoAmount ? <CurrencyDisplay amount={r.cryptoAmount} currency={r.cryptoCurrency} size="sm" /> : null),
   },
-  { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.state} /> },
-  { key: "customer", header: "Customer", className: "text-ink-soft", cell: (r) => r.customerEmail ?? null },
+  { key: "status", stack: "trail", header: "Status", cell: (r) => <StatusBadge status={r.state} /> },
+  { key: "customer", stack: "meta", header: "Customer", className: "text-ink-soft", cell: (r) => r.customerEmail ?? null },
   {
-    key: "session",
+    key: "session", stack: "detail",
     header: "Session",
     cell: (r) => (
       <span className="font-mono text-label text-ink-soft" title={r.sessionID}>
@@ -45,7 +45,7 @@ const columns: DataTableColumn<OnramperSession>[] = [
     ),
   },
   {
-    key: "created",
+    key: "created", stack: "meta",
     header: "Created",
     align: "right",
     className: "text-ink-soft",

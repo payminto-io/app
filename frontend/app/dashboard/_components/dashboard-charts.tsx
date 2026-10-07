@@ -10,72 +10,42 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import type { VolumeBucket } from "@/lib/api/analytics";
-import { formatDecimal } from "@/lib/money";
 
-const volumeChartConfig: ChartConfig = {
-  value: { label: "Volume", color: "var(--chart-1)" },
+const countChartConfig: ChartConfig = {
+  count: { label: "Payments", color: "var(--chart-1)" },
 };
-
-const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 
 interface DashboardChartsProps {
   volume: VolumeBucket[] | undefined;
   isLoading: boolean;
 }
 
-/** Daily deposit volume. The API sums all assets without a currency, so no unit is shown. */
+/** Payments with a confirmed deposit per day. The buckets' `Volume` sums every asset, so it is not plotted. */
 export function DashboardCharts({ volume, isLoading }: DashboardChartsProps) {
-  const chartData =
-    volume?.map((b) => ({
-      name: b.BucketLabel,
-      raw: b.Volume,
-      value: Number(b.Volume),
-      count: b.PaymentCount,
-    })) ?? [];
+  const chartData = volume?.map((b) => ({ name: b.BucketLabel, count: b.PaymentCount })) ?? [];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Deposit volume</CardTitle>
-        <CardDescription>Per day, all assets summed</CardDescription>
+        <CardTitle>Payments received</CardTitle>
+        <CardDescription>Payments with a confirmed deposit, per day, last 30 days</CardDescription>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <Skeleton className="h-[240px] w-full rounded-sm" />
         ) : chartData.length > 0 ? (
-          <ChartContainer config={volumeChartConfig} className="aspect-auto h-[240px] w-full">
+          <ChartContainer config={countChartConfig} className="aspect-auto h-[240px] w-full">
             <BarChart data={chartData} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--line)" />
               <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} minTickGap={16} />
-              <YAxis
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-                width={44}
-                tickFormatter={(v: number) => compact.format(v)}
-              />
-              <ChartTooltip
-                cursor={{ fill: "var(--surface-sunken)" }}
-                content={
-                  <ChartTooltipContent
-                    hideIndicator
-                    formatter={(_value, _name, item) => (
-                      <span className="num flex flex-col">
-                        <span className="font-medium text-ink">{formatDecimal(String(item.payload.raw), "")}</span>
-                        <span className="text-ink-soft">
-                          {item.payload.count} {item.payload.count === 1 ? "payment" : "payments"}
-                        </span>
-                      </span>
-                    )}
-                  />
-                }
-              />
-              <Bar dataKey="value" fill="var(--color-value)" radius={[2, 2, 0, 0]} maxBarSize={28} />
+              <YAxis tickLine={false} axisLine={false} tickMargin={8} width={32} allowDecimals={false} />
+              <ChartTooltip cursor={{ fill: "var(--surface-sunken)" }} content={<ChartTooltipContent />} />
+              <Bar dataKey="count" fill="var(--color-count)" radius={[2, 2, 0, 0]} maxBarSize={28} isAnimationActive={false} />
             </BarChart>
           </ChartContainer>
         ) : (
           <div className="flex h-[240px] items-center justify-center rounded-sm border border-dashed border-line-strong text-body-sm text-ink-soft">
-            Volume appears after the first paid payment.
+            Payments appear here after the first confirmed deposit.
           </div>
         )}
       </CardContent>

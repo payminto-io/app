@@ -40,7 +40,7 @@ function kindLabel(kind: string): string {
 
 const COLUMNS: DataTableColumn<Wallet>[] = [
   {
-    key: "name",
+    key: "name", stack: "lead",
     header: "Wallet",
     cell: (w) => (
       <Link
@@ -52,19 +52,19 @@ const COLUMNS: DataTableColumn<Wallet>[] = [
       </Link>
     ),
   },
-  { key: "family", header: "Chain", className: "text-ink-soft", cell: (w) => familyLabel(w) ?? null },
-  { key: "kind", header: "Type", className: "text-ink-soft", cell: (w) => kindLabel(w.kind) },
+  { key: "family", stack: "meta", header: "Chain", className: "text-ink-soft", cell: (w) => familyLabel(w) ?? null },
+  { key: "kind", stack: "meta", header: "Type", className: "text-ink-soft", cell: (w) => kindLabel(w.kind) },
   {
-    key: "path",
+    key: "path", stack: "detail",
     header: "Derivation path",
     cell: (w) =>
       w.blockchainFamily?.path ? (
         <span className="font-mono text-label text-ink-soft">{w.blockchainFamily.path}</span>
       ) : null,
   },
-  { key: "status", header: "Status", cell: (w) => <StatusBadge status={w.status} /> },
+  { key: "status", stack: "trail", header: "Status", cell: (w) => <StatusBadge status={w.status} /> },
   {
-    key: "addresses",
+    key: "addresses", stack: "detail",
     header: "Addresses",
     align: "right",
     cell: (w) => w.addressCount.toLocaleString("en-US"),
