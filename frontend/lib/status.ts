@@ -52,6 +52,7 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   completed: { label: "Completed", tone: "ok", glyph: "check" },
   failed: { label: "Failed", tone: "bad", glyph: "x" },
   delivered: { label: "Delivered", tone: "ok", glyph: "check" },
+  retrying: { label: "Retrying", tone: "wait", glyph: "clock" },
   success: { label: "Success", tone: "ok", glyph: "check" },
   failure: { label: "Failure", tone: "bad", glyph: "x" },
   resolved: { label: "Resolved", tone: "ok", glyph: "check" },

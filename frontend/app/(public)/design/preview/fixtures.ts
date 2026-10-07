@@ -85,9 +85,26 @@ const withdrawals = WD_STATES.map((state, i) => ({
   updatedAt: iso(-i * DAY),
 }));
 
+const webhooks = [
+  { id: 7, externalPlatformID: 1, url: "https://sample-shop.example.com/hooks/payments", events: ["payment.filled", "payment.confirmed", "payment.expired", "withdrawal.sent"], active: true, createdAt: iso(-25 * DAY), updatedAt: iso(-1 * DAY) },
+  { id: 8, externalPlatformID: 1, url: "https://staging.sample-shop.example.com/webhooks", events: ["payment.pending"], active: false, createdAt: iso(-8 * DAY), updatedAt: iso(-8 * DAY) },
+];
+const deliveries = Array.from({ length: 8 }, (_, i) => ({
+  id: 900 + i,
+  webhookID: 7,
+  event: ["payment.filled", "payment.confirmed", "payment.expired", "withdrawal.sent"][i % 4],
+  status: (["delivered", "delivered", "failed", "retrying", "delivered", "pending", "delivered", "delivered"] as const)[i],
+  ...(i === 5 ? {} : { statusCode: i === 2 ? 500 : i === 3 ? 502 : 200 }),
+  attempts: i === 2 ? 5 : i === 3 ? 2 : 1,
+  createdAt: iso(-i * 3 * 3600_000),
+}));
+
 type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: URLSearchParams) => unknown; empty?: unknown };
 
 const ROUTES: Route[] = [
+  { method: "GET", pattern: /^\/webhooks$/, body: () => ({ webhooks }), empty: { webhooks: [] } },
+  { method: "GET", pattern: /^\/webhooks\/(\d+)$/, body: (m) => ({ webhook: webhooks.find((w) => String(w.id) === m[1]) ?? webhooks[0] }) },
+  { method: "GET", pattern: /^\/webhooks\/(\d+)\/deliveries$/, body: () => ({ deliveries }), empty: { deliveries: [] } },
   {
     method: "GET",
     pattern: /^\/analytics\/sweeps$/,
