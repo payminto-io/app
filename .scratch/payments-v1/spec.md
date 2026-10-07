@@ -96,8 +96,8 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 17 | Public checkout projection fields | Backend | 03, 05, 09 |
 | 18 | Dashboard per-asset totals and mobile tables | Frontend | 01 |
 | 19 | Chainlink CRE research, market fit and module spec | Chainlink | - |
-| 20 | CRE install-time option, configuration and dashboard settings | DevOps + Frontend | 15, 19 |
-| 21 | CRE module: port, service, none and mock providers, verifier, storage, routes | Chainlink | 01, 11, 20 |
+| 20 | CRE install-time option, configuration and dashboard settings | DevOps + Frontend | 19 |
+| 21 | CRE module: port, service, none and mock providers, verifier, storage, routes | Chainlink | 01, 20 |
 | 21b | CRE settlement gate | Chainlink + Blockchain | 11, 21, 24 |
 | 22 | GatewayAttestations consumer contract | Chainlink | 19 |
 | 23 | CRE workflow: solvency attestation | Chainlink | 21, 22 |
