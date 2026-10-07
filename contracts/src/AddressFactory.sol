@@ -26,10 +26,7 @@ contract AddressFactory {
     function predictAddress(bytes32 salt) external view returns (address) {
         bytes32 hash = keccak256(
             abi.encodePacked(
-                bytes1(0xff),
-                address(this),
-                salt,
-                keccak256(abi.encodePacked(type(DepositProxy).creationCode))
+                bytes1(0xff), address(this), salt, keccak256(abi.encodePacked(type(DepositProxy).creationCode))
             )
         );
         return address(uint160(uint256(hash)));
