@@ -92,6 +92,7 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 14 | Hosted checkout rendering every link option | Frontend | 04, 07, 09 |
 | 15 | Compose with mocks, CI, release pipeline | DevOps | 05, 08 |
 | 16 | QA: money-path tests, security review, demo script | QA | 11, 14, 15 |
+| 17 | Public checkout projection fields | Backend | 03, 05, 09 |
 
 ## Distribution: open core, self-hosted by default, white-label in the paid tier
 
