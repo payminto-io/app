@@ -142,6 +142,10 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 		accountIDs[key] = id
 	}
 
+	// The barrier is held from before the journal id is allocated until this transaction commits.
+	if err := takePostingBarrier(tx); err != nil {
+		return Receipt{}, err
+	}
 	row := JournalRow{
 		Kind:           j.Kind,
 		ReferenceType:  j.Reference.Type,

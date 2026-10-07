@@ -189,16 +189,16 @@ func guardOption(deps Deps) cre.Option {
 // ledgerLiabilities adapts the ledger's read to the module's port.
 type ledgerLiabilities struct{ ledger *ledger.Service }
 
-func (l ledgerLiabilities) LiabilityTotals(ctx context.Context) ([]cre.LedgerTotal, uint64, error) {
-	totals, head, err := l.ledger.LiabilityTotals(ctx)
+func (l ledgerLiabilities) LiabilityTotals(ctx context.Context) (cre.LedgerSnapshot, error) {
+	snap, err := l.ledger.LiabilityTotals(ctx)
 	if err != nil {
-		return nil, 0, err
+		return cre.LedgerSnapshot{}, err
 	}
-	out := make([]cre.LedgerTotal, 0, len(totals))
-	for _, t := range totals {
-		out = append(out, cre.LedgerTotal{Asset: t.Asset, Total: t.Total.String()})
+	out := cre.LedgerSnapshot{Head: snap.Head, TakenAt: snap.TakenAt, Totals: make([]cre.LedgerTotal, 0, len(snap.Totals))}
+	for _, t := range snap.Totals {
+		out.Totals = append(out.Totals, cre.LedgerTotal{Asset: t.Asset, Total: t.Total.String()})
 	}
-	return out, head, nil
+	return out, nil
 }
 
 type eventSink func(eventType string, payload map[string]any) error

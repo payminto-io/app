@@ -22,9 +22,13 @@ func (a Anomaly) String() string { return a.Asset + ": " + a.Reason }
 // BuildCheckpoint reads liabilities through the ledger port and hashes them so a solvency report can name them.
 // Assets with unknown decimals or a negative total are left out and returned as anomalies; nothing is guessed.
 func BuildCheckpoint(ctx context.Context, src LiabilitySource, decimals Decimals, now time.Time) (Checkpoint, []Anomaly, error) {
-	totals, maxJournal, err := src.LiabilityTotals(ctx)
+	snap, err := src.LiabilityTotals(ctx)
 	if err != nil {
 		return Checkpoint{}, nil, err
+	}
+	totals, maxJournal, takenAt := snap.Totals, snap.Head, snap.TakenAt
+	if takenAt.IsZero() {
+		takenAt = now
 	}
 	var skipped []Anomaly
 	assets := make([]AssetTotal, 0, len(totals))
@@ -41,10 +45,13 @@ func BuildCheckpoint(ctx context.Context, src LiabilitySource, decimals Decimals
 		assets = append(assets, AssetTotal{Asset: t.Asset, Liabilities: minor, Decimals: dec})
 	}
 	sort.Slice(assets, func(i, j int) bool { return assets[i].Asset < assets[j].Asset })
-	cp := Checkpoint{ID: uuid.NewString(), TakenAt: now.UTC(), MaxJournalID: maxJournal, Assets: assets}
+	cp := Checkpoint{ID: uuid.NewString(), TakenAt: takenAt.UTC(), MaxJournalID: maxJournal, Assets: assets}
 	cp.Hash = CheckpointHash(cp)
 	return cp, skipped, nil
 }
+
+// CheckpointTime is the taken_at string the hash commits to and the checkpoint facts store.
+func CheckpointTime(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 // CheckpointHash is keccak256 of the canonical JSON of the checkpoint's facts; an auditor can replay it.
 func CheckpointHash(cp Checkpoint) [32]byte {
@@ -57,7 +64,7 @@ func CheckpointHash(cp Checkpoint) [32]byte {
 		MaxJournalID uint64  `json:"max_journal_id"`
 		TakenAt      string  `json:"taken_at"`
 		Assets       []asset `json:"assets"`
-	}{MaxJournalID: cp.MaxJournalID, TakenAt: cp.TakenAt.UTC().Format(time.RFC3339), Assets: make([]asset, 0, len(cp.Assets))}
+	}{MaxJournalID: cp.MaxJournalID, TakenAt: CheckpointTime(cp.TakenAt), Assets: make([]asset, 0, len(cp.Assets))}
 	for _, a := range cp.Assets {
 		canon.Assets = append(canon.Assets, asset{a.Asset, a.Liabilities.String(), a.Decimals})
 	}

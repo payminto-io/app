@@ -97,10 +97,46 @@ Within one solvency batch a duplicate asset follows the contract: it stores the 
 Contract events that do not cover every report item in order are refused as forged.
 The poll cursor is keyed by chain, consumer contract and workflow (`cre_cursors.scope`), so changing `CRE_CHAIN` or `CRE_CONSUMER_ADDRESS` starts a fresh cursor at `CRE_START_BLOCK`.
 
+RPC and provider errors are sanitized (URLs and token-shaped strings stripped) before they reach health, the status page or a log line.
+
 ### The checkpoint watermark
 
-`max_journal_id` is the highest journal id visible to the repeatable-read snapshot that also summed the lines; the hash commits to exactly the lines that snapshot saw. It is a visibility watermark, not a commit watermark: a journal that took a lower id but committed after the snapshot is not in the hashed sum. An auditor replaying a checkpoint must therefore replay the lines of journals with `id <= max_journal_id` that were committed before `taken_at` (the journal row carries `posting_started_at`), not merely `id <= max_journal_id`.
-RPC and provider errors are sanitized (URLs and token-shaped strings stripped) before they reach health, the status page or a log line.
+`max_journal_id` is a commit watermark: every journal with `id <= max_journal_id` was committed before the checkpoint's snapshot, and the snapshot sees all of them.
+The ledger makes that true with a brief barrier: every posting transaction takes a shared advisory lock (`ledger:posting_barrier:<schema>`) before it allocates a journal id, and the checkpoint takes that lock exclusively before its one `REPEATABLE READ` transaction.
+The checkpoint therefore waits for in-flight postings to commit, and new postings wait for the duration of one aggregate, once per `CRE_SOLVENCY_INTERVAL`.
+Inside the snapshot the head is `MAX(id)` of the environment's journals and the sums are bounded by it; `taken_at` is the database's `statement_timestamp()` of the statement that froze the snapshot.
+Both are stored with the checkpoint in `cre_subjects.facts`.
+
+### Recomputing a checkpoint hash
+
+Run against the gateway's database (a read-only role is enough); journals and lines are append-only, so the answer never changes.
+
+1. Read the checkpoint, with `$1` the hash as 64 hex characters without `0x`:
+
+   ```sql
+   SELECT facts->>'max_journal_id' AS max_journal_id, facts->>'taken_at' AS taken_at
+   FROM cre_subjects
+   WHERE kind = 'solvency' AND subject_key = decode($1, 'hex');
+   ```
+
+2. Sum member liabilities per asset, with `$1` the environment (`test` or `live`) and `$2` the `max_journal_id` from step 1:
+
+   ```sql
+   SELECT a.asset, (-SUM(l.amount))::text AS liabilities
+   FROM ledger_accounts a
+   JOIN ledger_lines l ON l.account_id = a.id
+   WHERE a.environment = $1 AND a.owner_type = 'member' AND a.kind = 'liability' AND l.journal_id <= $2
+   GROUP BY a.asset
+   ORDER BY a.asset COLLATE "C";
+   ```
+
+3. For each row, scale `liabilities` to minor units with the asset's decimals (the asset code is the part before the last `.`; defaults in `internal/cre/decimals.go`, overridden by `CRE_ASSET_DECIMALS`).
+   Drop the row when the code has no decimals, the scaled amount has a fractional part, or it is negative: the checkpoint omitted those assets as anomalies.
+4. Build this JSON with no whitespace, keys in exactly this order, assets in the order of step 2, `liabilities_minor` as a decimal string and `decimals` as a number:
+   `{"max_journal_id":<n>,"taken_at":"<taken_at>","assets":[{"asset":"<asset>","liabilities_minor":"<minor>","decimals":<d>}]}`
+5. `keccak256` of those UTF-8 bytes is the checkpoint hash.
+
+`internal/cre/integration_test.go` (`TestIntegration_CheckpointHashReproducesFromTheAuditRecipe`) runs the two SQL blocks of this section verbatim while journals are posted concurrently.
 
 ## Turning it off
 

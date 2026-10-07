@@ -4,10 +4,21 @@ package cre_test
 
 import (
 	"context"
+	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/crypto"
+	"gorm.io/gorm"
 
 	"github.com/payminto/payminto/backend/internal/cre"
 	"github.com/payminto/payminto/backend/internal/cre/mock"
@@ -26,16 +37,16 @@ func (fixedReserves) Reserves(context.Context) ([]cre.Reserve, error) {
 
 type ledgerSource struct{ l *ledger.Service }
 
-func (s ledgerSource) LiabilityTotals(ctx context.Context) ([]cre.LedgerTotal, uint64, error) {
-	totals, head, err := s.l.LiabilityTotals(ctx)
+func (s ledgerSource) LiabilityTotals(ctx context.Context) (cre.LedgerSnapshot, error) {
+	snap, err := s.l.LiabilityTotals(ctx)
 	if err != nil {
-		return nil, 0, err
+		return cre.LedgerSnapshot{}, err
 	}
-	out := make([]cre.LedgerTotal, 0, len(totals))
-	for _, t := range totals {
-		out = append(out, cre.LedgerTotal{Asset: t.Asset, Total: t.Total.String()})
+	out := cre.LedgerSnapshot{Head: snap.Head, TakenAt: snap.TakenAt, Totals: make([]cre.LedgerTotal, 0, len(snap.Totals))}
+	for _, t := range snap.Totals {
+		out.Totals = append(out.Totals, cre.LedgerTotal{Asset: t.Asset, Total: t.Total.String()})
 	}
-	return out, head, nil
+	return out, nil
 }
 
 func TestIntegration_SchemaConvergesAndStoreRoundTrips(t *testing.T) {
@@ -172,9 +183,13 @@ func TestIntegration_LedgerLiabilitiesFlowIntoACheckpointAndAMockAttestation(t *
 	post("p3", "m1", "SOL", "2")
 	post("p4", "m1", "MYSTERY", "1")
 
-	totals, head, err := l.LiabilityTotals(ctx)
+	snap, err := l.LiabilityTotals(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	totals, head := snap.Totals, snap.Head
+	if snap.TakenAt.IsZero() {
+		t.Fatal("snapshot carries no database time")
 	}
 	if len(totals) != 3 || totals[1].Asset != "SOL" || !totals[2].Total.Equal(d("10.75")) || head != 4 {
 		t.Fatalf("totals = %+v head %d", totals, head)
@@ -228,8 +243,211 @@ func TestIntegration_LedgerLiabilitiesFlowIntoACheckpointAndAMockAttestation(t *
 	}
 	// The hashed figures are reproducible: lines above the head are not part of the sum (one consistent snapshot).
 	post("p5", "m1", "USDC.SOLANA", "1")
-	totals2, head2, _ := l.LiabilityTotals(ctx)
+	snap2, _ := l.LiabilityTotals(ctx)
+	totals2, head2 := snap2.Totals, snap2.Head
 	if head2 != 5 || !totals2[2].Total.Equal(d("11.75")) {
 		t.Fatalf("totals after a post = %+v head %d", totals2, head2)
+	}
+}
+
+// auditRecipe runs docs/cre/OPERATIONS.md "Recomputing a checkpoint hash" verbatim: both SQL blocks from the
+// document, then the scaling and canonical JSON it describes. It returns the per-asset figures and the hash.
+func auditRecipe(t *testing.T, db *gorm.DB, hash [32]byte) ([]cre.AssetTotal, uint64, [32]byte) {
+	t.Helper()
+	doc, err := os.ReadFile("../../../docs/cre/OPERATIONS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := string(doc)
+	start := strings.Index(section, "### Recomputing a checkpoint hash")
+	if start < 0 {
+		t.Fatal("OPERATIONS.md has no audit recipe section")
+	}
+	section = section[start:]
+	if end := strings.Index(section[4:], "\n## "); end >= 0 {
+		section = section[:end+4]
+	}
+	var blocks []string
+	for rest := section; ; {
+		i := strings.Index(rest, "```sql")
+		if i < 0 {
+			break
+		}
+		rest = rest[i+len("```sql"):]
+		j := strings.Index(rest, "```")
+		blocks = append(blocks, rest[:j])
+		rest = rest[j+3:]
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("audit recipe has %d SQL blocks, want 2", len(blocks))
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	var headText, takenAt sql.NullString
+	if err := sqlDB.QueryRowContext(ctx, blocks[0], hex.EncodeToString(hash[:])).Scan(&headText, &takenAt); err != nil {
+		t.Fatalf("recipe step 1: %v", err)
+	}
+	if !headText.Valid || !takenAt.Valid {
+		t.Fatalf("recipe step 1: checkpoint facts lack max_journal_id or taken_at (%v, %v)", headText, takenAt)
+	}
+	head, err := strconv.ParseUint(headText.String, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := sqlDB.QueryContext(ctx, blocks[1], "test", head)
+	if err != nil {
+		t.Fatalf("recipe step 2: %v", err)
+	}
+	defer rows.Close()
+	decimals, _ := cre.ParseDecimals("")
+	var assets []cre.AssetTotal
+	var parts []string
+	for rows.Next() {
+		var asset, liabilities string
+		if err := rows.Scan(&asset, &liabilities); err != nil {
+			t.Fatal(err)
+		}
+		minor, dec, ok := decimals.Minor(asset, liabilities)
+		if !ok || minor.Sign() < 0 {
+			continue
+		}
+		assets = append(assets, cre.AssetTotal{Asset: asset, Liabilities: minor, Decimals: dec})
+		parts = append(parts, fmt.Sprintf(`{"asset":%q,"liabilities_minor":"%s","decimals":%d}`, asset, minor, dec))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	canon := fmt.Sprintf(`{"max_journal_id":%d,"taken_at":%q,"assets":[%s]}`, head, takenAt.String, strings.Join(parts, ","))
+	var out [32]byte
+	copy(out[:], crypto.Keccak256([]byte(canon)))
+	return assets, head, out
+}
+
+// R2: the head is a commit watermark. A posting transaction that took a lower journal id and commits after a
+// later one must be inside the checkpoint, so the documented recipe reproduces the hash exactly.
+func TestIntegration_CheckpointHashReproducesFromTheAuditRecipe(t *testing.T) {
+	db, cleanup := database.NewTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	l := ledger.New(db)
+	journal := func(key, member, asset, amount string) ledger.Journal {
+		return ledger.Journal{
+			Kind: ledger.KindPayment, Reference: ledger.Reference{Type: "payment", ID: key}, IdempotencyKey: key,
+			Lines: []ledger.Line{
+				{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "hot", Asset: asset, Kind: ledger.KindAsset}, Amount: d(amount)},
+				{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: member, Asset: asset, Kind: ledger.KindLiability}, Amount: d(amount).Neg()},
+			},
+		}
+	}
+	// Accounts exist before the race so no poster waits on another's uncommitted account insert.
+	for i, asset := range []string{"USDC.SOLANA", "SOL"} {
+		for _, m := range []string{"m1", "m2", "m3"} {
+			if _, err := l.Post(ctx, journal(fmt.Sprintf("seed-%d-%s", i, m), m, asset, "1")); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	svc := cre.NewService(cre.Config{Provider: cre.ProviderMock, Chain: "test-chain", GatewayID: cre.GatewayID("https://pay.example.test"), SolvencyInterval: time.Hour, FinalityBatchInterval: time.Minute, PollInterval: time.Minute},
+		nil, cre.NewPostgresStore(db), &cre.Verifier{Provider: cre.ProviderMock}, cre.WithLiabilities(ledgerSource{l}))
+	check := func(cp cre.Checkpoint) {
+		t.Helper()
+		assets, head, hash := auditRecipe(t, db, cp.Hash)
+		if head != cp.MaxJournalID || len(assets) != len(cp.Assets) {
+			t.Fatalf("recipe head %d assets %+v, checkpoint head %d assets %+v", head, assets, cp.MaxJournalID, cp.Assets)
+		}
+		for i := range assets {
+			if assets[i].Asset != cp.Assets[i].Asset || assets[i].Liabilities.Cmp(cp.Assets[i].Liabilities) != 0 {
+				t.Fatalf("asset %d: recipe %s %s, checkpoint %s %s (head %d)", i, assets[i].Asset, assets[i].Liabilities, cp.Assets[i].Asset, cp.Assets[i].Liabilities, head)
+			}
+		}
+		if hash != cp.Hash {
+			t.Fatalf("recipe hash %x, checkpoint hash %x", hash, cp.Hash)
+		}
+	}
+
+	// Deterministic case: A takes a journal id and stays open; B takes a higher id and commits; the checkpoint
+	// starts; A commits afterwards. A visibility watermark would hash B without A.
+	aPosted, releaseA, aDone := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		aDone <- l.Transaction(ctx, func(tx *gorm.DB) error {
+			if _, err := l.PostIn(ctx, tx, journal("held-a", "m1", "USDC.SOLANA", "5")); err != nil {
+				return err
+			}
+			close(aPosted)
+			<-releaseA
+			return nil
+		})
+	}()
+	<-aPosted
+	if _, err := l.Post(ctx, journal("later-b", "m2", "USDC.SOLANA", "7")); err != nil {
+		t.Fatal(err)
+	}
+	cpDone := make(chan cre.Checkpoint, 1)
+	cpErr := make(chan error, 1)
+	go func() {
+		cp, err := svc.PublishCheckpoint(ctx)
+		cpErr <- err
+		cpDone <- cp
+	}()
+	time.Sleep(300 * time.Millisecond)
+	close(releaseA)
+	if err := <-aDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-cpErr; err != nil {
+		t.Fatal(err)
+	}
+	check(<-cpDone)
+
+	// Stress: posters run while checkpoints are taken; every checkpoint must reproduce.
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	var posted atomic.Int64
+	for w := 0; w < 6; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			members := []string{"m1", "m2", "m3"}
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				asset := []string{"USDC.SOLANA", "SOL"}[(w+i)%2]
+				err := l.Transaction(ctx, func(tx *gorm.DB) error {
+					if _, err := l.PostIn(ctx, tx, journal(fmt.Sprintf("w%d-%d", w, i), members[i%3], asset, "0.5")); err != nil {
+						return err
+					}
+					time.Sleep(time.Duration(i%4) * time.Millisecond)
+					return nil
+				})
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				posted.Add(1)
+			}
+		}(w)
+	}
+	var cps []cre.Checkpoint
+	for i := 0; i < 8; i++ {
+		time.Sleep(25 * time.Millisecond)
+		cp, err := svc.PublishCheckpoint(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cps = append(cps, cp)
+	}
+	close(stop)
+	wg.Wait()
+	if posted.Load() < 20 {
+		t.Fatalf("only %d concurrent postings; the race was not exercised", posted.Load())
+	}
+	for _, cp := range cps {
+		check(cp)
 	}
 }

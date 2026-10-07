@@ -268,8 +268,16 @@ type Checkpoint struct {
 
 // LiabilitySource reads the ledger's liabilities; the ledger module implements the read.
 type LiabilitySource interface {
-	// LiabilityTotals sums member liability accounts per asset at the current journal head.
-	LiabilityTotals(ctx context.Context) ([]LedgerTotal, uint64, error)
+	// LiabilityTotals sums member liability accounts per asset at a commit watermark.
+	LiabilityTotals(ctx context.Context) (LedgerSnapshot, error)
+}
+
+// LedgerSnapshot is one consistent ledger read: Head is a commit watermark (every journal id <= Head is
+// counted) and TakenAt the database time of the snapshot; a source without a database clock leaves it zero.
+type LedgerSnapshot struct {
+	Totals  []LedgerTotal
+	Head    uint64
+	TakenAt time.Time
 }
 
 // LedgerTotal is a per-asset decimal total as the ledger holds it (before minor-unit scaling).

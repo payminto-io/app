@@ -141,8 +141,8 @@ func TestCREConfigHoldsNoKeyMaterial(t *testing.T) {
 
 type fakeLiabilities struct{}
 
-func (fakeLiabilities) LiabilityTotals(context.Context) ([]cre.LedgerTotal, uint64, error) {
-	return []cre.LedgerTotal{{Asset: "USDC.SOLANA", Total: "12.5"}}, 3, nil
+func (fakeLiabilities) LiabilityTotals(context.Context) (cre.LedgerSnapshot, error) {
+	return cre.LedgerSnapshot{Totals: []cre.LedgerTotal{{Asset: "USDC.SOLANA", Total: "12.5"}}, Head: 3}, nil
 }
 
 type fakeReserves struct{}

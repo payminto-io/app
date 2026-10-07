@@ -641,8 +641,8 @@ func IsDisabled(err error) bool { return errors.Is(err, ErrDisabled) }
 
 type NoLiabilities struct{}
 
-func (NoLiabilities) LiabilityTotals(context.Context) ([]LedgerTotal, uint64, error) {
-	return nil, 0, nil
+func (NoLiabilities) LiabilityTotals(context.Context) (LedgerSnapshot, error) {
+	return LedgerSnapshot{}, nil
 }
 
 type NoReserves struct{}

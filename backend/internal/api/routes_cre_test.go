@@ -58,8 +58,8 @@ func (testReserves) Reserves(context.Context) ([]cre.Reserve, error) {
 
 type testLiabilities struct{}
 
-func (testLiabilities) LiabilityTotals(context.Context) ([]cre.LedgerTotal, uint64, error) {
-	return []cre.LedgerTotal{{Asset: "USDC.SOLANA", Total: "100"}}, 1, nil
+func (testLiabilities) LiabilityTotals(context.Context) (cre.LedgerSnapshot, error) {
+	return cre.LedgerSnapshot{Totals: []cre.LedgerTotal{{Asset: "USDC.SOLANA", Total: "100"}}, Head: 1}, nil
 }
 
 func creModule(t *testing.T, cfg *config.Config) *modules.CREModule {

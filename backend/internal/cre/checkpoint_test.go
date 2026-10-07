@@ -10,10 +10,11 @@ import (
 type fakeLiabilities struct {
 	totals []LedgerTotal
 	max    uint64
+	at     time.Time
 }
 
-func (f fakeLiabilities) LiabilityTotals(context.Context) ([]LedgerTotal, uint64, error) {
-	return f.totals, f.max, nil
+func (f fakeLiabilities) LiabilityTotals(context.Context) (LedgerSnapshot, error) {
+	return LedgerSnapshot{Totals: f.totals, Head: f.max, TakenAt: f.at}, nil
 }
 
 func TestBuildCheckpointOmitsUnknownAssetsAndIsDeterministic(t *testing.T) {
@@ -54,5 +55,18 @@ func TestParseDecimalsRejectsBadEntries(t *testing.T) {
 	d, _ := ParseDecimals("")
 	if _, _, ok := d.Minor("USDC.BASE", "0.0000001"); ok {
 		t.Error("amount finer than the grid accepted")
+	}
+}
+
+// The checkpoint's taken_at is the ledger snapshot's own time, and the stored facts carry it as hashed.
+func TestBuildCheckpointTakesTheSnapshotTime(t *testing.T) {
+	at := time.Date(2026, 10, 7, 11, 59, 58, 123456000, time.UTC)
+	src := fakeLiabilities{totals: []LedgerTotal{{"USDC.SOLANA", "1"}}, max: 5, at: at}
+	cp, _, err := BuildCheckpoint(context.Background(), src, Decimals{"USDC": 6}, at.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cp.TakenAt.Equal(at) || CheckpointSubject(cp).Facts["taken_at"] != "2026-10-07T11:59:58Z" || CheckpointSubject(cp).Facts["max_journal_id"] != uint64(5) {
+		t.Fatalf("taken_at = %s facts %v", cp.TakenAt, CheckpointSubject(cp).Facts)
 	}
 }

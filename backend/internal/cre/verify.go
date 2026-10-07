@@ -392,7 +392,7 @@ func CheckpointSubject(cp Checkpoint) Subject {
 	}
 	return Subject{
 		Kind: KindSolvency, Key: cp.Hash, ID: cp.ID, AskedAt: cp.TakenAt,
-		Facts: map[string]any{"checkpoint_hash": "0x" + common.Bytes2Hex(cp.Hash[:]), "max_journal_id": cp.MaxJournalID, "assets": assets},
+		Facts: map[string]any{"checkpoint_hash": "0x" + common.Bytes2Hex(cp.Hash[:]), "max_journal_id": cp.MaxJournalID, "taken_at": CheckpointTime(cp.TakenAt), "assets": assets},
 	}
 }
 
