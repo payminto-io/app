@@ -110,8 +110,8 @@ var environmentColumns = []struct{ table, migration string }{
 	{"api_keys", "2026100705_environment_isolation"},
 	{"ledger_accounts", "2026100705_environment_isolation"},
 	{"ledger_journals", "2026100705_environment_isolation"},
-	{"payment_links", "2026100706_links_payment_links"},
-	{"payment_link_payments", "2026100706_links_payment_links"},
+	{"payment_links", "2026100710_links_payment_links"},
+	{"payment_link_payments", "2026100710_links_payment_links"},
 }
 
 // dataTables are the tables whose rows prove a database already holds merchant or money data; any

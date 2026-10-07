@@ -19,7 +19,7 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
-// SchemaSQL is the DDL migration 2026100706 must repeat verbatim.
+// SchemaSQL is the DDL migration 2026100710 must repeat verbatim.
 func SchemaSQL() string { return schemaSQL }
 
 // Migrate creates the link tables in dev/test; Postgres only.

@@ -1,5 +1,5 @@
 -- Payment links, their line items and questions, and each use with its answers (ticket 03, internal/links/README.md).
--- Idempotent: links.Migrate runs it in dev/test and migration 2026100706 repeats it verbatim.
+-- Idempotent: links.Migrate runs it in dev/test and migration 2026100710 repeats it verbatim.
 
 CREATE TABLE IF NOT EXISTS payment_links (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

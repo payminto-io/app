@@ -87,7 +87,7 @@ func TestVerifySchema(t *testing.T) {
 		if err := db.Exec(`CREATE TABLE ` + table + ` (id integer primary key)`).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := m.VerifySchema(ctx, db); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), table+".environment") || !strings.Contains(err.Error(), "2026100706") {
+		if err := m.VerifySchema(ctx, db); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), table+".environment") || !strings.Contains(err.Error(), "2026100710") {
 			t.Fatalf("%s without environment = %v, want boot refusal naming the links migration", table, err)
 		}
 		if err := db.Exec(`DROP TABLE ` + table).Error; err != nil {

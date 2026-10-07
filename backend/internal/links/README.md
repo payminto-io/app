@@ -111,7 +111,7 @@ Methods that lost their connector or fee rule since publish are left out; with n
 
 ## Tables
 
-Migration `2026100706_links_payment_links` repeats `schema.sql` verbatim (`schema_test.go`); `links.Migrate` runs it in dev and test through `database.MigrateExpandSchema`.
+Migration `2026100710_links_payment_links` repeats `schema.sql` verbatim (`schema_test.go`); `links.Migrate` runs it in dev and test through `database.MigrateExpandSchema`.
 
 - `payment_links`: every form field as a column (see `schema.sql`), plus `environment` (`live`/`test`, default `test`), `status`, `short_code` (unique), `uses_count`, `revision`, `published_at`. Check constraints keep `uses_count` within the single-use, `use_limit` and `expires_after_payments` bounds, and require a short code on active and paused links.
 - `payment_link_line_items`, `payment_link_questions`: children ordered by `position`, replaced on save.
