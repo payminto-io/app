@@ -46,9 +46,9 @@ func newSweepFixture(t *testing.T) *sweepFixture {
 	sweepTxRepo := repository.NewSweepTransactionRepository(f.db)
 	f.sweepSvc = NewSweepService(f.db, sweepRepo, sweepTxRepo, repository.NewBlockchainRepository(f.db), f.ledger)
 	sweepTxSvc := NewSweepTransactionService(sweepTxRepo, sweepRepo, f.ledger)
-	f.svc = NewSolanaSweepService(f.db, solana.NewClient(f.rpc), f.chain, f.deposits, f.accounts, repository.NewBlockchainCurrencyRepository(f.db),
+	f.svc = NewSolanaSweepService(f.db, solana.NewClient(f.rpc), f.chain, f.deposits, f.accounts, repository.NewBlockchainCurrencyRepository(f.db), f.missed,
 		sweepRepo, sweepTxRepo, f.sweepSvc, sweepTxSvc, f.keys, f.feePayer, f.hot, f.journal,
-		SolanaSweepConfig{CloseAccounts: true, DropGrace: time.Minute, Send: solana.SendOptions{Poll: time.Millisecond, Wait: time.Second}})
+		SolanaSweepConfig{CloseAccounts: true})
 	f.svc.now = func() time.Time { return f.now }
 	return f
 }
@@ -166,10 +166,6 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 	if len(sweepTxs) != 2 || sweepTxs[0].TxHash != "SWEEPSIG1" || !sweepTxs[0].Amount.Equal(decimal.RequireFromString("30")) || !sweepTxs[1].Amount.Equal(decimal.RequireFromString("10")) || sweepTxs[0].ToAddress != hotATA.String() {
 		t.Fatalf("sweep txs = %+v", sweepTxs)
 	}
-	acct, _ := f.accounts.GetByTokenAccount(ataA)
-	if acct.Status != models.SolanaDepositAccountClosed {
-		t.Fatal("closed account must stop being watched")
-	}
 	// A second round finds nothing to sweep.
 	if n, _ := f.svc.SweepConfirmed(context.Background()); n != 0 {
 		t.Fatal("re-swept")
@@ -188,7 +184,7 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 
 	// Finalized: fee 10000 lamports, two closed ATAs refund 2 * 2039280 to the fee payer.
 	f.statuses(map[string]any{"slot": 300, "confirmations": nil, "err": nil, "confirmationStatus": "finalized"})
-	// Account order: fee payer, ATA A (closed), ATA B (closed), hot ATA (created).
+	// Account order: fee payer, ATA A (closed), ATA B (closed), hot ATA (created, receives 40).
 	f.rpc.Result("getTransaction", map[string]any{
 		"slot": 300, "transaction": map[string]any{"signatures": []string{"SWEEPSIG1"}, "message": map[string]any{"accountKeys": []any{
 			map[string]any{"pubkey": f.feePayer.PublicKey().String(), "signer": true, "writable": true},
@@ -196,7 +192,9 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 			map[string]any{"pubkey": ataB, "signer": false, "writable": true},
 			map[string]any{"pubkey": hotATA.String(), "signer": false, "writable": true},
 		}, "instructions": []any{}}},
-		"meta": map[string]any{"err": nil, "fee": 10000, "preBalances": []uint64{1_000_000_000, 2039280, 2039280, 0}, "postBalances": []uint64{1_000_000_000 - 10000 + 2039280, 0, 0, 2039280}, "innerInstructions": []any{}, "preTokenBalances": []any{}, "postTokenBalances": []any{}},
+		"meta": map[string]any{"err": nil, "fee": 10000, "preBalances": []uint64{1_000_000_000, 2039280, 2039280, 0}, "postBalances": []uint64{1_000_000_000 - 10000 + 2039280, 0, 0, 2039280}, "innerInstructions": []any{},
+			"preTokenBalances":  []any{map[string]any{"accountIndex": 3, "mint": fxUSDC, "owner": f.hot.String(), "uiTokenAmount": map[string]any{"amount": "0", "decimals": 6}}},
+			"postTokenBalances": []any{map[string]any{"accountIndex": 3, "mint": fxUSDC, "owner": f.hot.String(), "uiTokenAmount": map[string]any{"amount": "40000000", "decimals": 6}}}},
 	})
 	done, err = f.svc.TrackConfirmations(context.Background())
 	must(t, err)
@@ -206,6 +204,13 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 	must(t, f.db.Find(&sweeps).Error)
 	if sweeps[0].Status != SweepStatusCompleted || !sweeps[0].TotalAmount.Equal(decimal.RequireFromString("40")) || !sweeps[0].TotalGasFee.Equal(decimal.RequireFromString("0.00001")) {
 		t.Fatalf("sweep = %+v", sweeps[0])
+	}
+	acct, _ := f.accounts.GetByTokenAccount(ataA)
+	if acct.Status != models.SolanaDepositAccountClosed {
+		t.Fatal("a booked, closed account must stop being watched")
+	}
+	if missed, _ := f.missed.ListUnresolved(); len(missed) != 0 {
+		t.Fatalf("anomalies on a matching sweep: %+v", missed)
 	}
 	must(t, f.db.Order("id").Find(&sweepTxs).Error)
 	if sweepTxs[0].Status != SweepTxStatusConfirmed || !sweepTxs[0].GasFee.Add(sweepTxs[1].GasFee).Equal(decimal.RequireFromString("0.00001")) {
@@ -250,39 +255,46 @@ func TestSolanaSweep_BatchesPerMintClosesAccountsAndBooksGasInSOL(t *testing.T) 
 	}
 }
 
-func TestSolanaSweep_DroppedTransactionReleasesDeposits(t *testing.T) {
+func TestSolanaSweep_ExpiredWithoutLandingReleasesDeposits(t *testing.T) {
 	f := newSweepFixture(t)
+	f.svc.cfg.MaxAttempts = 1
 	_, ata, deps := f.newOwner("25")
 	f.rpc.On("getTokenAccountBalance", func([]any) (any, error) {
 		return solana.ContextValue(1, map[string]any{"amount": "25000000", "decimals": 6}), nil
 	})
 	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC", "lastValidBlockHeight": 500}))
 	f.rpc.Result("sendTransaction", "SWEEPSIG2")
-	f.statuses(map[string]any{"slot": 300, "confirmations": 1, "err": nil, "confirmationStatus": "confirmed"})
 	if n, err := f.svc.SweepConfirmed(context.Background()); err != nil || n != 1 {
 		t.Fatalf("sweep: %d %v", n, err)
 	}
 	if f.depositStatus(deps[0].ID) != models.DepositStatusSwept {
 		t.Fatal("not claimed")
 	}
-	// The cluster forgets the signature and the sweep ages past the grace period.
+	// Unknown everywhere while the blockhash is still valid: nothing happens.
 	f.rpc.On("getSignatureStatuses", func([]any) (any, error) { return solana.ContextValue(1, []any{nil}), nil })
 	f.rpc.Result("getTransaction", nil)
-	f.svc.now = func() time.Time { return f.now.Add(time.Hour) }
-	f.db.Model(&models.Sweep{}).Where("1 = 1").Update("created_at", f.now.Add(-time.Hour))
+	f.rpc.Result("getBlockHeight", 400)
 	if done, err := f.svc.TrackConfirmations(context.Background()); err != nil || done != 0 {
 		t.Fatalf("track: %d %v", done, err)
+	}
+	if f.sweepStatus(1) != SweepStatusPending {
+		t.Fatal("failed before the blockhash expired")
+	}
+	// Finalized height past validity and absent at finalized on two nodes: expired, budget spent, released.
+	f.rpc.Result("getBlockHeight", 600)
+	if _, err := f.svc.TrackConfirmations(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	if f.depositStatus(deps[0].ID) != models.DepositStatusConfirmed {
 		t.Fatalf("deposit = %s, want confirmed again", f.depositStatus(deps[0].ID))
 	}
-	var sweeps []models.Sweep
-	f.db.Find(&sweeps)
-	if sweeps[0].Status != SweepStatusFailed {
-		t.Fatalf("sweep = %s", sweeps[0].Status)
+	if f.sweepStatus(1) != SweepStatusFailed {
+		t.Fatalf("sweep = %s", f.sweepStatus(1))
 	}
-	acct, _ := f.accounts.GetByTokenAccount(ata)
-	if acct.Status != models.SolanaDepositAccountWatching {
+	if att := f.attempts(1); len(att) != 1 || att[0].Status != models.SolanaSweepAttemptExpired {
+		t.Fatalf("attempts = %+v", att)
+	}
+	if acct, _ := f.accounts.GetByTokenAccount(ata); acct.Status != models.SolanaDepositAccountWatching {
 		t.Fatal("account must be watched again")
 	}
 	if lines := f.journalLines("sweep", "1"); len(lines) != 0 {
@@ -310,22 +322,5 @@ func TestSolanaSweep_BroadcastFailureReleasesClaim(t *testing.T) {
 	f.db.Model(&models.Sweep{}).Count(&count)
 	if count != 0 {
 		t.Fatal("sweep row for nothing broadcast")
-	}
-}
-
-func TestSolanaSweep_EmptyAccountIsMarkedSweptWithoutBroadcast(t *testing.T) {
-	f := newSweepFixture(t)
-	_, _, deps := f.newOwner("25")
-	f.rpc.On("getTokenAccountBalance", func([]any) (any, error) {
-		return nil, &solana.RPCError{Code: -32602, Message: "Invalid param: could not find account"}
-	})
-	if n, err := f.svc.SweepConfirmed(context.Background()); err != nil || n != 0 {
-		t.Fatalf("sweep: %d %v", n, err)
-	}
-	if f.rpc.Count("sendTransaction") != 0 {
-		t.Fatal("broadcast for an empty account")
-	}
-	if f.depositStatus(deps[0].ID) != models.DepositStatusSwept {
-		t.Fatalf("deposit = %s, want swept", f.depositStatus(deps[0].ID))
 	}
 }

@@ -204,3 +204,35 @@ func commitmentReached(got, want string) bool {
 	rank := map[string]int{CommitmentProcessed: 1, CommitmentConfirmed: 2, CommitmentFinalized: 3}
 	return rank[got] >= rank[want]
 }
+
+// Sent is one broadcast attempt; the tracker owns what happens to it afterwards.
+type Sent struct {
+	Signature            string
+	Blockhash            string
+	LastValidBlockHeight uint64
+}
+
+// SendOnce builds against a fresh blockhash, signs and broadcasts without waiting. Rebuilding on
+// expiry is the tracker's decision, taken with the finalized block height, never on one node's "unknown".
+func SendOnce(ctx context.Context, c *Client, build func(blockhash string) (Message, error), signers []Signer) (Sent, error) {
+	bh, err := c.GetLatestBlockhash(ctx, CommitmentConfirmed)
+	if err != nil {
+		return Sent{}, fmt.Errorf("solana: latest blockhash: %w", err)
+	}
+	msg, err := build(bh.Blockhash)
+	if err != nil {
+		return Sent{}, err
+	}
+	tx, err := Sign(msg, signers)
+	if err != nil {
+		return Sent{}, err
+	}
+	if size := len(tx.Serialize()); size > MaxTransactionSize {
+		return Sent{}, fmt.Errorf("solana: transaction is %d bytes, limit %d", size, MaxTransactionSize)
+	}
+	sig, err := c.SendTransaction(ctx, tx, false, 0)
+	if err != nil {
+		return Sent{}, fmt.Errorf("solana: send: %w", err)
+	}
+	return Sent{Signature: sig, Blockhash: bh.Blockhash, LastValidBlockHeight: bh.LastValidBlockHeight}, nil
+}

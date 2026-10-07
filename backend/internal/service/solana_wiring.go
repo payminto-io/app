@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/payminto/payminto/backend/internal/blockchain/solana"
 	"github.com/payminto/payminto/backend/internal/config"
@@ -85,12 +84,11 @@ func (r *ServiceRegistry) wireSolana(cfg *config.Config) error {
 		return fmt.Errorf("SOLANA_FEE_PAYER_KEY: %w", err)
 	}
 	r.solanaSweepService = NewSolanaSweepService(
-		r.db, sol.Client(), chain, r.depositRepo, r.solanaDepositAccountRepo, r.blockchainCurrencyRepo,
+		r.db, sol.Client(), chain, r.depositRepo, r.solanaDepositAccountRepo, r.blockchainCurrencyRepo, r.missedDepositRepo,
 		r.sweepRepo, r.sweepTxRepo, r.sweepService, r.sweepTransactionService, r.keyResolver, feePayer, hot,
 		ledger.New(r.db), SolanaSweepConfig{
 			BatchSize: cfg.Solana.SweepBatchSize, ComputeUnitLimit: cfg.Solana.ComputeUnitLimit,
 			PriorityFeeMicroLamports: cfg.Solana.PriorityFeeMicroLamports, CloseAccounts: cfg.Solana.CloseDepositAccounts,
-			Send: solana.SendOptions{Wait: 45 * time.Second},
 		},
 	)
 	log.Printf("[registry] solana sweeps enabled (hot wallet %s, fee payer %s)", hot, feePayer.PublicKey())

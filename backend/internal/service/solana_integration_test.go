@@ -100,9 +100,9 @@ func TestSolanaEndToEnd(t *testing.T) {
 	sweepRepo := repository.NewSweepRepository(db)
 	sweepTxRepo := repository.NewSweepTransactionRepository(db)
 	sweepSvc := NewSweepService(db, sweepRepo, sweepTxRepo, repository.NewBlockchainRepository(db), ledgerSvc)
-	sweeper := NewSolanaSweepService(db, client, chain, depositRepo, accounts, bcRepo, sweepRepo, sweepTxRepo, sweepSvc,
+	sweeper := NewSolanaSweepService(db, client, chain, depositRepo, accounts, bcRepo, missed, sweepRepo, sweepTxRepo, sweepSvc,
 		NewSweepTransactionService(sweepTxRepo, sweepRepo, ledgerSvc), keys, feePayer, hot.PublicKey(), journal,
-		SolanaSweepConfig{CloseAccounts: true, Send: solana.SendOptions{Poll: 500 * time.Millisecond, Wait: 60 * time.Second}})
+		SolanaSweepConfig{CloseAccounts: true})
 
 	newPayment := func(ref, amount, currency string) (*models.PaymentRequest, *models.SolanaDepositAccount) {
 		pr := &models.PaymentRequest{ReferenceID: ref, AmountInUSD: decimal.RequireFromString(amount), State: models.PaymentStateOpen, MemberID: member.ID, ExternalPlatformID: platform.ID}
