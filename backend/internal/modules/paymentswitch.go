@@ -2,6 +2,7 @@
 package modules
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -26,12 +27,37 @@ type Deps struct {
 	Environment string
 	// ChainDeposit is the Payminto deposit flow the chaindeposit connector drives; nil disables that connector.
 	ChainDeposit chaindeposit.Backend
+	// Events receives the switch's domain events; nil drops them (tests, tools).
+	Events paymentswitch.Events
 }
 
 type PaymentSwitchModule struct {
 	Service    *paymentswitch.Service
 	Connectors *connectors.Registry
 	Enabled    []connectors.Code
+	// Reconciler syncs unknown outcomes; main registers it with the worker manager.
+	Reconciler *paymentswitch.Reconciler
+}
+
+// DomainEmitter is the slice of service.EventEmitterService the switch needs.
+type DomainEmitter interface {
+	EmitDomain(eventType string, payload any) error
+}
+
+// EmitterEvents adapts the existing ee_events emitter to the switch's Events port.
+type EmitterEvents struct {
+	Emitter DomainEmitter
+}
+
+func (e EmitterEvents) Emit(_ context.Context, ev paymentswitch.Event) error {
+	payload := map[string]any{"merchant_id": ev.MerchantID, "payment_id": ev.IntentID, "attempt_id": ev.AttemptID}
+	if ev.RefundID != "" {
+		payload["refund_id"] = ev.RefundID
+	}
+	for k, v := range ev.Payload {
+		payload[k] = v
+	}
+	return e.Emitter.EmitDomain(ev.Type, payload)
 }
 
 // WirePaymentSwitch builds the connector registry from SWITCH_CONNECTORS, checks every connector's status map,
@@ -72,9 +98,15 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 		enabled = append(enabled, code)
 	}
 	selector := paymentswitch.FirstEnabledSelector{Merchants: paymentswitch.StaticMerchantConnectors(enabled), Connectors: registry}
+	var opts []paymentswitch.Option
+	if deps.Events != nil {
+		opts = append(opts, paymentswitch.WithEvents(deps.Events))
+	}
+	svc := paymentswitch.New(deps.DB, registry, selector, deps.Ledger, opts...)
 	return &PaymentSwitchModule{
-		Service:    paymentswitch.New(deps.DB, registry, selector, deps.Ledger),
+		Service:    svc,
 		Connectors: registry,
 		Enabled:    enabled,
+		Reconciler: paymentswitch.NewReconciler(svc),
 	}, nil
 }

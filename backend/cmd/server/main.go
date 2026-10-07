@@ -180,11 +180,13 @@ func main() {
 		Config:       cfg,
 		Ledger:       ledger.New(db),
 		Environment:  cfg.Server.Environment,
-		ChainDeposit: chaindeposit.NewPaymintoBackend(reg.PaymentService(), reg.PaymentRepo(), reg.DepositRepo()),
+		ChainDeposit: chaindeposit.NewPaymintoBackend(reg.PaymentService(), reg.PaymentRepo(), reg.DepositRepo(), db),
+		Events:       modules.EmitterEvents{Emitter: reg.EventEmitterService()},
 	})
 	if err != nil {
 		log.Fatalf("payment switch: %v", err)
 	}
+	mgr.Register(paymentSwitch.Reconciler)
 
 	router := api.NewRouter(api.RouterConfig{
 		PaymentSwitch:     paymentSwitch,

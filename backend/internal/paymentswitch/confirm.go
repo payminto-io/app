@@ -2,7 +2,6 @@ package paymentswitch
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/payminto/payminto/backend/internal/connectors"
@@ -10,7 +9,8 @@ import (
 )
 
 // Confirm runs one attempt at the selected connector. The claim (intent -> processing, attempt row created)
-// is one transaction; only one concurrent confirm gets RowsAffected == 1, the rest see ErrInvalidTransition.
+// is one compare-and-set transaction; only one concurrent confirm gets RowsAffected == 1. An intent whose
+// active attempt has an unknown outcome is not confirmable: nothing opens a second attempt until Sync resolves it.
 func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd ConfirmCommand) (Intent, error) {
 	db := s.db.WithContext(ctx)
 	intent, err := loadIntent(db, merchantID, intentID)
@@ -58,6 +58,9 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 		SelectionReason: sel.Reason,
 		CreatedAt:       s.now(),
 		UpdatedAt:       s.now(),
+	}
+	if intent.CaptureMethod == connectors.CaptureAutomatic {
+		attempt.AmountToCapture = intent.Amount
 	}
 	err = db.Transaction(func(tx *gorm.DB) error {
 		from := intent.Status
@@ -108,7 +111,8 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 	if err != nil {
 		return Intent{}, err
 	}
-	return s.applyToActiveAttempt(ctx, merchantID, intentID, attempt.ID, update)
+	out, _, err := s.applyToActiveAttempt(ctx, merchantID, intentID, attempt.ID, update)
+	return out, err
 }
 
 // confirmable lists where a confirm may start; processing is excluded even though processing -> processing is a no-op.
@@ -116,7 +120,8 @@ func confirmable(s IntentStatus) bool {
 	return s == IntentRequiresPaymentMethod || s == IntentRequiresConfirmation || s == IntentFailed
 }
 
-// authorizeOutcome turns the connector's answer, or its error, into the attempt update to apply.
+// authorizeOutcome turns the connector's answer, or its error, into the attempt update to apply (I2): a typed
+// decline is terminal; any other error leaves the attempt pending for Sync, with the raw text in the audit reason.
 func (s *Service) authorizeOutcome(code connectors.Code, resp connectors.AuthorizeResponse, callErr error) (attemptUpdate, error) {
 	switch {
 	case callErr == nil:
@@ -126,19 +131,23 @@ func (s *Service) authorizeOutcome(code connectors.Code, resp connectors.Authori
 		}
 		return attemptUpdate{
 			status: status, raw: resp.RawStatus, connectorTransactionID: resp.ConnectorTransactionID,
-			amountReceived: resp.AmountReceived, nextAction: resp.NextAction,
+			amountReceived: resp.AmountReceived, receivedAsset: resp.ReceivedAsset, nextAction: resp.NextAction,
 			errorCode: resp.ErrorCode, errorMessage: resp.ErrorMessage, reason: "authorize",
 		}, nil
-	case errors.Is(callErr, connectors.ErrTimeout):
-		return attemptUpdate{status: AttemptPending, reason: "authorize timeout"}, nil
+	case connectors.Definitive(callErr):
+		ec, em := redact(callErr)
+		return attemptUpdate{status: AttemptAuthorizationFailed, errorCode: ec, errorMessage: em, reason: "authorize declined: " + callErr.Error()}, nil
 	default:
-		return attemptUpdate{status: AttemptFailure, errorCode: "connector_error", errorMessage: callErr.Error(), reason: "authorize error"}, nil
+		ec, em := redact(callErr)
+		return attemptUpdate{status: AttemptPending, errorCode: ec, errorMessage: em, reason: "authorize outcome unknown: " + callErr.Error()}, nil
 	}
 }
 
-// applyToActiveAttempt loads fresh rows and applies one update in its own transaction.
-func (s *Service) applyToActiveAttempt(ctx context.Context, merchantID, intentID, attemptID string, u attemptUpdate) (Intent, error) {
+// applyToActiveAttempt loads fresh rows in lock order (intent, then attempt) and applies one update in its own
+// transaction; events are emitted after commit.
+func (s *Service) applyToActiveAttempt(ctx context.Context, merchantID, intentID, attemptID string, u attemptUpdate) (Intent, applyResult, error) {
 	var out IntentRow
+	var result applyResult
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		intent, err := loadIntent(lockIfPostgres(tx), merchantID, intentID)
 		if err != nil {
@@ -148,16 +157,24 @@ func (s *Service) applyToActiveAttempt(ctx context.Context, merchantID, intentID
 		if err != nil {
 			return err
 		}
-		if err := s.applyAttempt(tx, &intent, &attempt, u); err != nil {
+		result, err = s.applyAttempt(tx, &intent, &attempt, u)
+		if err != nil {
 			return err
+		}
+		if !result.changed {
+			intent, err = loadIntent(tx, merchantID, intentID)
+			if err != nil {
+				return err
+			}
 		}
 		out = intent
 		return nil
 	})
 	if err != nil {
-		return Intent{}, err
+		return Intent{}, applyResult{}, err
 	}
-	return out.toIntent(), nil
+	s.emit(ctx, result.events)
+	return out.toIntent(), result, nil
 }
 
 // FirstEnabledSelector is the default ConnectorSelector: the merchant's first enabled connector that supports

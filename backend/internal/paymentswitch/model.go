@@ -61,6 +61,7 @@ type IntentRow struct {
 	NextAction        JSONMap                  `gorm:"type:jsonb"`
 	LastErrorCode     string                   `gorm:"type:varchar(64);not null;default:''"`
 	LastErrorMessage  string                   `gorm:"type:text;not null;default:''"`
+	ConfirmRequested  bool                     `gorm:"not null;default:false"`
 	Version           int64                    `gorm:"not null;default:0"`
 	CreatedAt         time.Time                `gorm:"not null"`
 	UpdatedAt         time.Time                `gorm:"not null"`
@@ -77,16 +78,21 @@ type AttemptRow struct {
 	RawStatus              connectors.RawStatus `gorm:"type:varchar(64);not null;default:''"`
 	Amount                 decimal.Decimal      `gorm:"type:numeric(38,18);not null"`
 	Asset                  string               `gorm:"type:varchar(16);not null"`
+	AmountToCapture        decimal.Decimal      `gorm:"type:numeric(38,18);not null;default:0"`
 	AmountCaptured         decimal.Decimal      `gorm:"type:numeric(38,18);not null;default:0"`
-	AmountReceived         decimal.Decimal      `gorm:"type:numeric(38,18);not null;default:0"`
+	AmountReceived         *decimal.Decimal     `gorm:"type:numeric(38,18)"`
+	ReceivedAsset          string               `gorm:"type:varchar(32);not null;default:''"`
 	ConnectorTransactionID *string              `gorm:"type:varchar(128);uniqueIndex:switch_attempts_connector_tx_key,priority:2"`
 	SelectionReason        string               `gorm:"type:text;not null;default:''"`
 	ErrorCode              string               `gorm:"type:varchar(64);not null;default:''"`
 	ErrorMessage           string               `gorm:"type:text;not null;default:''"`
 	NextAction             JSONMap              `gorm:"type:jsonb"`
-	Version                int64                `gorm:"not null;default:0"`
-	CreatedAt              time.Time            `gorm:"not null"`
-	UpdatedAt              time.Time            `gorm:"not null"`
+	SyncCount              int                  `gorm:"not null;default:0"`
+	NextSyncAt             *time.Time           `gorm:"index"`
+	LastSyncedAt           *time.Time
+	Version                int64     `gorm:"not null;default:0"`
+	CreatedAt              time.Time `gorm:"not null"`
+	UpdatedAt              time.Time `gorm:"not null"`
 }
 
 func (AttemptRow) TableName() string { return "switch_payment_attempts" }
@@ -107,12 +113,28 @@ type RefundRow struct {
 	Reason            string               `gorm:"type:text;not null;default:''"`
 	ErrorCode         string               `gorm:"type:varchar(64);not null;default:''"`
 	ErrorMessage      string               `gorm:"type:text;not null;default:''"`
-	Version           int64                `gorm:"not null;default:0"`
-	CreatedAt         time.Time            `gorm:"not null"`
-	UpdatedAt         time.Time            `gorm:"not null"`
+	SyncCount         int                  `gorm:"not null;default:0"`
+	NextSyncAt        *time.Time           `gorm:"index"`
+	LastSyncedAt      *time.Time
+	Version           int64     `gorm:"not null;default:0"`
+	CreatedAt         time.Time `gorm:"not null"`
+	UpdatedAt         time.Time `gorm:"not null"`
 }
 
 func (RefundRow) TableName() string { return "switch_refunds" }
+
+// AnomalyRow is switch_anomalies: contradictions and stalls recorded for an operator, never turned into a status.
+type AnomalyRow struct {
+	ID        uint      `gorm:"primarykey"`
+	Entity    string    `gorm:"type:varchar(16);not null"`
+	EntityID  string    `gorm:"type:varchar(64);not null;index"`
+	IntentID  string    `gorm:"type:varchar(64);not null;index"`
+	Kind      string    `gorm:"type:varchar(64);not null"`
+	Detail    string    `gorm:"type:text;not null;default:''"`
+	CreatedAt time.Time `gorm:"not null"`
+}
+
+func (AnomalyRow) TableName() string { return "switch_anomalies" }
 
 // WebhookEventRow is the replay guard: (connector_code, event_id) is unique.
 type WebhookEventRow struct {
@@ -139,7 +161,7 @@ func (TransitionRow) TableName() string { return "switch_status_transitions" }
 
 // Models lists the GORM models for AutoMigrate (dev/test); production uses the checksummed migration.
 func Models() []any {
-	return []any{&IntentRow{}, &AttemptRow{}, &RefundRow{}, &WebhookEventRow{}, &TransitionRow{}}
+	return []any{&IntentRow{}, &AttemptRow{}, &RefundRow{}, &WebhookEventRow{}, &TransitionRow{}, &AnomalyRow{}}
 }
 
 func (r IntentRow) toIntent() Intent {
@@ -177,8 +199,10 @@ func (r AttemptRow) toAttempt() Attempt {
 		Status:          r.Status,
 		RawStatus:       r.RawStatus,
 		Money:           Money{Amount: r.Amount, Asset: r.Asset},
+		AmountToCapture: r.AmountToCapture,
 		AmountCaptured:  r.AmountCaptured,
 		AmountReceived:  r.AmountReceived,
+		ReceivedAsset:   r.ReceivedAsset,
 		SelectionReason: r.SelectionReason,
 		ErrorCode:       r.ErrorCode,
 		ErrorMessage:    r.ErrorMessage,

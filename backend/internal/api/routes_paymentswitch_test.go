@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/payminto/payminto/backend/internal/config"
@@ -63,6 +64,10 @@ func newSwitchTestServer(t *testing.T) *switchTestServer {
 	}
 	RegisterPaymentSwitchRoutes(engine.Group("/api/v2"), m, auth)
 	return &switchTestServer{t: t, engine: engine, mock: conn.(*mock.Connector)}
+}
+
+func signed(h http.Header) map[string]string {
+	return map[string]string{mock.SignatureHeader: h.Get(mock.SignatureHeader), mock.TimestampHeader: h.Get(mock.TimestampHeader)}
 }
 
 func (s *switchTestServer) do(method, path string, body any, headers map[string]string) (int, map[string]any) {
@@ -145,6 +150,9 @@ func TestSwitchRoutes_CreateConfirmGetRefund(t *testing.T) {
 	if len(attempts) != 1 || attempts[0].(map[string]any)["status"] != "charged" || attempts[0].(map[string]any)["connector_status"] != "captured" {
 		t.Fatalf("attempts = %v", attempts)
 	}
+	if _, has := attempts[0].(map[string]any)["amount_received"]; has {
+		t.Fatalf("a card attempt must not claim a received amount: %v", attempts[0])
+	}
 	code, out = s.do(http.MethodPost, "/api/v2/payments/"+id+"/refunds", map[string]any{"amount": "25", "reason": "goodwill"}, map[string]string{"Idempotency-Key": "ref-1"})
 	if code != http.StatusCreated {
 		t.Fatalf("refund = %d %v", code, out)
@@ -181,17 +189,23 @@ func TestSwitchRoutes_WebhookAndErrors(t *testing.T) {
 	txID := payment(out)["attempts"].([]any)[0].(map[string]any)["connector_transaction_id"].(string)
 
 	headers, body := s.mock.SignWebhook(mock.Event{EventID: "evt_1", TransactionID: txID, Status: "captured"})
-	code, out = s.do(http.MethodPost, "/api/v2/webhooks/mock", body, map[string]string{mock.SignatureHeader: headers.Get(mock.SignatureHeader)})
+	code, out = s.do(http.MethodPost, "/api/v2/webhooks/mock", body, signed(headers))
 	if code != http.StatusOK || out["payment_id"] != id || out["ignored"] != false {
 		t.Fatalf("webhook = %d %v", code, out)
 	}
-	code, out = s.do(http.MethodPost, "/api/v2/webhooks/mock", body, map[string]string{mock.SignatureHeader: headers.Get(mock.SignatureHeader)})
-	if code != http.StatusConflict || out["error"].(map[string]any)["code"] != "webhook_replay" {
+	// A replay is 200 with the ignored marker so the provider stops retrying (I3).
+	code, out = s.do(http.MethodPost, "/api/v2/webhooks/mock", body, signed(headers))
+	if code != http.StatusOK || out["ignored"] != true || out["reason"] != "replay" {
 		t.Fatalf("replay = %d %v", code, out)
 	}
-	code, out = s.do(http.MethodPost, "/api/v2/webhooks/mock", body, map[string]string{mock.SignatureHeader: "bad"})
+	code, out = s.do(http.MethodPost, "/api/v2/webhooks/mock", body, map[string]string{mock.SignatureHeader: "bad", mock.TimestampHeader: headers.Get(mock.TimestampHeader)})
 	if code != http.StatusUnauthorized || out["error"].(map[string]any)["code"] != "webhook_signature" {
 		t.Fatalf("bad signature = %d %v", code, out)
+	}
+	staleH, staleB := s.mock.SignWebhookAt(mock.Event{EventID: "evt_old", TransactionID: txID, Status: "captured"}, time.Now().Add(-time.Hour))
+	code, out = s.do(http.MethodPost, "/api/v2/webhooks/mock", staleB, signed(staleH))
+	if code != http.StatusUnauthorized || out["error"].(map[string]any)["code"] != "webhook_stale" {
+		t.Fatalf("stale = %d %v", code, out)
 	}
 	code, out = s.do(http.MethodPost, "/api/v2/webhooks/stripe", body, nil)
 	if code != http.StatusNotFound || out["error"].(map[string]any)["code"] != "unknown_connector" {
@@ -223,11 +237,27 @@ func TestSwitchRoutes_WebhookAndErrors(t *testing.T) {
 		t.Fatalf("bank via mock = %d %v", code, out)
 	}
 	code, out = s.do(http.MethodPost, "/api/v2/payments", map[string]any{"amount": "10", "asset": "USD", "confirm": true, "payment_method": map[string]any{"type": "chain", "token": "usdc", "details": map[string]string{"chain": "ETH", "asset": "USDC"}}}, nil)
-	if code != http.StatusCreated || payment(out)["status"] != "processing" || payment(out)["connector_code"] != "chaindeposit" {
+	if code != http.StatusCreated || payment(out)["status"] != "requires_action" || payment(out)["connector_code"] != "chaindeposit" {
 		t.Fatalf("chain deposit = %d %v", code, out)
 	}
 	if na := payment(out)["next_action"].(map[string]any); na["type"] != "pay_to_address" || na["address"] == "" || na["asset"] != "USDC" {
 		t.Fatalf("chain next_action = %v", na)
+	}
+}
+
+// M4: a create whose confirm fails before any claim still returns the payment id.
+func TestSwitchRoutes_CreateConfirmFailureCarriesThePaymentID(t *testing.T) {
+	s := newSwitchTestServer(t)
+	code, out := s.do(http.MethodPost, "/api/v2/payments", map[string]any{
+		"amount": "10", "asset": "USD", "confirm": true,
+		"payment_method": map[string]any{"type": "carrier_pigeon", "token": "x"},
+	}, nil)
+	if code != http.StatusUnprocessableEntity {
+		t.Fatalf("code = %d %v", code, out)
+	}
+	e := out["error"].(map[string]any)
+	if e["code"] != "no_connector" || e["payment_id"] == "" || e["payment_id"] == nil {
+		t.Fatalf("error = %v", e)
 	}
 }
 

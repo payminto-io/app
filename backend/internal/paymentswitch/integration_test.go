@@ -38,6 +38,7 @@ func TestIntegration_SchemaConvergesAndConstraintsHold(t *testing.T) {
 	for _, name := range []string{
 		"switch_payment_intents_status_check", "switch_payment_attempts_status_check", "switch_refunds_status_check",
 		"switch_payment_attempts_intent_id_fkey", "switch_refunds_attempt_id_fkey", "switch_payment_intents_amounts_check",
+		"switch_anomalies_entity_check",
 	} {
 		var n int64
 		if err := f.db.Raw(`SELECT count(*) FROM pg_constraint WHERE conname = ?`, name).Scan(&n).Error; err != nil {
@@ -81,7 +82,7 @@ func TestIntegration_PersistsExactAmountsAndHistory(t *testing.T) {
 		t.Fatalf("attempt = %+v", v.Attempts)
 	}
 	var transitions int64
-	f.db.Model(&paymentswitch.TransitionRow{}).Where("entity_id = ?", v.Attempts[0].ID).Count(&transitions)
+	f.db.Model(&paymentswitch.TransitionRow{}).Where("entity_id = ? AND from_status <> to_status", v.Attempts[0].ID).Count(&transitions)
 	if transitions != 4 {
 		t.Fatalf("attempt transitions = %d, want started, authorized, capture_initiated, partial_charged", transitions)
 	}
@@ -167,6 +168,86 @@ func TestIntegration_ConcurrentWebhookDeliveries_PostOnce(t *testing.T) {
 	}
 	f.wantPayments(1)
 	f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentSucceeded)
+}
+
+// C2: concurrent captures on one authorization: exactly one connector call, one journal.
+func TestIntegration_ConcurrentCapture_ExactlyOneConnectorCall(t *testing.T) {
+	f := newPostgresFixture(t)
+	in := f.create(paymentswitch.CreateCommand{CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	f.wantStatus(in, paymentswitch.IntentRequiresCapture)
+	const racers = 10
+	var wg sync.WaitGroup
+	results := make(chan error, racers)
+	for i := range racers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			amount := decimal.NewFromInt(int64(50 + i))
+			_, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{Amount: &amount})
+			results <- err
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+	var wins int
+	for err := range results {
+		switch {
+		case err == nil:
+			wins++
+		case errors.Is(err, paymentswitch.ErrInvalidTransition), errors.Is(err, paymentswitch.ErrConcurrentUpdate):
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if wins != 1 || f.mock.Calls("capture") != 1 {
+		t.Fatalf("wins = %d connector capture calls = %d, want 1 and 1", wins, f.mock.Calls("capture"))
+	}
+	f.wantPayments(1)
+	v := f.get(in.ID)
+	if v.Intent.Status != paymentswitch.IntentPartiallyCaptured || !v.Attempts[0].AmountCaptured.Equal(v.Attempts[0].AmountToCapture) {
+		t.Fatalf("after race = %+v / %+v", v.Intent, v.Attempts[0])
+	}
+}
+
+// I10: a capture apply and the provider's captured webhook for the same attempt run concurrently in a loop and
+// must never deadlock; one of them lands the money, the other is ignored, and exactly one journal exists per intent.
+func TestIntegration_CaptureApplyAndWebhookNeverDeadlock(t *testing.T) {
+	f := newPostgresFixture(t)
+	const rounds = 15
+	for i := range rounds {
+		in := f.create(paymentswitch.CreateCommand{IdempotencyKey: "dl-" + decimal.NewFromInt(int64(i)).String(), CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+		a := f.wantAttempt(in.ID, paymentswitch.AttemptAuthorized)
+		h, body := f.mock.SignWebhook(mock.Event{EventID: "evt-dl-" + in.ID, TransactionID: a.ConnectorTransactionID, Status: string(mock.StatusCaptured), AmountCaptured: "100"})
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{})
+			errs <- err
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := f.svc.HandleWebhook(f.ctx, mock.Code, h, body)
+			errs <- err
+		}()
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil && !errors.Is(err, paymentswitch.ErrInvalidTransition) && !errors.Is(err, paymentswitch.ErrConcurrentUpdate) {
+				t.Fatalf("round %d: unexpected error (a deadlock surfaces as 40P01): %v", i, err)
+			}
+		}
+		v := f.get(in.ID)
+		if v.Intent.Status != paymentswitch.IntentSucceeded && v.Intent.Status != paymentswitch.IntentProcessing {
+			t.Fatalf("round %d: status = %s", i, v.Intent.Status)
+		}
+		if v.Intent.Status == paymentswitch.IntentProcessing {
+			f.sync(merchant, in.ID)
+		}
+		f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentSucceeded)
+	}
+	f.wantPayments(rounds)
 }
 
 func TestIntegration_ConcurrentRefundsCannotOverRefund(t *testing.T) {

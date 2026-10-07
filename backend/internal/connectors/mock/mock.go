@@ -59,7 +59,11 @@ const (
 	defaultSecret  = "mock-webhook-secret"
 )
 
-var errProviderGlitch = errors.New("mock: provider returned 502 after processing")
+var (
+	errProviderGlitch = errors.New("mock: provider returned 502 after processing")
+	// errLost is a timeout for a request the provider never received: no key is recorded, a retry is fresh.
+	errLost = fmt.Errorf("%w: request never reached the provider", connectors.ErrTimeout)
+)
 
 // Raw statuses the mock reports; the switch maps them in paymentswitch/status_map.go.
 const (
@@ -264,7 +268,7 @@ func (c *Connector) Capture(_ context.Context, req connectors.CaptureRequest) (c
 		}
 	}
 	out := c.capture(req)
-	if req.IdempotencyKey != "" {
+	if req.IdempotencyKey != "" && !errors.Is(out.err, errLost) {
 		// A provider answers a repeat with what it did, so a landed-but-unanswered call replays as its result.
 		stored := out
 		if unknown(out.err) {
@@ -292,7 +296,7 @@ func (c *Connector) capture(req connectors.CaptureRequest) captureOutcome {
 	tx.captureScript = ""
 	switch script {
 	case ScenarioCaptureTimeoutLost:
-		return captureOutcome{err: connectors.ErrTimeout}
+		return captureOutcome{err: errLost}
 	case ScenarioCaptureDeclined:
 		return captureOutcome{err: fmt.Errorf("%w: capture refused by issuer", connectors.ErrDeclined)}
 	}
@@ -321,7 +325,7 @@ func (c *Connector) Void(_ context.Context, req connectors.VoidRequest) (connect
 		}
 	}
 	out := c.void(req)
-	if req.IdempotencyKey != "" {
+	if req.IdempotencyKey != "" && !errors.Is(out.err, errLost) {
 		stored := out
 		if unknown(out.err) {
 			if tx, ok := c.txs[req.ConnectorTransactionID]; ok && tx.status == StatusVoided {
@@ -346,7 +350,7 @@ func (c *Connector) void(req connectors.VoidRequest) voidOutcome {
 	script := tx.voidScript
 	tx.voidScript = ""
 	if script == ScenarioVoidTimeoutLost {
-		return voidOutcome{err: connectors.ErrTimeout}
+		return voidOutcome{err: errLost}
 	}
 	tx.status = StatusVoided
 	if script == ScenarioVoidTimeoutLand {
@@ -365,7 +369,7 @@ func (c *Connector) Refund(_ context.Context, req connectors.RefundRequest) (con
 		}
 	}
 	out := c.refund(req)
-	if req.IdempotencyKey != "" {
+	if req.IdempotencyKey != "" && !errors.Is(out.err, errLost) {
 		stored := out
 		if unknown(out.err) {
 			if id, ok := c.byRefund[req.RefundID]; ok {
@@ -395,7 +399,7 @@ func (c *Connector) refund(req connectors.RefundRequest) refundOutcome {
 	scenario := strings.ToLower(req.Reason)
 	switch scenario {
 	case ScenarioRefundTimeoutLost:
-		return refundOutcome{err: connectors.ErrTimeout}
+		return refundOutcome{err: errLost}
 	case ScenarioRefundFail:
 		return refundOutcome{err: fmt.Errorf("%w: refund refused by issuer", connectors.ErrDeclined)}
 	}

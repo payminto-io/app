@@ -87,8 +87,10 @@ type attemptDTO struct {
 	ConnectorStatus        string         `json:"connector_status"`
 	Amount                 string         `json:"amount"`
 	Asset                  string         `json:"asset"`
+	AmountToCapture        string         `json:"amount_to_capture,omitempty"`
 	AmountCaptured         string         `json:"amount_captured"`
-	AmountReceived         string         `json:"amount_received"`
+	AmountReceived         *string        `json:"amount_received,omitempty"`
+	ReceivedAsset          string         `json:"received_asset,omitempty"`
 	ConnectorTransactionID string         `json:"connector_transaction_id,omitempty"`
 	SelectionReason        string         `json:"selection_reason,omitempty"`
 	ErrorCode              string         `json:"error_code,omitempty"`
@@ -159,8 +161,9 @@ type switchErrorEnvelope struct {
 }
 
 type switchErrorBody struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	PaymentID string `json:"payment_id,omitempty"`
 }
 
 func (h *paymentSwitchHandler) create(c *gin.Context) {
@@ -192,7 +195,8 @@ func (h *paymentSwitchHandler) create(c *gin.Context) {
 	}
 	intent, err := h.svc.Create(c.Request.Context(), cmd)
 	if err != nil {
-		writeSwitchServiceError(c, err)
+		// The intent may exist although its confirm failed; the caller must learn its id (M4).
+		writeSwitchServiceErrorFor(c, err, intent.ID)
 		return
 	}
 	c.JSON(http.StatusCreated, paymentEnvelope{Payment: toPaymentDTO(intent, nil, nil)})
@@ -392,7 +396,7 @@ func toPaymentDTO(in paymentswitch.Intent, attempts []paymentswitch.Attempt, ref
 		UpdatedAt:         in.UpdatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 	}
 	for _, a := range attempts {
-		out.Attempts = append(out.Attempts, attemptDTO{
+		dto := attemptDTO{
 			ID:                     a.ID,
 			ConnectorCode:          string(a.ConnectorCode),
 			Status:                 string(a.Status),
@@ -400,7 +404,7 @@ func toPaymentDTO(in paymentswitch.Intent, attempts []paymentswitch.Attempt, ref
 			Amount:                 a.Money.Amount.String(),
 			Asset:                  a.Money.Asset,
 			AmountCaptured:         a.AmountCaptured.String(),
-			AmountReceived:         a.AmountReceived.String(),
+			ReceivedAsset:          a.ReceivedAsset,
 			ConnectorTransactionID: a.ConnectorTransactionID,
 			SelectionReason:        a.SelectionReason,
 			ErrorCode:              a.ErrorCode,
@@ -408,7 +412,15 @@ func toPaymentDTO(in paymentswitch.Intent, attempts []paymentswitch.Attempt, ref
 			NextAction:             toNextAction(a.NextAction),
 			CreatedAt:              a.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 			UpdatedAt:              a.UpdatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
-		})
+		}
+		if a.AmountToCapture.IsPositive() {
+			dto.AmountToCapture = a.AmountToCapture.String()
+		}
+		if a.AmountReceived != nil {
+			received := a.AmountReceived.String()
+			dto.AmountReceived = &received
+		}
+		out.Attempts = append(out.Attempts, dto)
 	}
 	for _, r := range refunds {
 		out.Refunds = append(out.Refunds, toRefundDTO(r))
@@ -439,36 +451,45 @@ func writeSwitchError(c *gin.Context, status int, code, message string) {
 	c.JSON(status, switchErrorEnvelope{Error: switchErrorBody{Code: code, Message: message}})
 }
 
-// writeSwitchServiceError maps module errors onto HTTP; messages name the rule, never internals.
-func writeSwitchServiceError(c *gin.Context, err error) {
+func writeSwitchServiceError(c *gin.Context, err error) { writeSwitchServiceErrorFor(c, err, "") }
+
+// writeSwitchServiceErrorFor maps module errors onto HTTP; messages name the rule, never internals.
+func writeSwitchServiceErrorFor(c *gin.Context, err error, paymentID string) {
+	status, code, message := classifySwitchError(err)
+	c.JSON(status, switchErrorEnvelope{Error: switchErrorBody{Code: code, Message: message, PaymentID: paymentID}})
+}
+
+func classifySwitchError(err error) (int, string, string) {
 	switch {
 	case errors.Is(err, paymentswitch.ErrNotFound):
-		writeSwitchError(c, http.StatusNotFound, "not_found", "payment not found")
+		return http.StatusNotFound, "not_found", "payment not found"
 	case errors.Is(err, paymentswitch.ErrIdempotencyConflict):
-		writeSwitchError(c, http.StatusConflict, "idempotency_conflict", "idempotency key was already used for a different request")
+		return http.StatusConflict, "idempotency_conflict", "idempotency key was already used for a different request"
 	case errors.Is(err, paymentswitch.ErrInvalidTransition):
-		writeSwitchError(c, http.StatusConflict, "invalid_state", err.Error())
+		return http.StatusConflict, "invalid_state", err.Error()
 	case errors.Is(err, paymentswitch.ErrConcurrentUpdate):
-		writeSwitchError(c, http.StatusConflict, "concurrent_update", "another request changed this payment first; retry")
-	case errors.Is(err, paymentswitch.ErrWebhookReplay):
-		writeSwitchError(c, http.StatusConflict, "webhook_replay", "event already processed")
+		return http.StatusConflict, "concurrent_update", "another request changed this payment first; retry"
 	case errors.Is(err, paymentswitch.ErrAmountExceeds):
-		writeSwitchError(c, http.StatusUnprocessableEntity, "amount_exceeds", err.Error())
+		return http.StatusUnprocessableEntity, "amount_exceeds", err.Error()
 	case errors.Is(err, paymentswitch.ErrNoConnector):
-		writeSwitchError(c, http.StatusUnprocessableEntity, "no_connector", "no connector is enabled for this payment method")
+		return http.StatusUnprocessableEntity, "no_connector", "no connector is enabled for this payment method"
 	case errors.Is(err, paymentswitch.ErrInvalid), errors.Is(err, connectors.ErrInvalidRequest):
-		writeSwitchError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return http.StatusBadRequest, "invalid_request", err.Error()
 	case errors.Is(err, connectors.ErrWebhookSignature):
-		writeSwitchError(c, http.StatusUnauthorized, "webhook_signature", "webhook signature invalid")
+		return http.StatusUnauthorized, "webhook_signature", "webhook signature invalid"
+	case errors.Is(err, connectors.ErrWebhookStale):
+		return http.StatusUnauthorized, "webhook_stale", "webhook timestamp outside the accepted window"
+	case errors.Is(err, paymentswitch.ErrAmountUnknown):
+		return http.StatusBadGateway, "connector_amount_unknown", "connector reported money in without an amount; recorded for review"
 	case errors.Is(err, connectors.ErrWebhookMalformed):
-		writeSwitchError(c, http.StatusBadRequest, "webhook_malformed", "webhook body malformed")
+		return http.StatusBadRequest, "webhook_malformed", "webhook body malformed"
 	case errors.Is(err, connectors.ErrUnknownConnector):
-		writeSwitchError(c, http.StatusNotFound, "unknown_connector", "connector not registered")
+		return http.StatusNotFound, "unknown_connector", "connector not registered"
 	case errors.Is(err, connectors.ErrUnsupported):
-		writeSwitchError(c, http.StatusUnprocessableEntity, "unsupported", err.Error())
+		return http.StatusUnprocessableEntity, "unsupported", err.Error()
 	case errors.Is(err, paymentswitch.ErrUnmappedStatus):
-		writeSwitchError(c, http.StatusBadGateway, "connector_status_unmapped", "connector reported a status the switch does not know")
+		return http.StatusBadGateway, "connector_status_unmapped", "connector reported a status the switch does not know"
 	default:
-		writeSwitchError(c, http.StatusServiceUnavailable, "unavailable", "payment service is temporarily unavailable")
+		return http.StatusServiceUnavailable, "unavailable", "payment service is temporarily unavailable"
 	}
 }

@@ -74,7 +74,52 @@ var (
 	ErrWebhookReplay       = errors.New("paymentswitch: webhook event already processed")
 	ErrAmountExceeds       = errors.New("paymentswitch: amount exceeds what is available")
 	ErrConcurrentUpdate    = errors.New("paymentswitch: another request changed this payment first")
+	ErrOutcomeUnknown      = errors.New("paymentswitch: connector outcome unknown; the operation is in flight and will be synced")
+	ErrAmountUnknown       = errors.New("paymentswitch: connector reported money in without an amount and none was claimed")
 )
+
+// Error codes exposed to merchants; raw connector and backend errors go to the audit trail and logs (M7).
+const (
+	ErrorCodeDeclined     = "declined"
+	ErrorCodeConnector    = "connector_error"
+	ErrorCodeTimeout      = "connector_timeout"
+	ErrorCodeNotFound     = "not_found_at_connector"
+	ErrorCodeAmountUnkown = "amount_unknown"
+)
+
+// Anomaly kinds: facts the switch recorded rather than acted on, each needing an operator's eye.
+const (
+	AnomalyEvidenceAfterTerminal = "evidence_after_terminal"
+	AnomalyStaleInFlight         = "stale_in_flight"
+	AnomalyAmountUnknown         = "amount_unknown"
+	AnomalyUnmappedStatus        = "unmapped_status"
+)
+
+// Domain events, named and versioned (MODULES.md rule 9).
+const (
+	EventPaymentSucceeded = "switch.payment.succeeded.v1"
+	EventPaymentFailed    = "switch.payment.failed.v1"
+	EventRefundSucceeded  = "switch.refund.succeeded.v1"
+)
+
+type Event struct {
+	Type       string
+	MerchantID string
+	IntentID   string
+	AttemptID  string
+	RefundID   string
+	Payload    map[string]any
+}
+
+// Events is where the switch publishes domain events after commit; wired to the existing event emitter.
+type Events interface {
+	Emit(ctx context.Context, ev Event) error
+}
+
+// NoEvents drops events; tests and tools that do not care use it.
+type NoEvents struct{}
+
+func (NoEvents) Emit(context.Context, Event) error { return nil }
 
 type Money = connectors.Money
 
@@ -104,15 +149,18 @@ type Intent struct {
 
 // Attempt is one try at one connector.
 type Attempt struct {
-	ID                     string
-	IntentID               string
-	MerchantID             string
-	ConnectorCode          connectors.Code
-	Status                 AttemptStatus
-	RawStatus              connectors.RawStatus
-	Money                  Money
-	AmountCaptured         decimal.Decimal
-	AmountReceived         decimal.Decimal
+	ID              string
+	IntentID        string
+	MerchantID      string
+	ConnectorCode   connectors.Code
+	Status          AttemptStatus
+	RawStatus       connectors.RawStatus
+	Money           Money
+	AmountToCapture decimal.Decimal
+	AmountCaptured  decimal.Decimal
+	// AmountReceived and ReceivedAsset are set only when a connector reported funds arriving (chain deposits).
+	AmountReceived         *decimal.Decimal
+	ReceivedAsset          string
 	ConnectorTransactionID string
 	SelectionReason        string
 	ErrorCode              string
@@ -145,6 +193,17 @@ type View struct {
 	Intent   Intent
 	Attempts []Attempt
 	Refunds  []Refund
+}
+
+// Anomaly is a recorded contradiction or stall; it is never turned into a status.
+type Anomaly struct {
+	ID        uint
+	Entity    string
+	EntityID  string
+	IntentID  string
+	Kind      string
+	Detail    string
+	CreatedAt time.Time
 }
 
 // SelectionRequest is what the switch hands the router (ticket 06) to pick a connector.

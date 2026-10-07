@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS switch_payment_intents (
     next_action jsonb,
     last_error_code varchar(64) NOT NULL DEFAULT '',
     last_error_message text NOT NULL DEFAULT '',
+    confirm_requested boolean NOT NULL DEFAULT false,
     version bigint NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
@@ -42,13 +43,18 @@ CREATE TABLE IF NOT EXISTS switch_payment_attempts (
     raw_status varchar(64) NOT NULL DEFAULT '',
     amount numeric(38, 18) NOT NULL,
     asset varchar(16) NOT NULL,
+    amount_to_capture numeric(38, 18) NOT NULL DEFAULT 0,
     amount_captured numeric(38, 18) NOT NULL DEFAULT 0,
-    amount_received numeric(38, 18) NOT NULL DEFAULT 0,
+    amount_received numeric(38, 18),
+    received_asset varchar(32) NOT NULL DEFAULT '',
     connector_transaction_id varchar(128),
     selection_reason text NOT NULL DEFAULT '',
     error_code varchar(64) NOT NULL DEFAULT '',
     error_message text NOT NULL DEFAULT '',
     next_action jsonb,
+    sync_count integer NOT NULL DEFAULT 0,
+    next_sync_at timestamptz,
+    last_synced_at timestamptz,
     version bigint NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
@@ -58,6 +64,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS switch_attempts_connector_tx_key
 CREATE INDEX IF NOT EXISTS idx_switch_payment_attempts_intent_id ON switch_payment_attempts (intent_id);
 CREATE INDEX IF NOT EXISTS idx_switch_payment_attempts_merchant_id ON switch_payment_attempts (merchant_id);
 CREATE INDEX IF NOT EXISTS idx_switch_payment_attempts_status ON switch_payment_attempts (status);
+CREATE INDEX IF NOT EXISTS idx_switch_payment_attempts_next_sync_at ON switch_payment_attempts (next_sync_at);
 
 CREATE TABLE IF NOT EXISTS switch_refunds (
     id varchar(64) PRIMARY KEY,
@@ -75,6 +82,9 @@ CREATE TABLE IF NOT EXISTS switch_refunds (
     reason text NOT NULL DEFAULT '',
     error_code varchar(64) NOT NULL DEFAULT '',
     error_message text NOT NULL DEFAULT '',
+    sync_count integer NOT NULL DEFAULT 0,
+    next_sync_at timestamptz,
+    last_synced_at timestamptz,
     version bigint NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
@@ -86,6 +96,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS switch_refunds_connector_refund_key
 CREATE INDEX IF NOT EXISTS idx_switch_refunds_intent_id ON switch_refunds (intent_id);
 CREATE INDEX IF NOT EXISTS idx_switch_refunds_attempt_id ON switch_refunds (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_switch_refunds_status ON switch_refunds (status);
+CREATE INDEX IF NOT EXISTS idx_switch_refunds_next_sync_at ON switch_refunds (next_sync_at);
 
 CREATE TABLE IF NOT EXISTS switch_webhook_events (
     id bigserial PRIMARY KEY,
@@ -107,6 +118,18 @@ CREATE TABLE IF NOT EXISTS switch_status_transitions (
 );
 CREATE INDEX IF NOT EXISTS idx_switch_status_transitions_entity_id ON switch_status_transitions (entity_id);
 
+CREATE TABLE IF NOT EXISTS switch_anomalies (
+    id bigserial PRIMARY KEY,
+    entity varchar(16) NOT NULL,
+    entity_id varchar(64) NOT NULL,
+    intent_id varchar(64) NOT NULL,
+    kind varchar(64) NOT NULL,
+    detail text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE INDEX IF NOT EXISTS idx_switch_anomalies_entity_id ON switch_anomalies (entity_id);
+CREATE INDEX IF NOT EXISTS idx_switch_anomalies_intent_id ON switch_anomalies (intent_id);
+
 COMMENT ON TABLE switch_payment_attempts IS
     'One row per connector try. raw_status is the connector''s own word; status is the switch vocabulary from paymentswitch/status_map.go.';
 
@@ -118,7 +141,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_intents'::regclass AND conname = 'switch_payment_intents_status_check') THEN
         ALTER TABLE switch_payment_intents ADD CONSTRAINT switch_payment_intents_status_check
             CHECK (status IN ('requires_payment_method', 'requires_confirmation', 'requires_action', 'processing',
-                              'requires_capture', 'partially_captured', 'succeeded', 'failed', 'cancelled'));
+                              'requires_capture', 'partially_captured', 'partially_paid', 'succeeded', 'failed', 'cancelled'));
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_intents'::regclass AND conname = 'switch_payment_intents_capture_method_check') THEN
         ALTER TABLE switch_payment_intents ADD CONSTRAINT switch_payment_intents_capture_method_check
@@ -140,12 +163,12 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_attempts'::regclass AND conname = 'switch_payment_attempts_status_check') THEN
         ALTER TABLE switch_payment_attempts ADD CONSTRAINT switch_payment_attempts_status_check
             CHECK (status IN ('started', 'pending', 'authentication_pending', 'authorized', 'capture_initiated', 'charged',
-                              'partial_charged', 'partially_paid', 'overpaid', 'capture_failed', 'authorization_failed',
+                              'partial_charged', 'partially_paid', 'underpaid', 'overpaid', 'capture_failed', 'authorization_failed',
                               'void_initiated', 'voided', 'void_failed', 'failure'));
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_attempts'::regclass AND conname = 'switch_payment_attempts_amounts_check') THEN
         ALTER TABLE switch_payment_attempts ADD CONSTRAINT switch_payment_attempts_amounts_check
-            CHECK (amount > 0 AND amount_captured >= 0 AND amount_received >= 0);
+            CHECK (amount > 0 AND amount_to_capture >= 0 AND amount_captured >= 0 AND (amount_received IS NULL OR amount_received >= 0));
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_payment_attempts'::regclass AND conname = 'switch_payment_attempts_intent_id_fkey') THEN
         ALTER TABLE switch_payment_attempts ADD CONSTRAINT switch_payment_attempts_intent_id_fkey
@@ -154,7 +177,7 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_refunds'::regclass AND conname = 'switch_refunds_status_check') THEN
         ALTER TABLE switch_refunds ADD CONSTRAINT switch_refunds_status_check
-            CHECK (status IN ('pending', 'succeeded', 'failed'));
+            CHECK (status IN ('initiated', 'pending', 'succeeded', 'failed'));
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_refunds'::regclass AND conname = 'switch_refunds_amount_check') THEN
         ALTER TABLE switch_refunds ADD CONSTRAINT switch_refunds_amount_check CHECK (amount > 0);
@@ -168,6 +191,10 @@ BEGIN
             FOREIGN KEY (attempt_id) REFERENCES switch_payment_attempts (id) ON DELETE RESTRICT;
     END IF;
 
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_anomalies'::regclass AND conname = 'switch_anomalies_entity_check') THEN
+        ALTER TABLE switch_anomalies ADD CONSTRAINT switch_anomalies_entity_check
+            CHECK (entity IN ('intent', 'attempt', 'refund'));
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'switch_status_transitions'::regclass AND conname = 'switch_status_transitions_entity_check') THEN
         ALTER TABLE switch_status_transitions ADD CONSTRAINT switch_status_transitions_entity_check
             CHECK (entity IN ('intent', 'attempt', 'refund'));

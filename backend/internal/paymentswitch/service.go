@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -21,17 +22,22 @@ const (
 	maxKeyLen   = 128
 	maxAssetLen = 16
 	maxIDLen    = 128
+	maxScale    = 18
 )
 
-// Service is the only writer of switch rows. Connector calls happen outside transactions; every state
-// change is a short transaction with a version check, so two requests on one intent cannot both win.
+var maxMagnitude = decimal.New(1, 20)
+
+// Service is the only writer of switch rows. Connector calls happen outside transactions; every state change
+// is a short transaction with a version check. Lock order everywhere: intent, then attempt, then refund.
 type Service struct {
 	db         *gorm.DB
 	connectors connectors.Lookup
 	selector   ConnectorSelector
 	ledger     Ledger
+	events     Events
 	now        func() time.Time
 	newID      func(prefix string) string
+	logf       func(format string, args ...any)
 }
 
 type Option func(*Service)
@@ -40,6 +46,10 @@ func WithClock(now func() time.Time) Option { return func(s *Service) { s.now = 
 func WithIDs(gen func(prefix string) string) Option {
 	return func(s *Service) { s.newID = gen }
 }
+func WithEvents(e Events) Option { return func(s *Service) { s.events = e } }
+func WithLogger(logf func(format string, args ...any)) Option {
+	return func(s *Service) { s.logf = logf }
+}
 
 func New(db *gorm.DB, lookup connectors.Lookup, selector ConnectorSelector, ledger Ledger, opts ...Option) *Service {
 	s := &Service{
@@ -47,8 +57,10 @@ func New(db *gorm.DB, lookup connectors.Lookup, selector ConnectorSelector, ledg
 		connectors: lookup,
 		selector:   selector,
 		ledger:     ledger,
+		events:     NoEvents{},
 		now:        func() time.Time { return time.Now().UTC() },
 		newID:      func(prefix string) string { return prefix + "_" + strings.ReplaceAll(uuid.NewString(), "-", "") },
+		logf:       log.Printf,
 	}
 	for _, o := range opts {
 		o(s)
@@ -122,11 +134,25 @@ func (c CreateCommand) validate() error {
 }
 
 func validateMoney(m Money) error {
-	if !m.Amount.IsPositive() {
-		return fmt.Errorf("%w: amount must be positive", ErrInvalid)
+	if err := validateAmount(m.Amount); err != nil {
+		return err
 	}
 	if n := len(strings.TrimSpace(m.Asset)); n == 0 || n > maxAssetLen || n != len(m.Asset) {
 		return fmt.Errorf("%w: asset %q", ErrInvalid, m.Asset)
+	}
+	return nil
+}
+
+// validateAmount mirrors the ledger's numeric(38,18) rules so nothing is rounded silently on the way in (M1).
+func validateAmount(a decimal.Decimal) error {
+	if !a.IsPositive() {
+		return fmt.Errorf("%w: amount must be positive", ErrInvalid)
+	}
+	if !a.Equal(a.Truncate(maxScale)) {
+		return fmt.Errorf("%w: amount has more than %d decimal places", ErrInvalid, maxScale)
+	}
+	if a.GreaterThanOrEqual(maxMagnitude) {
+		return fmt.Errorf("%w: amount magnitude must be below 1e20", ErrInvalid)
 	}
 	return nil
 }
@@ -171,7 +197,8 @@ func hashJSON(v any) string {
 }
 
 // Create opens an intent. Same key and same body returns the existing intent; same key and a different body
-// is ErrIdempotencyConflict. With Confirm it also runs the first attempt.
+// is ErrIdempotencyConflict. With Confirm it also runs the first attempt; if that fails before a claim, the
+// created intent is returned alongside the error, and a replay re-runs the confirm (M4).
 func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error) {
 	if cmd.CaptureMethod == "" {
 		cmd.CaptureMethod = connectors.CaptureAutomatic
@@ -185,21 +212,22 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error)
 	hash := cmd.requestHash()
 	now := s.now()
 	row := IntentRow{
-		ID:             s.newID("pi"),
-		MerchantID:     cmd.MerchantID,
-		PlatformID:     cmd.PlatformID,
-		IdempotencyKey: cmd.IdempotencyKey,
-		RequestHash:    hash,
-		Status:         IntentRequiresPaymentMethod,
-		Amount:         cmd.Money.Amount,
-		Asset:          cmd.Money.Asset,
-		CaptureMethod:  cmd.CaptureMethod,
-		PaymentMethod:  JSONMap{},
-		Description:    cmd.Description,
-		ReturnURL:      cmd.ReturnURL,
-		Metadata:       jsonMapOfStrings(cmd.Metadata),
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:               s.newID("pi"),
+		MerchantID:       cmd.MerchantID,
+		PlatformID:       cmd.PlatformID,
+		IdempotencyKey:   cmd.IdempotencyKey,
+		RequestHash:      hash,
+		Status:           IntentRequiresPaymentMethod,
+		Amount:           cmd.Money.Amount,
+		Asset:            cmd.Money.Asset,
+		CaptureMethod:    cmd.CaptureMethod,
+		PaymentMethod:    JSONMap{},
+		Description:      cmd.Description,
+		ReturnURL:        cmd.ReturnURL,
+		Metadata:         jsonMapOfStrings(cmd.Metadata),
+		ConfirmRequested: cmd.Confirm,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 	if cmd.PaymentMethod != nil {
 		row.Status = IntentRequiresConfirmation
@@ -233,11 +261,13 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error)
 	if err != nil {
 		return Intent{}, err
 	}
-	if replayed {
-		return row.toIntent(), nil
-	}
-	if cmd.Confirm {
-		return s.Confirm(ctx, cmd.MerchantID, row.ID, ConfirmCommand{})
+	needsConfirm := row.ConfirmRequested && row.ActiveAttemptID == "" && confirmable(row.Status)
+	if !replayed && cmd.Confirm || replayed && needsConfirm {
+		confirmed, err := s.Confirm(ctx, cmd.MerchantID, row.ID, ConfirmCommand{})
+		if err != nil {
+			return row.toIntent(), err
+		}
+		return confirmed, nil
 	}
 	return row.toIntent(), nil
 }
@@ -267,6 +297,22 @@ func (s *Service) Get(ctx context.Context, merchantID, intentID string) (View, e
 	return view, nil
 }
 
+// Anomalies lists what the switch recorded rather than acted on for one intent.
+func (s *Service) Anomalies(ctx context.Context, merchantID, intentID string) ([]Anomaly, error) {
+	if _, err := loadIntent(s.db.WithContext(ctx), merchantID, intentID); err != nil {
+		return nil, err
+	}
+	var rows []AnomalyRow
+	if err := s.db.WithContext(ctx).Where("intent_id = ?", intentID).Order("id").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("paymentswitch: load anomalies: %w", err)
+	}
+	out := make([]Anomaly, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Anomaly{ID: r.ID, Entity: r.Entity, EntityID: r.EntityID, IntentID: r.IntentID, Kind: r.Kind, Detail: r.Detail, CreatedAt: r.CreatedAt})
+	}
+	return out, nil
+}
+
 func loadIntent(db *gorm.DB, merchantID, intentID string) (IntentRow, error) {
 	var row IntentRow
 	err := db.Where("id = ? AND merchant_id = ?", intentID, merchantID).First(&row).Error
@@ -291,6 +337,18 @@ func loadAttempt(db *gorm.DB, attemptID string) (AttemptRow, error) {
 	return row, nil
 }
 
+func loadRefund(db *gorm.DB, refundID string) (RefundRow, error) {
+	var row RefundRow
+	err := db.Where("id = ?", refundID).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return RefundRow{}, fmt.Errorf("%w: refund %s", ErrNotFound, refundID)
+	}
+	if err != nil {
+		return RefundRow{}, fmt.Errorf("paymentswitch: load refund: %w", err)
+	}
+	return row, nil
+}
+
 // lockIfPostgres takes a row lock inside a transaction; SQLite (unit tests) serialises writers itself.
 func lockIfPostgres(tx *gorm.DB) *gorm.DB {
 	if tx.Dialector.Name() == "postgres" {
@@ -306,6 +364,32 @@ func (s *Service) recordTransition(tx *gorm.DB, entity, id, from, to, reason str
 	row := TransitionRow{Entity: entity, EntityID: id, FromStatus: from, ToStatus: to, Reason: reason, CreatedAt: s.now()}
 	if err := tx.Create(&row).Error; err != nil {
 		return fmt.Errorf("paymentswitch: record transition: %w", err)
+	}
+	return nil
+}
+
+// recordNote writes an audit row for something that happened without a status change (an unknown outcome).
+func (s *Service) recordNote(tx *gorm.DB, entity, id, status, reason string) error {
+	row := TransitionRow{Entity: entity, EntityID: id, FromStatus: status, ToStatus: status, Reason: reason, CreatedAt: s.now()}
+	if err := tx.Create(&row).Error; err != nil {
+		return fmt.Errorf("paymentswitch: record note: %w", err)
+	}
+	return nil
+}
+
+// recordAnomaly writes the contradiction and logs it at error level; once per (entity, kind) unless detail differs.
+func (s *Service) recordAnomaly(tx *gorm.DB, entity, id, intentID, kind, detail string) error {
+	var n int64
+	if err := tx.Model(&AnomalyRow{}).Where("entity_id = ? AND kind = ? AND detail = ?", id, kind, detail).Count(&n).Error; err != nil {
+		return fmt.Errorf("paymentswitch: check anomaly: %w", err)
+	}
+	if n > 0 {
+		return nil
+	}
+	s.logf("[paymentswitch] ERROR anomaly %s on %s %s (intent %s): %s", kind, entity, id, intentID, detail)
+	row := AnomalyRow{Entity: entity, EntityID: id, IntentID: intentID, Kind: kind, Detail: detail, CreatedAt: s.now()}
+	if err := tx.Create(&row).Error; err != nil {
+		return fmt.Errorf("paymentswitch: record anomaly: %w", err)
 	}
 	return nil
 }
@@ -359,4 +443,35 @@ func (s *Service) connector(code connectors.Code) (connectors.Connector, error) 
 		return nil, fmt.Errorf("%w: %q", connectors.ErrUnknownConnector, code)
 	}
 	return c, nil
+}
+
+// emit publishes events after commit; a failure to enqueue is logged, never fails the money path.
+func (s *Service) emit(ctx context.Context, events []Event) {
+	for _, ev := range events {
+		if err := s.events.Emit(ctx, ev); err != nil {
+			s.logf("[paymentswitch] ERROR emit %s for intent %s: %v", ev.Type, ev.IntentID, err)
+		}
+	}
+}
+
+// redact classifies a connector error for the merchant; the raw text goes to the transition reason and the log.
+func redact(err error) (code, message string) {
+	switch {
+	case errors.Is(err, connectors.ErrDeclined):
+		return ErrorCodeDeclined, "the provider refused the operation"
+	case errors.Is(err, connectors.ErrTimeout), errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return ErrorCodeTimeout, "the provider did not answer in time; the switch will sync the outcome"
+	case errors.Is(err, connectors.ErrNotFound):
+		return ErrorCodeNotFound, "the provider does not know this transaction yet; the switch will sync"
+	default:
+		return ErrorCodeConnector, "the provider returned an error; the switch will sync the outcome"
+	}
+}
+
+// backoff is the reconciler's schedule: base doubling per sync, capped.
+func backoff(count int, base time.Duration) time.Duration {
+	if count > 8 {
+		count = 8
+	}
+	return base * time.Duration(1<<count)
 }

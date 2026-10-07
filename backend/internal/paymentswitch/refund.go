@@ -17,14 +17,20 @@ type canonicalRefund struct {
 	Reason   string `json:"reason"`
 }
 
-// Refund returns captured money, in full or in part. Keyed by (merchant, idempotency key) like Create; the
-// refundable balance counts pending refunds so two in flight cannot over-refund.
+// Refund returns captured money, in full or in part. Keyed by (merchant, idempotency key) like Create; the row
+// is the claim (initiated), the refundable balance counts initiated and pending refunds, and a replay of a refund
+// whose outcome is unknown re-sends with the same connector key (I2).
 func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd RefundCommand) (Refund, error) {
 	if len(cmd.IdempotencyKey) > maxKeyLen {
 		return Refund{}, fmt.Errorf("%w: idempotency key longer than %d", ErrInvalid, maxKeyLen)
 	}
 	if cmd.IdempotencyKey == "" {
 		cmd.IdempotencyKey = s.newID("idem")
+	}
+	if cmd.Amount != nil {
+		if err := validateAmount(*cmd.Amount); err != nil {
+			return Refund{}, err
+		}
 	}
 	hashInput := canonicalRefund{IntentID: intentID, Reason: cmd.Reason}
 	if cmd.Amount != nil {
@@ -64,7 +70,7 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 		ConnectorCode:  attempt.ConnectorCode,
 		IdempotencyKey: cmd.IdempotencyKey,
 		RequestHash:    hash,
-		Status:         RefundPending,
+		Status:         RefundInitiated,
 		Asset:          attempt.Asset,
 		Reason:         cmd.Reason,
 		CreatedAt:      s.now(),
@@ -72,6 +78,10 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 	}
 	var replayed bool
 	err = db.Transaction(func(tx *gorm.DB) error {
+		// Lock order: intent first, so concurrent refunds serialise and the sum below is read under the lock.
+		if _, err := loadIntent(lockIfPostgres(tx), merchantID, intentID); err != nil {
+			return err
+		}
 		var existing RefundRow
 		err := tx.Where("merchant_id = ? AND idempotency_key = ?", merchantID, cmd.IdempotencyKey).First(&existing).Error
 		if err == nil {
@@ -84,12 +94,8 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("paymentswitch: load refund for key: %w", err)
 		}
-		// The sum is read under the intent lock so concurrent refunds serialise on Postgres.
-		if _, err := loadIntent(lockIfPostgres(tx), merchantID, intentID); err != nil {
-			return err
-		}
 		var committed decimal.Decimal
-		if err := tx.Model(&RefundRow{}).Where("intent_id = ? AND status IN ?", intentID, []RefundStatus{RefundPending, RefundSucceeded}).
+		if err := tx.Model(&RefundRow{}).Where("intent_id = ? AND status IN ?", intentID, []RefundStatus{RefundInitiated, RefundPending, RefundSucceeded}).
 			Select("COALESCE(SUM(amount), 0)").Scan(&committed).Error; err != nil {
 			return fmt.Errorf("paymentswitch: sum refunds: %w", err)
 		}
@@ -112,21 +118,26 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 		if res.RowsAffected == 0 {
 			return fmt.Errorf("%w: refund key %q raced", ErrConcurrentUpdate, cmd.IdempotencyKey)
 		}
-		return s.recordTransition(tx, "refund", row.ID, "", string(RefundPending), "refund")
+		return s.recordTransition(tx, "refund", row.ID, "", string(RefundInitiated), "refund")
 	})
 	if err != nil {
 		return Refund{}, err
 	}
-	if replayed {
+	if replayed && row.Status != RefundInitiated {
 		return row.toRefund(), nil
 	}
+	return s.sendRefund(ctx, conn, row, attempt)
+}
 
+// sendRefund calls the connector with the refund's own id as the key and applies the outcome; an unknown outcome
+// leaves the row initiated for the reconciler.
+func (s *Service) sendRefund(ctx context.Context, conn connectors.Connector, row RefundRow, attempt AttemptRow) (Refund, error) {
 	resp, callErr := conn.Refund(ctx, connectors.RefundRequest{
 		RefundID:               row.ID,
 		AttemptID:              attempt.ID,
 		ConnectorTransactionID: *attempt.ConnectorTransactionID,
 		Money:                  Money{Amount: row.Amount, Asset: row.Asset},
-		Reason:                 cmd.Reason,
+		Reason:                 row.Reason,
 		IdempotencyKey:         row.ID,
 	})
 	var update refundUpdate
@@ -137,36 +148,72 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 			return Refund{}, err
 		}
 		update = refundUpdate{status: status, raw: resp.RawStatus, connectorRefundID: resp.ConnectorRefundID, errorCode: resp.ErrorCode, errorMessage: resp.ErrorMessage, reason: "refund"}
-	case errors.Is(callErr, connectors.ErrTimeout):
-		return row.toRefund(), nil
+	case connectors.Definitive(callErr):
+		ec, em := redact(callErr)
+		update = refundUpdate{status: RefundFailed, errorCode: ec, errorMessage: em, reason: "refund declined: " + callErr.Error()}
 	default:
-		update = refundUpdate{status: RefundFailed, errorCode: "connector_error", errorMessage: callErr.Error(), reason: "refund error"}
+		return s.markRefundUnknown(ctx, row.MerchantID, row.ID, callErr)
 	}
-	return s.applyToRefund(ctx, merchantID, row.ID, update)
+	out, _, err := s.applyToRefund(ctx, row.MerchantID, row.ID, update)
+	return out, err
 }
 
-func (s *Service) applyToRefund(ctx context.Context, merchantID, refundID string, u refundUpdate) (Refund, error) {
+func (s *Service) markRefundUnknown(ctx context.Context, merchantID, refundID string, callErr error) (Refund, error) {
+	ec, em := redact(callErr)
+	s.logf("[paymentswitch] refund outcome unknown for %s: %v", refundID, callErr)
+	next := s.now().Add(backoff(0, s.syncBase()))
 	var out RefundRow
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var refund RefundRow
-		if err := lockIfPostgres(tx).Where("id = ? AND merchant_id = ?", refundID, merchantID).First(&refund).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("%w: refund %s", ErrNotFound, refundID)
-			}
-			return fmt.Errorf("paymentswitch: load refund: %w", err)
-		}
-		intent, err := loadIntent(lockIfPostgres(tx), merchantID, refund.IntentID)
+		refund, err := loadRefund(lockIfPostgres(tx), refundID)
 		if err != nil {
 			return err
 		}
-		if err := s.applyRefund(tx, &intent, &refund, u); err != nil {
+		refund.ErrorCode, refund.ErrorMessage = ec, em
+		if refund.NextSyncAt == nil {
+			refund.NextSyncAt = &next
+		}
+		if err := s.saveRefund(tx, &refund); err != nil {
+			return err
+		}
+		out = refund
+		return s.recordNote(tx, "refund", refund.ID, string(refund.Status), "refund outcome unknown: "+callErr.Error())
+	})
+	if err != nil {
+		return Refund{}, err
+	}
+	return out.toRefund(), nil
+}
+
+// applyToRefund locks in order (intent, then refund) and applies one update in its own transaction.
+func (s *Service) applyToRefund(ctx context.Context, merchantID, refundID string, u refundUpdate) (Refund, applyResult, error) {
+	var out RefundRow
+	var result applyResult
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		peek, err := loadRefund(tx, refundID)
+		if err != nil {
+			return err
+		}
+		if peek.MerchantID != merchantID {
+			return fmt.Errorf("%w: refund %s", ErrNotFound, refundID)
+		}
+		intent, err := loadIntent(lockIfPostgres(tx), merchantID, peek.IntentID)
+		if err != nil {
+			return err
+		}
+		refund, err := loadRefund(lockIfPostgres(tx), refundID)
+		if err != nil {
+			return err
+		}
+		result, err = s.applyRefund(tx, &intent, &refund, u)
+		if err != nil {
 			return err
 		}
 		out = refund
 		return nil
 	})
 	if err != nil {
-		return Refund{}, err
+		return Refund{}, applyResult{}, err
 	}
-	return out.toRefund(), nil
+	s.emit(ctx, result.events)
+	return out.toRefund(), result, nil
 }
