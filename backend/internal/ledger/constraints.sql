@@ -8,6 +8,8 @@ ALTER TABLE ledger_journals ADD COLUMN IF NOT EXISTS posting_txid bigint NOT NUL
 ALTER TABLE ledger_accounts ADD COLUMN IF NOT EXISTS environment varchar(8) NOT NULL DEFAULT 'test';
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_accounts_env_owner_asset_kind_key
     ON ledger_accounts (environment, owner_type, owner_id, asset, kind);
+ALTER TABLE ledger_journals ADD COLUMN IF NOT EXISTS environment varchar(8) NOT NULL DEFAULT 'test';
+CREATE INDEX IF NOT EXISTS ledger_journals_environment_idx ON ledger_journals (environment);
 
 DO $$
 BEGIN
@@ -15,6 +17,11 @@ BEGIN
         ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_environment_check
             CHECK (environment IN ('test', 'live')) NOT VALID;
         ALTER TABLE ledger_accounts VALIDATE CONSTRAINT ledger_accounts_environment_check;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_journals'::regclass AND conname = 'ledger_journals_environment_check') THEN
+        ALTER TABLE ledger_journals ADD CONSTRAINT ledger_journals_environment_check
+            CHECK (environment IN ('test', 'live')) NOT VALID;
+        ALTER TABLE ledger_journals VALIDATE CONSTRAINT ledger_journals_environment_check;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ledger_accounts'::regclass AND conname = 'ledger_accounts_id_asset_key') THEN
         ALTER TABLE ledger_accounts ADD CONSTRAINT ledger_accounts_id_asset_key UNIQUE (id, asset);
@@ -122,6 +129,39 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+-- The only sanctioned rewrite of ledger rows: relabelling a database that is being adopted as live
+-- (cmd/migrate adopt-live). SECURITY DEFINER so the table owner's right to pause the append-only
+-- triggers is exercised here and nowhere else; it refuses once any live row exists.
+CREATE OR REPLACE FUNCTION ledger_adopt_environment(target text)
+RETURNS TABLE (accounts bigint, journals bigint)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    relabelled_accounts bigint;
+    relabelled_journals bigint;
+BEGIN
+    IF target <> 'live' THEN
+        RAISE EXCEPTION 'ledger: adoption only moves test rows to live, not to %', target;
+    END IF;
+    IF EXISTS (SELECT 1 FROM ledger_accounts WHERE environment = 'live')
+       OR EXISTS (SELECT 1 FROM ledger_journals WHERE environment = 'live') THEN
+        RAISE EXCEPTION 'ledger: live rows already exist; this database was adopted or served live before';
+    END IF;
+    ALTER TABLE ledger_accounts DISABLE TRIGGER ledger_accounts_append_only;
+    ALTER TABLE ledger_journals DISABLE TRIGGER ledger_journals_append_only;
+    UPDATE ledger_accounts SET environment = 'live' WHERE environment = 'test';
+    GET DIAGNOSTICS relabelled_accounts = ROW_COUNT;
+    UPDATE ledger_journals SET environment = 'live' WHERE environment = 'test';
+    GET DIAGNOSTICS relabelled_journals = ROW_COUNT;
+    ALTER TABLE ledger_accounts ENABLE TRIGGER ledger_accounts_append_only;
+    ALTER TABLE ledger_journals ENABLE TRIGGER ledger_journals_append_only;
+    RETURN QUERY SELECT relabelled_accounts, relabelled_journals;
+END;
+$$;
+REVOKE ALL ON FUNCTION ledger_adopt_environment(text) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION ledger_check_journal_has_lines()
 RETURNS trigger

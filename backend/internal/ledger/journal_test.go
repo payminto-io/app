@@ -111,13 +111,13 @@ func TestRequestHash_IsCanonical(t *testing.T) {
 	b := balancedJournal()
 	b.Lines[0], b.Lines[1] = b.Lines[1], b.Lines[0]
 	b.Lines[0].Amount = dec("-10.000")
-	if a.requestHash() != b.requestHash() {
+	if a.legacyRequestHash() != b.legacyRequestHash() {
 		t.Fatal("line order and decimal formatting must not change the request hash")
 	}
 	c := balancedJournal()
 	c.Lines[0].Amount = dec("11")
 	c.Lines[1].Amount = dec("-11")
-	if a.requestHash() == c.requestHash() {
+	if a.legacyRequestHash() == c.legacyRequestHash() {
 		t.Fatal("different amounts must produce a different request hash")
 	}
 }
@@ -154,16 +154,16 @@ func TestValidate_RejectsMagnitudeAtOrAbove1e20(t *testing.T) {
 func TestRequestHash_IncludesExplicitPostedAt(t *testing.T) {
 	a := balancedJournal()
 	b := balancedJournal()
-	if a.requestHash() != b.requestHash() {
+	if a.legacyRequestHash() != b.legacyRequestHash() {
 		t.Fatal("zero PostedAt must hash the same")
 	}
 	b.PostedAt = time.Now()
-	if a.requestHash() == b.requestHash() {
+	if a.legacyRequestHash() == b.legacyRequestHash() {
 		t.Fatal("an explicit PostedAt must change the hash")
 	}
 	c := balancedJournal()
 	c.PostedAt = b.PostedAt.In(time.FixedZone("x", 3600)).Add(500 * time.Nanosecond)
-	if b.requestHash() != c.requestHash() {
+	if b.legacyRequestHash() != c.legacyRequestHash() {
 		t.Fatal("zone and sub-microsecond differences must not change the hash")
 	}
 }

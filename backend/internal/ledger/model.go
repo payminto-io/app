@@ -68,9 +68,11 @@ type JournalRow struct {
 	ReferenceType  string      `gorm:"type:varchar(128);not null;index:ledger_journals_reference_idx,priority:1"`
 	ReferenceID    string      `gorm:"type:varchar(128);not null;index:ledger_journals_reference_idx,priority:2"`
 	IdempotencyKey string      `gorm:"type:varchar(128);not null;uniqueIndex:ledger_journals_idempotency_key_key"`
-	RequestHash    string      `gorm:"type:char(64);not null"`
-	PostedAt       time.Time   `gorm:"not null;index"`
-	Metadata       Metadata    `gorm:"type:jsonb;not null"`
+	// Environment scopes the idempotency key: a key reused across environments is a conflict, never a replay.
+	Environment environment.Environment `gorm:"type:varchar(8);not null;default:'test';index:ledger_journals_environment_idx"`
+	RequestHash string                  `gorm:"type:char(64);not null"`
+	PostedAt    time.Time               `gorm:"not null;index"`
+	Metadata    Metadata                `gorm:"type:jsonb;not null"`
 	// PostingTxID is stamped by a Postgres trigger; lines may only join a journal from the same transaction.
 	PostingTxID int64     `gorm:"type:bigint;not null;default:0"`
 	CreatedAt   time.Time `gorm:"not null"`

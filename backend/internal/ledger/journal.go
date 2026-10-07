@@ -209,8 +209,19 @@ type canonicalJournal struct {
 	Lines     []canonicalLine `json:"lines"`
 }
 
-// requestHash is the payload fingerprint stored with the journal so a replayed key can be checked against its original.
-func (j Journal) requestHash() string {
+// requestHashFor is the payload fingerprint stored with the journal: every line carries the resolved
+// environment, so the same key and lines posted in the other environment never read as a replay.
+func (j Journal) requestHashFor(env environment.Environment) string {
+	return j.hash(func(explicit environment.Environment) environment.Environment { return env })
+}
+
+// legacyRequestHash is the fingerprint journals carried before environments existed (lines name none);
+// replays of those rows are still accepted against it.
+func (j Journal) legacyRequestHash() string {
+	return j.hash(func(explicit environment.Environment) environment.Environment { return explicit })
+}
+
+func (j Journal) hash(envOf func(environment.Environment) environment.Environment) string {
 	lines := make([]canonicalLine, 0, len(j.Lines))
 	for _, l := range j.Lines {
 		lines = append(lines, canonicalLine{
@@ -218,7 +229,7 @@ func (j Journal) requestHash() string {
 			OwnerID:     l.Account.OwnerID,
 			Asset:       l.Account.Asset,
 			Kind:        l.Account.Kind,
-			Environment: l.Account.Environment,
+			Environment: envOf(l.Account.Environment),
 			Amount:      l.Amount.String(),
 		})
 	}

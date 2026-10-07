@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/payminto/payminto/backend/internal/environment"
 	"gorm.io/driver/sqlite"
@@ -135,14 +136,52 @@ func TestValidate_MixedEnvironmentsRejected(t *testing.T) {
 	}
 }
 
-func TestRequestHash_UnchangedForKeysWithoutEnvironment(t *testing.T) {
+func TestRequestHash_LegacyHashIsPinnedAndNewHashesCarryTheEnvironment(t *testing.T) {
 	// Journals posted before this column existed must still replay cleanly: pinned from the pre-environment code.
 	const pinned = "d854d561d5a494db1a56afdb5a84ea5341695da7268e2a7aba912bad02b67da5"
-	if got := balancedJournal().requestHash(); got != pinned {
-		t.Fatalf("requestHash without environment = %s, want %s", got, pinned)
+	if got := balancedJournal().legacyRequestHash(); got != pinned {
+		t.Fatalf("legacy hash = %s, want %s", got, pinned)
 	}
-	withEnv := envJournal(environment.Test, "payment:p1", "10")
-	if withEnv.requestHash() == balancedJournal().requestHash() {
-		t.Fatal("an explicit environment must change the request hash")
+	j := balancedJournal()
+	if j.requestHashFor(environment.Test) == j.requestHashFor(environment.Live) || j.requestHashFor(environment.Test) == pinned {
+		t.Fatal("the stored hash must differ per environment and from the legacy form")
+	}
+}
+
+func TestIdempotency_IsScopedToTheEnvironment(t *testing.T) {
+	s, db := newEnvService(t, environment.Test)
+	s.guard = nil
+	ctx := context.Background()
+	first := mustPost(t, s, balancedJournal())
+	// Same key and lines in the other environment: a conflict, never a silent replay of the test journal.
+	if _, err := s.Post(environment.WithContext(ctx, environment.Live), balancedJournal()); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("live post with a test key = %v, want ErrIdempotencyConflict", err)
+	}
+	var journals int64
+	db.Model(&JournalRow{}).Count(&journals)
+	if journals != 1 {
+		t.Fatalf("journals = %d, want 1", journals)
+	}
+	receipt, err := s.PostIn(ctx, db, balancedJournal())
+	if err != nil || !receipt.Replayed || receipt.ID != first {
+		t.Fatalf("same-environment replay = %+v, %v", receipt, err)
+	}
+}
+
+func TestIdempotency_RowsWithTheLegacyHashStillReplay(t *testing.T) {
+	s, db := newEnvService(t, environment.Test)
+	j := balancedJournal()
+	row := JournalRow{Kind: j.Kind, ReferenceType: j.Reference.Type, ReferenceID: j.Reference.ID, IdempotencyKey: j.IdempotencyKey, Environment: environment.Test, RequestHash: j.legacyRequestHash(), PostedAt: time.Now()}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := s.PostIn(context.Background(), db, j)
+	if err != nil || !receipt.Replayed || receipt.ID != row.ID {
+		t.Fatalf("legacy replay = %+v, %v", receipt, err)
+	}
+	changed := j
+	changed.Lines[0].Amount, changed.Lines[1].Amount = dec("11"), dec("-11")
+	if _, err := s.PostIn(context.Background(), db, changed); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("changed payload against a legacy row = %v, want conflict", err)
 	}
 }

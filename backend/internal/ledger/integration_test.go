@@ -65,16 +65,44 @@ func TestIntegration_SchemaConvergesFromAutoMigrateAndChecksummedMigration(t *te
 		t.Fatalf("composite account/asset FK count = %d, want 1", fk)
 	}
 	var indexes []string
-	if err := db.Raw(`SELECT indexname FROM pg_indexes WHERE tablename = 'ledger_accounts' AND indexname LIKE 'ledger_accounts_%owner_asset_kind_key'`).Scan(&indexes).Error; err != nil {
+	if err := db.Raw(`SELECT indexname FROM pg_indexes WHERE tablename = 'ledger_accounts' AND indexname LIKE 'ledger_accounts_%owner_asset_kind_key' ORDER BY indexname`).Scan(&indexes).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(indexes) != 1 || indexes[0] != "ledger_accounts_env_owner_asset_kind_key" {
-		t.Fatalf("ledger_accounts uniqueness indexes = %v, want only the environment-scoped one", indexes)
+	if len(indexes) != 2 || indexes[0] != "ledger_accounts_env_owner_asset_kind_key" || indexes[1] != "ledger_accounts_owner_asset_kind_key" {
+		t.Fatalf("ledger_accounts uniqueness indexes = %v, want both until the follow-up drops the old one", indexes)
 	}
-	for _, table := range []string{"ledger_accounts", "api_keys"} {
+	for _, table := range []string{"ledger_accounts", "ledger_journals", "api_keys"} {
 		if !db.Migrator().HasColumn(table, "environment") {
 			t.Fatalf("%s.environment missing after migrations", table)
 		}
+	}
+	var fn int64
+	if err := db.Raw(`SELECT count(*) FROM pg_proc WHERE proname = 'ledger_adopt_environment' AND prosecdef`).Scan(&fn).Error; err != nil {
+		t.Fatal(err)
+	}
+	if fn != 1 {
+		t.Fatalf("ledger_adopt_environment SECURITY DEFINER functions = %d, want 1", fn)
+	}
+}
+
+func TestIntegration_OldBinariesStillPostDuringARollingDeploy(t *testing.T) {
+	db, cleanup := database.NewTestDB(t)
+	defer cleanup()
+	if _, err := database.ApplyMigrations(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	// The pre-ticket ensureAccount statement, verbatim: it must still find an arbiter index.
+	old := `INSERT INTO ledger_accounts (owner_type, owner_id, asset, kind, created_at) VALUES ('member', 'm1', 'USDC', 'liability', now())
+		ON CONFLICT (owner_type, owner_id, asset, kind) DO NOTHING`
+	for i := 0; i < 2; i++ {
+		if err := db.Exec(old).Error; err != nil {
+			t.Fatalf("old binary's insert failed after migration: %v", err)
+		}
+	}
+	var n int64
+	db.Raw(`SELECT count(*) FROM ledger_accounts WHERE owner_id = 'm1'`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("accounts = %d, want 1", n)
 	}
 }
 

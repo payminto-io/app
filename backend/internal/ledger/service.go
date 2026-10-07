@@ -118,7 +118,7 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 		return Receipt{}, err
 	}
 	tx = tx.WithContext(ctx)
-	hash := j.requestHash()
+	hash := j.requestHashFor(env)
 	now := time.Now().UTC()
 	postedAt := j.PostedAt
 	if postedAt.IsZero() {
@@ -143,6 +143,7 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 		ReferenceType:  j.Reference.Type,
 		ReferenceID:    j.Reference.ID,
 		IdempotencyKey: j.IdempotencyKey,
+		Environment:    env,
 		RequestHash:    hash,
 		PostedAt:       postedAt,
 		Metadata:       Metadata(j.Metadata),
@@ -156,7 +157,10 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 		if err := tx.Where("idempotency_key = ?", j.IdempotencyKey).First(&existing).Error; err != nil {
 			return Receipt{}, fmt.Errorf("ledger: load journal for key %q: %w", j.IdempotencyKey, err)
 		}
-		if existing.RequestHash != hash {
+		if existing.Environment != env {
+			return Receipt{}, fmt.Errorf("%w: key %q was posted in the %s environment", ErrIdempotencyConflict, j.IdempotencyKey, existing.Environment)
+		}
+		if existing.RequestHash != hash && existing.RequestHash != j.legacyRequestHash() {
 			return Receipt{}, fmt.Errorf("%w: key %q", ErrIdempotencyConflict, j.IdempotencyKey)
 		}
 		return Receipt{ID: existing.ID, Replayed: true}, nil

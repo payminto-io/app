@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/shopspring/decimal"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -300,7 +301,7 @@ func TestPost_StoresReferenceMetadataAndPostedAt(t *testing.T) {
 	if row.ReferenceType != "payment" || row.ReferenceID != "p1" || !row.PostedAt.Equal(j.PostedAt) || row.Metadata["tx_hash"] != "0xabc" {
 		t.Fatalf("journal row = %+v", row)
 	}
-	if row.RequestHash != j.requestHash() {
+	if row.RequestHash != j.requestHashFor(environment.Test) {
 		t.Fatal("request hash not stored")
 	}
 }

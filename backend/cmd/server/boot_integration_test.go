@@ -43,13 +43,13 @@ func databaseEnv(cfg config.DatabaseConfig) map[string]string {
 }
 
 // awaitHealthy polls /healthz until the child answers or exits.
-func awaitHealthy(t *testing.T, base string, exited <-chan struct{}) {
+func awaitHealthy(t *testing.T, base string, exited <-chan struct{}, output func() string) {
 	t.Helper()
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
 		case <-exited:
-			t.Fatal("process exited before becoming healthy")
+			t.Fatalf("process exited before becoming healthy:\n%s", output())
 		default:
 		}
 		resp, err := http.Get(base + "/healthz")
@@ -111,7 +111,7 @@ func runServer(t *testing.T, env map[string]string) (string, func() string) {
 		return output
 	}
 	t.Cleanup(func() { stop() })
-	awaitHealthy(t, base, exited)
+	awaitHealthy(t, base, exited, func() string { return output })
 	return base, stop
 }
 
