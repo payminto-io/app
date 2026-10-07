@@ -39,6 +39,24 @@ Unit and nginx sources are mirrored in `systemd/` and `nginx/` beside this file.
 - `backend/.env.migrate` (mode 600) — the privileged migration role's overrides.
   Sourced *after* `.env` only when running `cmd/migrate`; never by the server.
 
+## Public URLs the backend mints
+
+`CHECKOUT_BASE_URL` must be set in `backend/.env`. A published payment link's
+URL is `<base>/l/<short code>`, and the variable defaults to
+`http://localhost:3002`, so leaving it unset makes every link a merchant
+shares unusable while the API still answers 200. It is set to
+`https://checkout.payminto.io` here.
+
+## Taking a crypto payment end to end
+
+`POST /api/v2/public/links/:code/pay` fails with `payment_creation_failed`
+(502) until the merchant has a wallet for the chain family: the handler looks
+up `wallets` by `(member_id, blockchain_family_id)` and a crypto payment has no
+deposit address without one. Wallet derivation lives behind
+`CUSTODY_ENABLED=true`, which additionally needs a `VAULT_PASSPHRASE` of at
+least 24 non-placeholder characters from a secrets manager. With custody off
+the link renders and the checkout page loads, but no payment can be created.
+
 ## Database roles
 
 The staging boot gate requires that the server's role cannot rewrite the ledger,
