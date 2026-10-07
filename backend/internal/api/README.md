@@ -6,6 +6,7 @@ Owns the HTTP surface of the Payminto backend: the Gin router wiring that binds 
 
 - `router.go` — `RouterConfig` struct and `NewRouter` constructor that wires every route group.
 - `routes_fees.go` - `RegisterFeesRoutes`: fee preview and `/admin/fee-rules` (see `internal/fees/README.md`).
+- `routes_cre.go` - `RegisterCRERoutes`: attestation pulls, pushes, status and public read; mounts nothing when CRE is off (see `internal/cre/README.md`).
 - `router_test.go` — integration tests that boot the full router against a test service registry.
 
 ## See also

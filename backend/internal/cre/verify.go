@@ -42,7 +42,9 @@ type Verifier struct {
 	Subjects   SubjectIndex
 	// Seen reports whether a payload hash is already recorded.
 	Seen func(ctx context.Context, payloadHash []byte) (bool, error)
-	Now  func() time.Time
+	// LatestObservedAt is the newest accepted observation per kind; the contract requires strictly newer.
+	LatestObservedAt func(ctx context.Context, kind Kind) (time.Time, bool, error)
+	Now              func() time.Time
 	// Chain is stamped on the rows.
 	Chain string
 }
@@ -94,6 +96,15 @@ func (v *Verifier) Verify(ctx context.Context, raw RawAttestation) ([]Attestatio
 			return nil, ErrReplayed
 		}
 	}
+	if v.LatestObservedAt != nil {
+		latest, ok, err := v.LatestObservedAt(ctx, report.Kind)
+		if err != nil {
+			return nil, err
+		}
+		if ok && !report.ObservedAt.After(latest) {
+			return nil, fmt.Errorf("%w: observed %s is not newer than %s", ErrReplayed, report.ObservedAt.Format(time.RFC3339), latest.Format(time.RFC3339))
+		}
+	}
 	rows, err := v.rows(ctx, report, meta, raw, hash, now)
 	if err != nil {
 		return nil, err
@@ -128,6 +139,9 @@ func (v *Verifier) checkEvidence(raw RawAttestation) error {
 		}
 		if ev.Emitter != v.Consumer {
 			return fmt.Errorf("%w: %s", ErrWrongEmitter, common.BytesToAddress(ev.Emitter[:]))
+		}
+		if ev.ReportHash == ([32]byte{}) || ev.ReportHash != [32]byte(PayloadHash(raw.Report)) {
+			return fmt.Errorf("%w: rebuilt report does not hash to the contract's reportHash", ErrForged)
 		}
 		if ev.HeadBlock < ev.BlockNumber || ev.HeadBlock-ev.BlockNumber < v.Confirmations {
 			return fmt.Errorf("%w: block %d, head %d, need %d confirmations", ErrUnconfirmed, ev.BlockNumber, ev.HeadBlock, v.Confirmations)
@@ -180,6 +194,7 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 		row := base
 		row.ID = uuid.NewString()
 		row.Item = item
+		row.ItemIndex = len(out)
 		subject, found, err := v.Subjects.LookupSubject(ctx, report.Kind, key)
 		if err != nil {
 			return err

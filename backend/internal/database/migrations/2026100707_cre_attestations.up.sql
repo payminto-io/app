@@ -22,8 +22,9 @@ CREATE TABLE IF NOT EXISTS cre_attestations (
     reason text NOT NULL DEFAULT '',
     item jsonb NOT NULL,
     execution_id varchar(128) NOT NULL DEFAULT '',
-    -- One row per subject per report; a replayed report is refused before it gets here.
-    CONSTRAINT cre_attestations_payload_subject_key UNIQUE (payload_hash, subject_id)
+    item_index smallint NOT NULL DEFAULT 0,
+    -- One row per item per report; a replayed report is refused before it gets here.
+    CONSTRAINT cre_attestations_payload_item_key UNIQUE (payload_hash, item_index)
 );
 CREATE INDEX IF NOT EXISTS cre_attestations_kind_subject_idx ON cre_attestations (kind, subject_id);
 CREATE INDEX IF NOT EXISTS cre_attestations_status_recorded_idx ON cre_attestations (status, recorded_at);

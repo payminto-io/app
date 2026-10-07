@@ -108,7 +108,7 @@ func (f *fixture) confirmedItem(t *testing.T) DepositItem {
 }
 
 func (f *fixture) onChain(kind Kind, report []byte) RawAttestation {
-	return RawAttestation{Kind: kind, Metadata: f.metadata(kind), Report: report, Evidence: Evidence{Emitter: f.consumer, TxHash: []byte{0xab}, BlockNumber: 100, HeadBlock: 110}}
+	return RawAttestation{Kind: kind, Metadata: f.metadata(kind), Report: report, Evidence: Evidence{Emitter: f.consumer, TxHash: []byte{0xab}, BlockNumber: 100, HeadBlock: 110, ReportHash: [32]byte(PayloadHash(report))}}
 }
 
 func (f *fixture) signed(t *testing.T, kind Kind, report []byte) RawAttestation {
@@ -225,6 +225,27 @@ func TestVerify_WrongEmitterAndUnconfirmed(t *testing.T) {
 	raw.Evidence.TxHash = nil
 	if _, err := v.Verify(context.Background(), raw); !errors.Is(err, ErrForged) {
 		t.Fatalf("no tx: err = %v", err)
+	}
+	// A rebuilt report that does not hash to what the contract logged is not the report the DON signed.
+	raw = f.onChain(KindDepositFinality, report)
+	raw.Evidence.ReportHash[0] ^= 1
+	if _, err := v.Verify(context.Background(), raw); !errors.Is(err, ErrForged) {
+		t.Fatalf("report hash mismatch: err = %v", err)
+	}
+}
+
+func TestVerify_ObservedAtMustBeStrictlyNewerPerKind(t *testing.T) {
+	f := newFixture(t)
+	item := f.confirmedItem(t)
+	v := f.verifier(ProviderChainlink)
+	v.LatestObservedAt = func(context.Context, Kind) (time.Time, bool, error) { return f.now.Add(-time.Minute), true, nil }
+	same, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(-time.Minute), Items: []DepositItem{item}})
+	if _, err := v.Verify(context.Background(), f.onChain(KindDepositFinality, same)); !errors.Is(err, ErrReplayed) {
+		t.Fatalf("same observed_at: err = %v", err)
+	}
+	newer, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(-30 * time.Second), Items: []DepositItem{item}})
+	if _, err := v.Verify(context.Background(), f.onChain(KindDepositFinality, newer)); err != nil {
+		t.Fatalf("newer observed_at refused: %v", err)
 	}
 }
 

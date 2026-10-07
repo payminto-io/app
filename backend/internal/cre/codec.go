@@ -10,8 +10,12 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// Wire format of every report (SPEC section 5): abi.encode(uint8 kind, bytes32 gatewayId, uint64 observedAt, Item[] items).
+// Wire format of every report (SPEC section 5, contracts/test/cre/ReportEncoder.sol):
+// abi.encode(uint8 version=1, uint8 kind, bytes32 gatewayId, uint64 observedAt, Item[] items).
 // The item tuple depends on the kind. Workflows and the consumer contract encode exactly this.
+
+// ReportVersion is the only version the contract and this verifier accept.
+const ReportVersion uint8 = 1
 
 // SolvencyItem is one asset of a solvency report.
 type SolvencyItem struct {
@@ -61,6 +65,10 @@ var (
 )
 
 func mustArgs(components string) abi.Arguments {
+	version, err := abi.NewType("uint8", "", nil)
+	if err != nil {
+		panic(err)
+	}
 	kind, err := abi.NewType("uint8", "", nil)
 	if err != nil {
 		panic(err)
@@ -81,7 +89,7 @@ func mustArgs(components string) abi.Arguments {
 	if err != nil {
 		panic(err)
 	}
-	return abi.Arguments{{Name: "kind", Type: kind}, {Name: "gatewayId", Type: gateway}, {Name: "observedAt", Type: observed}, {Name: "items", Type: items}}
+	return abi.Arguments{{Name: "version", Type: version}, {Name: "kind", Type: kind}, {Name: "gatewayId", Type: gateway}, {Name: "observedAt", Type: observed}, {Name: "items", Type: items}}
 }
 
 func argsFor(k Kind) (abi.Arguments, error) {
@@ -122,15 +130,18 @@ func EncodeReport(r Report) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("%w: items of type %T", ErrInvalidReport, r.Items)
 	}
-	return args.Pack(r.Kind.Code(), r.GatewayID, uint64(r.ObservedAt.Unix()), items)
+	return args.Pack(ReportVersion, r.Kind.Code(), r.GatewayID, uint64(r.ObservedAt.Unix()), items)
 }
 
-// DecodeReport decodes a payload; the kind is read from the first word and must match expected when non-empty.
+// DecodeReport decodes a payload; version and kind are read from the first two words.
 func DecodeReport(payload []byte) (Report, error) {
-	if len(payload) < 32*4 {
+	if len(payload) < 32*5 {
 		return Report{}, fmt.Errorf("%w: payload shorter than its header", ErrInvalidReport)
 	}
-	code := new(big.Int).SetBytes(payload[:32])
+	if v := new(big.Int).SetBytes(payload[:32]); !v.IsUint64() || v.Uint64() != uint64(ReportVersion) {
+		return Report{}, fmt.Errorf("%w: report version %s, want %d", ErrInvalidReport, v, ReportVersion)
+	}
+	code := new(big.Int).SetBytes(payload[32:64])
 	if !code.IsUint64() || code.Uint64() > 255 {
 		return Report{}, fmt.Errorf("%w: kind word out of range", ErrInvalidReport)
 	}
@@ -143,14 +154,14 @@ func DecodeReport(payload []byte) (Report, error) {
 	if err != nil {
 		return Report{}, fmt.Errorf("%w: %v", ErrInvalidReport, err)
 	}
-	r := Report{Kind: kind, GatewayID: values[1].([32]byte), ObservedAt: time.Unix(int64(values[2].(uint64)), 0).UTC()}
+	r := Report{Kind: kind, GatewayID: values[2].([32]byte), ObservedAt: time.Unix(int64(values[3].(uint64)), 0).UTC()}
 	switch kind {
 	case KindSolvency:
-		r.Items = fromSolvencyABI(values[3])
+		r.Items = fromSolvencyABI(values[4])
 	case KindDepositFinality:
-		r.Items = fromDepositABI(values[3])
+		r.Items = fromDepositABI(values[4])
 	case KindConversionReference:
-		r.Items = fromConversionABI(values[3])
+		r.Items = fromConversionABI(values[4])
 	}
 	return r, nil
 }

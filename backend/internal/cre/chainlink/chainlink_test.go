@@ -84,7 +84,17 @@ func (f *fakeChain) FilterLogs(_ context.Context, address common.Address, from, 
 			if len(want) == 0 {
 				continue
 			}
-			if i >= len(l.Topics) || l.Topics[i] != want[0] {
+			if i >= len(l.Topics) {
+				match = false
+				continue
+			}
+			any := false
+			for _, w := range want {
+				if l.Topics[i] == w {
+					any = true
+				}
+			}
+			if !any {
 				match = false
 			}
 		}
@@ -95,21 +105,16 @@ func (f *fakeChain) FilterLogs(_ context.Context, address common.Address, from, 
 	return out, nil
 }
 
-func (f *fakeChain) emit(t *testing.T, consumer common.Address, gatewayID [32]byte, kind cre.Kind, metadata, report []byte) {
+func (f *fakeChain) emit(t *testing.T, consumer common.Address, meta cre.Metadata, report []byte) {
 	t.Helper()
-	data, err := EncodeReportAttestedData(metadata, report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kindTopic common.Hash
-	kindTopic[31] = kind.Code()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.head++
-	f.logs = append(f.logs, Log{
-		Address: consumer, TxHash: crypto.Keccak256Hash(report), BlockNumber: f.head, Index: 0,
-		Topics: []common.Hash{ReportAttestedTopic, common.BytesToHash(gatewayID[:]), kindTopic}, Data: data,
-	})
+	logs, err := LogsForReport(consumer, meta, report, crypto.Keccak256Hash(report, []byte{byte(f.head)}), f.head, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.logs = append(f.logs, logs...)
 	f.head += 5
 }
 
@@ -177,7 +182,7 @@ func (h *harness) settle(t *testing.T, kind cre.Kind) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.chain.emit(t, h.consumer, h.gateway, kind, meta.Encode(), payload)
+	h.chain.emit(t, h.consumer, meta, payload)
 }
 
 func TestConformance(t *testing.T) {
@@ -249,8 +254,9 @@ func TestPollReadsOnlyTheConsumerAndThisGateway(t *testing.T) {
 	// A log from another contract, and one for another gateway, must not come back.
 	meta := cre.Metadata{WorkflowID: h.wfIDs[cre.KindSolvency], Owner: h.owner}
 	payload, _ := cre.EncodeReport(cre.Report{Kind: cre.KindSolvency, GatewayID: h.gateway, ObservedAt: time.Now(), Items: []cre.SolvencyItem{{Liabilities: big.NewInt(1), Reserves: big.NewInt(1)}}})
-	h.chain.emit(t, common.HexToAddress("0x9999999999999999999999999999999999999999"), h.gateway, cre.KindSolvency, meta.Encode(), payload)
-	h.chain.emit(t, h.consumer, cre.GatewayID("https://other.example"), cre.KindSolvency, meta.Encode(), payload)
+	h.chain.emit(t, common.HexToAddress("0x9999999999999999999999999999999999999999"), meta, payload)
+	foreign, _ := cre.EncodeReport(cre.Report{Kind: cre.KindSolvency, GatewayID: cre.GatewayID("https://other.example"), ObservedAt: time.Now(), Items: []cre.SolvencyItem{{Liabilities: big.NewInt(1), Reserves: big.NewInt(1)}}})
+	h.chain.emit(t, h.consumer, meta, foreign)
 	h.settle(t, cre.KindDepositFinality)
 	raws, next, err := h.provider.Poll(ctx, cre.KindSolvency, cursor)
 	if err != nil {
@@ -259,10 +265,46 @@ func TestPollReadsOnlyTheConsumerAndThisGateway(t *testing.T) {
 	if len(raws) != 1 || raws[0].Kind != cre.KindSolvency || raws[0].Evidence.Emitter != [20]byte(h.consumer) || raws[0].Evidence.HeadBlock != h.chain.head {
 		t.Fatalf("raws = %+v", raws)
 	}
+	// The rebuilt report is byte-identical to what the workflow wrote: it hashes to the logged reportHash.
+	if raws[0].Evidence.ReportHash != [32]byte(cre.PayloadHash(raws[0].Report)) {
+		t.Fatal("rebuilt report does not hash to the contract's reportHash")
+	}
+	rebuilt, err := cre.DecodeReport(raws[0].Report)
+	if err != nil || rebuilt.Items.([]cre.SolvencyItem)[0].Reserves.Int64() != 2 {
+		t.Fatalf("rebuilt = %+v err %v", rebuilt, err)
+	}
+	back, _ := cre.DecodeMetadata(raws[0].Metadata)
+	if back.WorkflowID != h.wfIDs[cre.KindSolvency] || back.Owner != h.owner {
+		t.Fatalf("metadata = %+v", back)
+	}
 	if next.Block != h.chain.head+1 {
 		t.Fatalf("cursor = %+v, head %d", next, h.chain.head)
 	}
 	if again, _, _ := h.provider.Poll(ctx, cre.KindSolvency, next); len(again) != 0 {
 		t.Fatal("replayed past the cursor")
+	}
+}
+
+func TestRebuildRefusesAnIncompleteItemSet(t *testing.T) {
+	h := newHarness(t)
+	meta := cre.Metadata{WorkflowID: h.wfIDs[cre.KindDepositFinality], Owner: h.owner}
+	payload, _ := cre.EncodeReport(cre.Report{Kind: cre.KindDepositFinality, GatewayID: h.gateway, ObservedAt: time.Now(), Items: []cre.DepositItem{
+		{DepositID: cre.SubjectKey("a"), Amount: big.NewInt(1), Verdict: 1}, {DepositID: cre.SubjectKey("b"), Amount: big.NewInt(2), Verdict: 2},
+	}})
+	logs, err := LogsForReport(h.consumer, meta, payload, common.HexToHash("0x1"), 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, _ := cre.ContractABI()
+	full, _ := RebuildReports(contract, logs, cre.KindDepositFinality, 20)
+	if len(full) != 1 || full[0].Evidence.ReportHash != [32]byte(cre.PayloadHash(payload)) || string(full[0].Report) != string(payload) {
+		t.Fatalf("full rebuild = %+v", full)
+	}
+	partial, _ := RebuildReports(contract, logs[:2], cre.KindDepositFinality, 20)
+	if len(partial) != 1 || partial[0].Evidence.ReportHash != ([32]byte{}) {
+		t.Fatalf("partial rebuild must carry no report hash: %+v", partial)
+	}
+	if _, err := cre.DecodeReport(partial[0].Report); err != nil {
+		t.Fatalf("partial report still decodes for diagnostics: %v", err)
 	}
 }

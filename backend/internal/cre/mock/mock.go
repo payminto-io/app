@@ -28,6 +28,7 @@ type Provider struct {
 	now       func() time.Time
 
 	mu       sync.Mutex
+	lastSeen map[cre.Kind]time.Time
 	seq      uint64
 	reportID uint16
 	queue    map[cre.Kind][]queued
@@ -48,7 +49,7 @@ func WithDevKey(k *cre.DevKey) Option         { return func(p *Provider) { p.key
 func New(gatewayID [32]byte, opts ...Option) (*Provider, error) {
 	p := &Provider{
 		gatewayID: gatewayID, reserves: cre.NoReserves{}, now: func() time.Time { return time.Now().UTC() },
-		queue: map[cre.Kind][]queued{}, failures: map[cre.Kind]error{}, verdicts: map[string]uint8{},
+		queue: map[cre.Kind][]queued{}, failures: map[cre.Kind]error{}, verdicts: map[string]uint8{}, lastSeen: map[cre.Kind]time.Time{},
 	}
 	for _, o := range opts {
 		o(p)
@@ -167,8 +168,20 @@ func (p *Provider) Poll(_ context.Context, kind cre.Kind, cursor cre.Cursor) ([]
 	return out, next, nil
 }
 
+// observedAt mirrors the contract's rule: strictly increasing per kind, even within one second.
+func (p *Provider) observedAt(kind cre.Kind) time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	at := p.now().Truncate(time.Second)
+	if last, ok := p.lastSeen[kind]; ok && !at.After(last) {
+		at = last.Add(time.Second)
+	}
+	p.lastSeen[kind] = at
+	return at
+}
+
 func (p *Provider) produce(ctx context.Context, kind cre.Kind, input []byte) (cre.Report, error) {
-	r := cre.Report{Kind: kind, GatewayID: p.gatewayID, ObservedAt: p.now()}
+	r := cre.Report{Kind: kind, GatewayID: p.gatewayID, ObservedAt: p.observedAt(kind)}
 	switch kind {
 	case cre.KindSolvency:
 		var in struct {

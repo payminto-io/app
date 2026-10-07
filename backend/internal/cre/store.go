@@ -43,6 +43,7 @@ type attestationRow struct {
 	Reason        string `gorm:"type:text"`
 	Item          []byte `gorm:"type:jsonb"`
 	ExecutionID   string `gorm:"type:varchar(128)"`
+	ItemIndex     int16  `gorm:"type:smallint"`
 }
 
 func (attestationRow) TableName() string { return "cre_attestations" }
@@ -118,6 +119,7 @@ func toRow(a Attestation) (attestationRow, error) {
 		ID: a.ID, Kind: string(a.Kind), SubjectType: a.SubjectType, SubjectID: a.SubjectID, PayloadHash: a.PayloadHash, Payload: a.Payload,
 		Chain: a.Chain, TxHash: a.TxHash, BlockNumber: int64(a.BlockNumber), WorkflowID: a.WorkflowID[:], WorkflowOwner: a.WorkflowOwner[:], ReportID: a.ReportID[:],
 		ObservedAt: a.ObservedAt, RecordedAt: a.RecordedAt, Status: string(a.Status), Provider: a.Provider, Simulated: a.Simulated, Reason: a.Reason, Item: item,
+		ItemIndex: int16(a.ItemIndex),
 	}, nil
 }
 
@@ -125,7 +127,7 @@ func fromRow(r attestationRow) Attestation {
 	a := Attestation{
 		ID: r.ID, Kind: Kind(r.Kind), SubjectType: r.SubjectType, SubjectID: r.SubjectID, PayloadHash: r.PayloadHash, Payload: r.Payload,
 		Chain: r.Chain, TxHash: r.TxHash, BlockNumber: uint64(r.BlockNumber), ObservedAt: r.ObservedAt.UTC(), RecordedAt: r.RecordedAt.UTC(),
-		Status: Status(r.Status), Provider: r.Provider, Simulated: r.Simulated, Reason: r.Reason,
+		Status: Status(r.Status), Provider: r.Provider, Simulated: r.Simulated, Reason: r.Reason, ItemIndex: int(r.ItemIndex),
 	}
 	copy(a.WorkflowID[:], r.WorkflowID)
 	copy(a.WorkflowOwner[:], r.WorkflowOwner)
@@ -165,7 +167,7 @@ func (s *PostgresStore) Seen(ctx context.Context, payloadHash []byte) (bool, err
 }
 
 func (s *PostgresStore) ListAttestations(ctx context.Context, kind Kind, limit int) ([]Attestation, error) {
-	q := s.db.WithContext(ctx).Order("recorded_at DESC, id").Limit(limit)
+	q := s.db.WithContext(ctx).Order("recorded_at DESC, item_index, id").Limit(limit)
 	if kind != "" {
 		q = q.Where("kind = ?", string(kind))
 	}
@@ -194,7 +196,7 @@ func (s *PostgresStore) GetAttestation(ctx context.Context, id string) (Attestat
 
 func (s *PostgresStore) LatestAttestation(ctx context.Context, kind Kind) (Attestation, bool, error) {
 	var r attestationRow
-	err := s.db.WithContext(ctx).Where("kind = ?", string(kind)).Order("recorded_at DESC, id").First(&r).Error
+	err := s.db.WithContext(ctx).Where("kind = ?", string(kind)).Order("observed_at DESC, recorded_at DESC, item_index").First(&r).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return Attestation{}, false, nil
 	}

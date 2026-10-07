@@ -120,8 +120,9 @@ type Attestation struct {
 	Simulated     bool
 	// Reason explains a failed or stale status; empty when attested.
 	Reason string
-	// Item is the decoded payload item for this subject.
-	Item any
+	// Item is the decoded payload item for this subject; ItemIndex is its position in the report.
+	Item      any
+	ItemIndex int
 }
 
 // Evidence is how the verifier knows a report is real: a log the gateway read over its own RPC,
@@ -134,6 +135,8 @@ type Evidence struct {
 	LogIndex    uint
 	// HeadBlock is the chain head the reader saw when it read the log; confirmations are judged against it.
 	HeadBlock uint64
+	// ReportHash is keccak256(report) as the consumer contract logged it; the rebuilt report must hash to it.
+	ReportHash [32]byte
 	// Signature evidence (mock): 65-byte secp256k1 signature over keccak256(metadata || report).
 	Signature []byte
 }

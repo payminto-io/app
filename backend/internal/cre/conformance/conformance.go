@@ -124,6 +124,9 @@ func Run(t *testing.T, h Harness) {
 				if len(ev.TxHash) != 0 && ev.Emitter == ([20]byte{}) {
 					t.Error("on-chain evidence has no emitter")
 				}
+				if len(ev.TxHash) != 0 && ev.ReportHash != [32]byte(cre.PayloadHash(raw.Report)) {
+					t.Error("on-chain evidence: rebuilt report does not hash to the contract's reportHash")
+				}
 			}
 			replay, _, err := a.Poll(ctx, kind, next)
 			if err != nil || len(replay) != 0 {

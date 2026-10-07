@@ -27,7 +27,7 @@ func (m *MemoryStore) SaveAttestations(_ context.Context, rows []Attestation) er
 	for _, r := range rows {
 		dup := false
 		for _, have := range m.rows {
-			if string(have.PayloadHash) == string(r.PayloadHash) && have.SubjectID == r.SubjectID {
+			if string(have.PayloadHash) == string(r.PayloadHash) && have.ItemIndex == r.ItemIndex {
 				dup = true
 				break
 			}
@@ -58,7 +58,12 @@ func (m *MemoryStore) sorted(kind Kind) []Attestation {
 			out = append(out, r)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].RecordedAt.After(out[j].RecordedAt) })
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].RecordedAt.Equal(out[j].RecordedAt) {
+			return out[i].RecordedAt.After(out[j].RecordedAt)
+		}
+		return out[i].ItemIndex < out[j].ItemIndex
+	})
 	return out
 }
 

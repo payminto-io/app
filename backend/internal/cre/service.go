@@ -104,6 +104,12 @@ func NewService(cfg Config, attester Attester, store Store, verifier *Verifier, 
 		if verifier.Now == nil {
 			verifier.Now = s.now
 		}
+		if verifier.LatestObservedAt == nil {
+			verifier.LatestObservedAt = func(ctx context.Context, kind Kind) (time.Time, bool, error) {
+				a, ok, err := store.LatestAttestation(ctx, kind)
+				return a.ObservedAt, ok, err
+			}
+		}
 	}
 	return s
 }

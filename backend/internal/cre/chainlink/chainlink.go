@@ -17,6 +17,8 @@ import (
 	"sort"
 	"time"
 
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -62,19 +64,13 @@ type LogReader interface {
 	FilterLogs(ctx context.Context, address common.Address, from, to uint64, topics [][]common.Hash) ([]Log, error)
 }
 
-// ReportAttestedEvent is what GatewayAttestations must emit for every accepted report (ticket 22):
-// event ReportAttested(bytes32 indexed gatewayId, uint8 indexed kind, bytes metadata, bytes report).
-const ReportAttestedEvent = "ReportAttested(bytes32,uint8,bytes,bytes)"
-
-var (
-	ReportAttestedTopic = crypto.Keccak256Hash([]byte(ReportAttestedEvent))
-	reportAttestedData  = func() abi.Arguments {
-		b, err := abi.NewType("bytes", "", nil)
-		if err != nil {
-			panic(err)
-		}
-		return abi.Arguments{{Name: "metadata", Type: b}, {Name: "report", Type: b}}
-	}()
+// The consumer emits ReportAccepted per report and one event per item (contracts/src/cre/GatewayAttestations.sol);
+// the reader rebuilds the report from those and the verifier checks it hashes to the logged reportHash.
+const (
+	EventReportAccepted = "ReportAccepted"
+	EventSolvency       = "SolvencyAttested"
+	EventDeposit        = "DepositAttested"
+	EventConversion     = "ConversionReferenceAttested"
 )
 
 // Config is what the provider needs; every value is a reference or an address, never a secret.
@@ -338,10 +334,15 @@ func (p *Provider) Trigger(ctx context.Context, kind cre.Kind, input []byte) (st
 
 // --- Consumer-contract reader ---
 
-// Poll scans ReportAttested logs from the cursor up to the finalized head and returns them with on-chain evidence.
+// Poll scans the consumer contract from the cursor to the finalized head and returns one raw attestation per
+// accepted report of the kind, rebuilt from ReportAccepted and its item events, with on-chain evidence.
 func (p *Provider) Poll(ctx context.Context, kind cre.Kind, cursor cre.Cursor) ([]cre.RawAttestation, cre.Cursor, error) {
 	if p.reader == nil {
 		return nil, cursor, fmt.Errorf("%w: no RPC reader", cre.ErrUnsupported)
+	}
+	contract, err := cre.ContractABI()
+	if err != nil {
+		return nil, cursor, err
 	}
 	head, err := p.reader.FinalizedHead(ctx)
 	if err != nil {
@@ -355,52 +356,188 @@ func (p *Provider) Poll(ctx context.Context, kind cre.Kind, cursor cre.Cursor) (
 	if from > head {
 		return nil, cursor, nil
 	}
-	var kindTopic common.Hash
-	kindTopic[31] = kind.Code()
-	topics := [][]common.Hash{{ReportAttestedTopic}, {common.BytesToHash(p.cfg.GatewayID[:])}, {kindTopic}}
-	var out []cre.RawAttestation
+	topics := [][]common.Hash{
+		{contract.Events[EventReportAccepted].ID, contract.Events[EventSolvency].ID, contract.Events[EventDeposit].ID, contract.Events[EventConversion].ID},
+		{common.BytesToHash(p.cfg.GatewayID[:])},
+	}
+	var logs []Log
 	for start := from; start <= head; start += p.cfg.ChunkBlocks {
 		end := start + p.cfg.ChunkBlocks - 1
 		if end > head {
 			end = head
 		}
-		logs, err := p.reader.FilterLogs(ctx, p.cfg.Consumer, start, end, topics)
+		chunk, err := p.reader.FilterLogs(ctx, p.cfg.Consumer, start, end, topics)
 		if err != nil {
-			return out, cre.Cursor{Block: start}, fmt.Errorf("cre: get logs %d-%d: %w", start, end, err)
+			return nil, cre.Cursor{Block: start}, fmt.Errorf("cre: get logs %d-%d: %w", start, end, err)
 		}
-		for _, l := range logs {
-			raw, ok := decodeLog(l, head)
-			if !ok {
-				continue
-			}
-			raw.Kind = kind
-			out = append(out, raw)
+		logs = append(logs, chunk...)
+	}
+	sort.SliceStable(logs, func(i, j int) bool {
+		if logs[i].BlockNumber != logs[j].BlockNumber {
+			return logs[i].BlockNumber < logs[j].BlockNumber
 		}
+		return logs[i].Index < logs[j].Index
+	})
+	out, err := RebuildReports(contract, logs, kind, head)
+	if err != nil {
+		return nil, cursor, err
 	}
 	return out, cre.Cursor{Block: head + 1}, nil
 }
 
-func decodeLog(l Log, head uint64) (cre.RawAttestation, bool) {
-	if len(l.Topics) != 3 || l.Topics[0] != ReportAttestedTopic {
-		return cre.RawAttestation{}, false
-	}
-	values, err := reportAttestedData.Unpack(l.Data)
-	if err != nil || len(values) != 2 {
-		return cre.RawAttestation{}, false
-	}
-	metadata, _ := values[0].([]byte)
-	report, _ := values[1].([]byte)
-	var emitter [20]byte
-	copy(emitter[:], l.Address.Bytes())
-	return cre.RawAttestation{
-		Metadata: metadata, Report: report,
-		Evidence: cre.Evidence{Emitter: emitter, TxHash: l.TxHash.Bytes(), BlockNumber: l.BlockNumber, LogIndex: l.Index, HeadBlock: head},
-	}, true
+// acceptedEvent is the decoded ReportAccepted log.
+type acceptedEvent struct {
+	WorkflowOwner common.Address `abi:"workflowOwner"`
+	WorkflowName  [10]byte       `abi:"workflowName"`
+	ReportID      [2]byte        `abi:"reportId"`
+	ObservedAt    uint64         `abi:"observedAt"`
+	ItemCount     *big.Int       `abi:"itemCount"`
+	ReportHash    [32]byte       `abi:"reportHash"`
 }
 
-// EncodeReportAttestedData packs (metadata, report) as the event does; the mock chain and tests use it.
-func EncodeReportAttestedData(metadata, report []byte) ([]byte, error) {
-	return reportAttestedData.Pack(metadata, report)
+// RebuildReports groups the consumer's logs per transaction and rebuilds each accepted report of kind.
+// A report whose items cannot be rebuilt is returned with a zero ReportHash so the verifier refuses it.
+func RebuildReports(contract abi.ABI, logs []Log, kind cre.Kind, head uint64) ([]cre.RawAttestation, error) {
+	type txGroup struct {
+		accepted *Log
+		meta     acceptedEvent
+		workflow [32]byte
+		items    []Log
+		log      Log
+	}
+	groups := map[common.Hash]*txGroup{}
+	var order []common.Hash
+	var kindTopic common.Hash
+	kindTopic[31] = kind.Code()
+	for i := range logs {
+		l := logs[i]
+		if len(l.Topics) < 2 {
+			continue
+		}
+		g := groups[l.TxHash]
+		if g == nil {
+			g = &txGroup{}
+			groups[l.TxHash] = g
+			order = append(order, l.TxHash)
+		}
+		switch l.Topics[0] {
+		case contract.Events[EventReportAccepted].ID:
+			if len(l.Topics) != 4 || l.Topics[2] != kindTopic {
+				continue
+			}
+			var ev acceptedEvent
+			if err := contract.UnpackIntoInterface(&ev, EventReportAccepted, l.Data); err != nil {
+				continue
+			}
+			g.accepted, g.meta, g.workflow, g.log = &logs[i], ev, l.Topics[3], l
+		case itemEventID(contract, kind):
+			g.items = append(g.items, l)
+		}
+	}
+	var out []cre.RawAttestation
+	for _, tx := range order {
+		g := groups[tx]
+		if g.accepted == nil {
+			continue
+		}
+		meta := cre.Metadata{WorkflowID: g.workflow, WorkflowName: g.meta.WorkflowName, ReportID: g.meta.ReportID}
+		copy(meta.Owner[:], g.meta.WorkflowOwner.Bytes())
+		var emitter [20]byte
+		copy(emitter[:], g.log.Address.Bytes())
+		raw := cre.RawAttestation{
+			Kind: kind, Metadata: meta.Encode(),
+			Evidence: cre.Evidence{Emitter: emitter, TxHash: g.log.TxHash.Bytes(), BlockNumber: g.log.BlockNumber, LogIndex: g.log.Index, HeadBlock: head},
+		}
+		var gateway [32]byte
+		copy(gateway[:], g.log.Topics[1].Bytes())
+		report, err := rebuildReport(contract, kind, gateway, g.meta.ObservedAt, g.items)
+		if err == nil && g.meta.ItemCount != nil && g.meta.ItemCount.IsInt64() && int(g.meta.ItemCount.Int64()) == len(g.items) {
+			raw.Report = report
+			raw.Evidence.ReportHash = g.meta.ReportHash
+		} else {
+			raw.Report = report
+		}
+		out = append(out, raw)
+	}
+	return out, nil
+}
+
+func itemEventID(contract abi.ABI, kind cre.Kind) common.Hash {
+	switch kind {
+	case cre.KindSolvency:
+		return contract.Events[EventSolvency].ID
+	case cre.KindDepositFinality:
+		return contract.Events[EventDeposit].ID
+	default:
+		return contract.Events[EventConversion].ID
+	}
+}
+
+func rebuildReport(contract abi.ABI, kind cre.Kind, gateway [32]byte, observedAt uint64, items []Log) ([]byte, error) {
+	r := cre.Report{Kind: kind, GatewayID: gateway, ObservedAt: time.Unix(int64(observedAt), 0).UTC()}
+	switch kind {
+	case cre.KindSolvency:
+		rows := make([]cre.SolvencyItem, 0, len(items))
+		for _, l := range items {
+			var ev struct {
+				CheckpointHash [32]byte `abi:"checkpointHash"`
+				Liabilities    *big.Int `abi:"liabilities"`
+				Reserves       *big.Int `abi:"reserves"`
+				Decimals       uint8    `abi:"decimals"`
+				ObservedAt     uint64   `abi:"observedAt"`
+			}
+			if len(l.Topics) != 3 {
+				return nil, fmt.Errorf("%w: solvency event topics", cre.ErrInvalidReport)
+			}
+			if err := contract.UnpackIntoInterface(&ev, EventSolvency, l.Data); err != nil {
+				return nil, err
+			}
+			rows = append(rows, cre.SolvencyItem{CheckpointHash: ev.CheckpointHash, Asset: l.Topics[2], Liabilities: ev.Liabilities, Reserves: ev.Reserves, Decimals: ev.Decimals})
+		}
+		r.Items = rows
+	case cre.KindDepositFinality:
+		rows := make([]cre.DepositItem, 0, len(items))
+		for _, l := range items {
+			var ev struct {
+				ChainId     [32]byte `abi:"chainId"`
+				TxRef       [32]byte `abi:"txRef"`
+				Token       [32]byte `abi:"token"`
+				Amount      *big.Int `abi:"amount"`
+				Destination [32]byte `abi:"destination"`
+				SlotOrBlock uint64   `abi:"slotOrBlock"`
+				ObservedAt  uint64   `abi:"observedAt"`
+			}
+			if len(l.Topics) != 4 {
+				return nil, fmt.Errorf("%w: deposit event topics", cre.ErrInvalidReport)
+			}
+			if err := contract.UnpackIntoInterface(&ev, EventDeposit, l.Data); err != nil {
+				return nil, err
+			}
+			rows = append(rows, cre.DepositItem{DepositID: l.Topics[2], ChainID: ev.ChainId, TxRef: ev.TxRef, Token: ev.Token, Amount: ev.Amount, Destination: ev.Destination, SlotOrBlock: ev.SlotOrBlock, Verdict: l.Topics[3][31]})
+		}
+		r.Items = rows
+	default:
+		rows := make([]cre.ConversionItem, 0, len(items))
+		for _, l := range items {
+			var ev struct {
+				ReferenceRate     *big.Int       `abi:"referenceRate"`
+				ReferenceDecimals uint8          `abi:"referenceDecimals"`
+				DeviationBps      *big.Int       `abi:"deviationBps"`
+				Feed              common.Address `abi:"feed"`
+				RoundId           *big.Int       `abi:"roundId"`
+				ObservedAt        uint64         `abi:"observedAt"`
+			}
+			if len(l.Topics) != 4 {
+				return nil, fmt.Errorf("%w: conversion event topics", cre.ErrInvalidReport)
+			}
+			if err := contract.UnpackIntoInterface(&ev, EventConversion, l.Data); err != nil {
+				return nil, err
+			}
+			rows = append(rows, cre.ConversionItem{ConversionID: l.Topics[2], Pair: l.Topics[3], ReferenceRate: ev.ReferenceRate, ReferenceDecimals: ev.ReferenceDecimals, DeviationBps: ev.DeviationBps, Feed: ev.Feed, RoundID: ev.RoundId})
+		}
+		r.Items = rows
+	}
+	return cre.EncodeReport(r)
 }
 
 func (p *Provider) Health(ctx context.Context) cre.Health {

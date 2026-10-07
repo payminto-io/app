@@ -57,7 +57,13 @@ func TestReportRoundTrip(t *testing.T) {
 }
 
 func TestDecodeReportRejectsGarbage(t *testing.T) {
-	for _, bad := range [][]byte{nil, make([]byte, 10), append(make([]byte, 31), 9), make([]byte, 128)} {
+	good, _ := EncodeReport(Report{Kind: KindSolvency, Items: []SolvencyItem{{Liabilities: big.NewInt(1), Reserves: big.NewInt(1)}}})
+	wrongVersion := append([]byte{}, good...)
+	wrongVersion[31] = 2
+	if good[31] != ReportVersion || good[63] != KindSolvency.Code() {
+		t.Fatalf("header words: version %d kind %d", good[31], good[63])
+	}
+	for _, bad := range [][]byte{nil, make([]byte, 10), append(make([]byte, 31), 9), make([]byte, 160), wrongVersion} {
 		if _, err := DecodeReport(bad); err == nil {
 			t.Errorf("%x decoded", bad)
 		}
