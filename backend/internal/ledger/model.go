@@ -68,7 +68,9 @@ type JournalRow struct {
 	RequestHash    string      `gorm:"type:char(64);not null"`
 	PostedAt       time.Time   `gorm:"not null;index"`
 	Metadata       Metadata    `gorm:"type:jsonb;not null"`
-	CreatedAt      time.Time   `gorm:"not null"`
+	// PostingTxID is stamped by a Postgres trigger; lines may only join a journal from the same transaction.
+	PostingTxID int64     `gorm:"type:bigint;not null;default:0"`
+	CreatedAt   time.Time `gorm:"not null"`
 }
 
 func (JournalRow) TableName() string { return "ledger_journals" }

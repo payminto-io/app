@@ -86,8 +86,8 @@ func TestIntegration_PersistsExactAmountsAndHistory(t *testing.T) {
 		t.Fatalf("attempt transitions = %d, want started, authorized, capture_initiated, partial_charged", transitions)
 	}
 	bal, err := f.ledger.inner.Balances(f.ctx, ledger.OwnerMember, merchant)
-	if err != nil || !bal["USDC"].Equal(part.Neg()) {
-		t.Fatalf("merchant USDC balance = %v, %v; want -%s", bal, err, part)
+	if err != nil || !bal["USDC"].Equal(part) {
+		t.Fatalf("merchant USDC natural balance = %v, %v; want %s", bal, err, part)
 	}
 }
 

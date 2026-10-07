@@ -88,6 +88,9 @@ func (r *AccountRepositoryImpl) WithTx(tx *gorm.DB) AccountRepository {
 	return &AccountRepositoryImpl{db: tx}
 }
 
+// DB exposes the handle so the ledger service can open a transaction when no journal is configured.
+func (r *AccountRepositoryImpl) DB() *gorm.DB { return r.db }
+
 // NewAccountRepository constructs a new AccountRepository backed by the provided *gorm.DB.
 func NewAccountRepository(db *gorm.DB) AccountRepository {
 	return &AccountRepositoryImpl{db: db}

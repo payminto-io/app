@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"gorm.io/gorm"
@@ -175,7 +175,7 @@ func (s *JWTTokenService) RefreshAccessToken(refreshToken string) (*TokenPair, e
 		TokenHash:          hashToken(rawRefresh),
 		MemberID:           member.ID,
 		ExternalPlatformID: record.ExternalPlatformID, // carry forward from previous record
-		RotationFamily:     record.RotationFamily,      // same family
+		RotationFamily:     record.RotationFamily,     // same family
 		IssuedAt:           now,
 		ExpiresAt:          now.Add(s.refreshTTL),
 	}

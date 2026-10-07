@@ -11,6 +11,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // WithdrawalProcessingService orchestrates approved withdrawals going to
@@ -46,6 +47,30 @@ func NewWithdrawalProcessingService(
 		hotWallets:     hotWallets,
 		bcCurrencyRepo: bcCurrencyRepo,
 	}
+}
+
+func (s *WithdrawalProcessingService) markSentWithLedger(ctx context.Context, withdrawal *models.Withdrawal, txHash string, gasFee decimal.Decimal) error {
+	if s.ledgerSvc == nil {
+		if _, err := s.withdrawalRepo.MarkSent(withdrawal.ID, txHash); err != nil {
+			return fmt.Errorf("mark sent for withdrawal %d: %w", withdrawal.ID, err)
+		}
+		return nil
+	}
+	return s.ledgerSvc.InTransaction(ctx, func(tx *gorm.DB) error {
+		repo := s.withdrawalRepo
+		binder, ok := repo.(repository.WithdrawalTxBinder)
+		if !ok {
+			return fmt.Errorf("withdrawal repository %T cannot join the ledger transaction", repo)
+		}
+		repo = binder.WithTx(tx)
+		if _, err := repo.MarkSent(withdrawal.ID, txHash); err != nil {
+			return fmt.Errorf("mark sent for withdrawal %d: %w", withdrawal.ID, err)
+		}
+		if err := s.ledgerSvc.RecordWithdrawalIn(ctx, tx, withdrawal.ID, withdrawal.BlockchainCurrencyID, withdrawal.Amount, gasFee); err != nil {
+			return fmt.Errorf("ledger for withdrawal %d: %w", withdrawal.ID, err)
+		}
+		return nil
+	})
 }
 
 // canBroadcastEVM reports whether real EVM broadcast is wired and applicable.
@@ -132,8 +157,8 @@ func (s *WithdrawalProcessingService) ProcessPending(ctx context.Context) error 
 //
 //  1. ClaimForProcessing: atomic pending → initiated (only one worker wins).
 //  2. Create Withdraw stub row (rolls back claim on failure).
-//  3. MarkSent: initiated → sent.
-//  4. Record ledger entries (best-effort — reconciler handles drift).
+//  3. MarkSent: initiated → sent, in one transaction with
+//  4. the ledger journal; a failed post rolls the state change back.
 //  5. MarkProcessed: sent → processed.
 //
 // PHASE-K-STUB: Steps 3–5 execute synchronously and the tx hash is a stub.
@@ -202,22 +227,9 @@ func (s *WithdrawalProcessingService) Execute(ctx context.Context, withdrawal *m
 		log.Printf("[WithdrawalProcessingService] record broadcast for withdrawal %d: %v", withdrawal.ID, err)
 	}
 
-	// Step 3: initiated → sent (tx is now on-chain for EVM).
-	if _, err := s.withdrawalRepo.MarkSent(withdrawal.ID, txHash); err != nil {
-		return fmt.Errorf("mark sent for withdrawal %d: %w", withdrawal.ID, err)
-	}
-
-	// Step 4: Ledger entries — best-effort; reconciler handles drift.
-	if s.ledgerSvc != nil {
-		if err := s.ledgerSvc.RecordWithdrawal(
-			withdrawal.ID,
-			withdrawal.BlockchainCurrencyID,
-			withdrawal.Amount,
-			gasFee,
-		); err != nil {
-			log.Printf("[WithdrawalProcessingService] ledger for withdrawal %d: %v", withdrawal.ID, err)
-			// Deliberate: continue even on ledger failure — reconciler will fix.
-		}
+	// Steps 3 and 4: initiated -> sent and the ledger journal commit together; a failed post leaves the row initiated.
+	if err := s.markSentWithLedger(ctx, withdrawal, txHash, gasFee); err != nil {
+		return err
 	}
 
 	// Step 5: sent → processed.

@@ -67,6 +67,8 @@ type DatabaseConfig struct {
 	SSLMode            string
 	SchemaMode         string
 	AllowInsecureLocal bool
+	// LedgerAppRole, when set, is narrowed to SELECT, INSERT on the ledger by cmd/migrate.
+	LedgerAppRole string
 }
 
 const (
@@ -138,6 +140,7 @@ func Load() (*Config, error) {
 			SSLMode:            envStr("POSTGRES_SSL_MODE", defaultSSLMode),
 			SchemaMode:         envStr("POSTGRES_SCHEMA_MODE", SchemaModeValidate),
 			AllowInsecureLocal: envBool("POSTGRES_ALLOW_INSECURE_LOCAL", false),
+			LedgerAppRole:      envStr("POSTGRES_LEDGER_APP_ROLE", ""),
 		},
 		Redis: RedisConfig{
 			URL: envStr("REDIS_URL", "redis://localhost:6379"),

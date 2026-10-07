@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/payminto/payminto/backend/internal/models"
@@ -149,7 +150,7 @@ func TestSweepService_MarkCompleted(t *testing.T) {
 	sweep, _ := svc.CreateSweep(bcID)
 	amount := decimal.NewFromFloat(1.0)
 	gas := decimal.NewFromFloat(0.001)
-	if err := svc.MarkCompleted(sweep.ID, amount, gas, 1); err != nil {
+	if err := svc.MarkCompleted(context.Background(), sweep.ID, amount, gas, 1); err != nil {
 		t.Fatalf("MarkCompleted: %v", err)
 	}
 
@@ -176,7 +177,7 @@ func TestSweepService_MarkCompleted_Idempotent(t *testing.T) {
 	gas := decimal.NewFromFloat(0.001)
 
 	// First call must succeed.
-	if err := svc.MarkCompleted(sweep.ID, amount, gas, 1); err != nil {
+	if err := svc.MarkCompleted(context.Background(), sweep.ID, amount, gas, 1); err != nil {
 		t.Fatalf("first MarkCompleted: %v", err)
 	}
 
@@ -185,7 +186,7 @@ func TestSweepService_MarkCompleted_Idempotent(t *testing.T) {
 	db.Model(&models.Asset{}).Count(&countBefore)
 
 	// Second call must also return nil (idempotent).
-	if err := svc.MarkCompleted(sweep.ID, amount, gas, 1); err != nil {
+	if err := svc.MarkCompleted(context.Background(), sweep.ID, amount, gas, 1); err != nil {
 		t.Errorf("second MarkCompleted: expected nil, got: %v", err)
 	}
 
@@ -225,8 +226,12 @@ func TestSweepService_MarkCompleted_LedgerFailureReturnsError(t *testing.T) {
 	amount := decimal.NewFromFloat(1.0)
 	gas := decimal.NewFromFloat(0.001)
 
-	err := svc.MarkCompleted(sweep.ID, amount, gas, 1)
+	err := svc.MarkCompleted(context.Background(), sweep.ID, amount, gas, 1)
 	if err == nil {
 		t.Fatal("expected error when ledger write fails, got nil — C3: ledger failure must be surfaced")
+	}
+	got, _ := svc.GetByID(sweep.ID)
+	if got.Status == SweepStatusCompleted {
+		t.Fatal("sweep status must roll back with the failed ledger write")
 	}
 }

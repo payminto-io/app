@@ -201,11 +201,11 @@ func (r *ReferralRewardRepositoryImpl) SetStatus(id uint, status string, process
 // ReferralStats summarises a single referrer's performance.
 type ReferralStats struct {
 	// MemberID is the referrer.
-	MemberID      uint
+	MemberID uint
 	// TotalReferrals is the count of members referred.
 	TotalReferrals int
 	// TotalEarned is the sum of all paid/pending rewards.
-	TotalEarned   float64
+	TotalEarned float64
 	// ConversionRate is the fraction of referred members who made a qualifying payment.
 	ConversionRate float64
 }
@@ -213,21 +213,21 @@ type ReferralStats struct {
 // TopReferrerRow is one row in the top-referrers leaderboard.
 type TopReferrerRow struct {
 	// MemberID is the referrer's member ID.
-	MemberID      uint
+	MemberID uint
 	// TotalReferrals is the count of referred members.
 	TotalReferrals int
 	// TotalEarned is the sum of rewards earned.
-	TotalEarned   float64
+	TotalEarned float64
 }
 
 // CampaignPerformance aggregates stats for one campaign.
 type CampaignPerformance struct {
 	// CampaignID identifies the campaign.
-	CampaignID    uint
+	CampaignID uint
 	// TotalReferrals is the count of referral events under this campaign.
 	TotalReferrals int
 	// TotalRewards is the total amount of rewards issued.
-	TotalRewards  float64
+	TotalRewards float64
 }
 
 // AnalyticsReferralRepository defines read-only aggregation queries for the
@@ -289,9 +289,9 @@ func (r *AnalyticsReferralRepositoryImpl) GetTopReferrers(limit int) ([]TopRefer
 		limit = 10
 	}
 	type row struct {
-		MemberID      uint
+		MemberID       uint
 		TotalReferrals int
-		TotalEarned   float64
+		TotalEarned    float64
 	}
 	var rows []row
 	err := r.db.Raw(`

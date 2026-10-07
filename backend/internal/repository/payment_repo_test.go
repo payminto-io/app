@@ -238,12 +238,12 @@ func TestDepositRepo_CreateAndGetByTxID(t *testing.T) {
 	repo := NewDepositRepository(db)
 
 	d := &models.Deposit{
-		TxID:                  "0xabcdef1234",
-		Amount:                decimal.NewFromFloat(0.5),
-		Status:                models.DepositStatusPending,
-		ToAddress:             "0xRecipient",
-		BlockchainCurrencyID:  bcID,
-		MemberID:              memberID,
+		TxID:                 "0xabcdef1234",
+		Amount:               decimal.NewFromFloat(0.5),
+		Status:               models.DepositStatusPending,
+		ToAddress:            "0xRecipient",
+		BlockchainCurrencyID: bcID,
+		MemberID:             memberID,
 	}
 	if err := repo.Create(d); err != nil {
 		t.Fatalf("Create: %v", err)

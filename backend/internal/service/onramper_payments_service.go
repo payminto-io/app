@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
-	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )

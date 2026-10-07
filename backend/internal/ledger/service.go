@@ -1,9 +1,11 @@
 package ledger
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -13,10 +15,34 @@ import (
 
 // Service is the only writer of ledger rows.
 type Service struct {
-	db *gorm.DB
+	db          *gorm.DB
+	maxBackdate time.Duration
+	maxFuture   time.Duration
 }
 
-func New(db *gorm.DB) *Service { return &Service{db: db} }
+type Option func(*Service)
+
+// WithPostedAtWindow bounds how far PostedAt may sit behind or ahead of the clock.
+// posted_at is the accounting date, so a closed period can only move within this window.
+func WithPostedAtWindow(maxBackdate, maxFuture time.Duration) Option {
+	return func(s *Service) {
+		s.maxBackdate = maxBackdate
+		s.maxFuture = maxFuture
+	}
+}
+
+const (
+	defaultMaxBackdate = 7 * 24 * time.Hour
+	defaultMaxFuture   = 5 * time.Minute
+)
+
+func New(db *gorm.DB, opts ...Option) *Service {
+	s := &Service{db: db, maxBackdate: defaultMaxBackdate, maxFuture: defaultMaxFuture}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
 
 // DB exposes the handle for callers that read ledger rows directly (tests, reports).
 func (s *Service) DB() *gorm.DB { return s.db }
@@ -53,10 +79,25 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 	}
 	tx = tx.WithContext(ctx)
 	hash := j.requestHash()
+	now := time.Now().UTC()
 	postedAt := j.PostedAt
 	if postedAt.IsZero() {
-		postedAt = time.Now().UTC()
+		postedAt = now
 	}
+	if postedAt.Before(now.Add(-s.maxBackdate)) || postedAt.After(now.Add(s.maxFuture)) {
+		return Receipt{}, fmt.Errorf("%w: %s", ErrPostedAt, postedAt.Format(time.RFC3339))
+	}
+
+	// Accounts first, in key order, so two posters touching the same new accounts never lock in opposite order.
+	accountIDs := make(map[AccountKey]AccountID, len(j.Lines))
+	for _, key := range sortedAccountKeys(j.Lines) {
+		id, err := ensureAccount(tx, key)
+		if err != nil {
+			return Receipt{}, err
+		}
+		accountIDs[key] = id
+	}
+
 	row := JournalRow{
 		Kind:           j.Kind,
 		ReferenceType:  j.Reference.Type,
@@ -83,16 +124,32 @@ func (s *Service) PostIn(ctx context.Context, tx *gorm.DB, j Journal) (Receipt, 
 
 	lines := make([]LineRow, 0, len(j.Lines))
 	for _, l := range j.Lines {
-		accountID, err := ensureAccount(tx, l.Account)
-		if err != nil {
-			return Receipt{}, err
-		}
-		lines = append(lines, LineRow{JournalID: row.ID, AccountID: accountID, Asset: l.Account.Asset, Amount: l.Amount})
+		lines = append(lines, LineRow{JournalID: row.ID, AccountID: accountIDs[l.Account], Asset: l.Account.Asset, Amount: l.Amount})
 	}
 	if err := tx.Create(&lines).Error; err != nil {
 		return Receipt{}, fmt.Errorf("ledger: insert lines: %w", err)
 	}
 	return Receipt{ID: row.ID}, nil
+}
+
+func sortedAccountKeys(lines []Line) []AccountKey {
+	seen := make(map[AccountKey]struct{}, len(lines))
+	keys := make([]AccountKey, 0, len(lines))
+	for _, l := range lines {
+		if _, ok := seen[l.Account]; !ok {
+			seen[l.Account] = struct{}{}
+			keys = append(keys, l.Account)
+		}
+	}
+	slices.SortFunc(keys, func(a, b AccountKey) int {
+		return cmp.Or(
+			cmp.Compare(a.OwnerType, b.OwnerType),
+			cmp.Compare(a.OwnerID, b.OwnerID),
+			cmp.Compare(a.Asset, b.Asset),
+			cmp.Compare(a.Kind, b.Kind),
+		)
+	})
+	return keys
 }
 
 // EnsureAccount returns the account for key, creating it if absent.
@@ -165,21 +222,58 @@ func (s *Service) Balance(ctx context.Context, accountID AccountID) (decimal.Dec
 	return row.Total, nil
 }
 
-// Balances sums every account of one owner, grouped by asset across kinds.
-func (s *Service) Balances(ctx context.Context, ownerType OwnerType, ownerID string) (map[string]decimal.Decimal, error) {
-	var rows []sumRow
-	err := s.db.WithContext(ctx).Model(&LineRow{}).
-		Select("ledger_lines.asset AS asset, COALESCE(SUM(ledger_lines.amount), 0) AS total").
-		Joins("JOIN ledger_accounts ON ledger_accounts.id = ledger_lines.account_id").
+// AccountBalance is one account of an owner with its signed and natural balance.
+type AccountBalance struct {
+	ID      AccountID
+	Account AccountKey
+	Signed  decimal.Decimal
+	Natural decimal.Decimal
+}
+
+type accountSumRow struct {
+	ID        AccountID
+	OwnerType OwnerType
+	OwnerID   string
+	Asset     string
+	Kind      AccountKind
+	Total     decimal.Decimal
+}
+
+// AccountBalances lists every account of one owner; accounts with no lines are included at zero.
+func (s *Service) AccountBalances(ctx context.Context, ownerType OwnerType, ownerID string) ([]AccountBalance, error) {
+	var rows []accountSumRow
+	err := s.db.WithContext(ctx).Model(&AccountRow{}).
+		Select(`ledger_accounts.id, ledger_accounts.owner_type, ledger_accounts.owner_id, ledger_accounts.asset, ledger_accounts.kind,
+			COALESCE(SUM(ledger_lines.amount), 0) AS total`).
+		Joins("LEFT JOIN ledger_lines ON ledger_lines.account_id = ledger_accounts.id").
 		Where("ledger_accounts.owner_type = ? AND ledger_accounts.owner_id = ?", ownerType, ownerID).
-		Group("ledger_lines.asset").
+		Group("ledger_accounts.id, ledger_accounts.owner_type, ledger_accounts.owner_id, ledger_accounts.asset, ledger_accounts.kind").
+		Order("ledger_accounts.asset, ledger_accounts.kind").
 		Scan(&rows).Error
 	if err != nil {
-		return nil, fmt.Errorf("ledger: balances: %w", err)
+		return nil, fmt.Errorf("ledger: account balances: %w", err)
 	}
-	out := make(map[string]decimal.Decimal, len(rows))
+	out := make([]AccountBalance, 0, len(rows))
 	for _, r := range rows {
-		out[r.Asset] = r.Total
+		key := AccountKey{OwnerType: r.OwnerType, OwnerID: r.OwnerID, Asset: r.Asset, Kind: r.Kind}
+		out = append(out, AccountBalance{ID: r.ID, Account: key, Signed: r.Total, Natural: NaturalBalance(r.Kind, r.Total)})
+	}
+	return out, nil
+}
+
+// Balances returns the natural balance per asset for an owner with one account kind per asset.
+// Netting an asset account against a liability account would be a number nobody can read, so that case is ErrMixedKinds.
+func (s *Service) Balances(ctx context.Context, ownerType OwnerType, ownerID string) (map[string]decimal.Decimal, error) {
+	accounts, err := s.AccountBalances(ctx, ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]decimal.Decimal, len(accounts))
+	for _, a := range accounts {
+		if _, dup := out[a.Account.Asset]; dup {
+			return nil, fmt.Errorf("%w: %s/%s %s", ErrMixedKinds, ownerType, ownerID, a.Account.Asset)
+		}
+		out[a.Account.Asset] = a.Natural
 	}
 	return out, nil
 }
@@ -195,7 +289,9 @@ type StatementLine struct {
 	Asset       string
 	Amount      decimal.Decimal
 	PostedAt    time.Time
-	Running     decimal.Decimal
+	// Running is the account's signed balance after this line; RunningNatural flips it for credit-normal kinds.
+	Running        decimal.Decimal
+	RunningNatural decimal.Decimal
 }
 
 type statementRow struct {
@@ -211,23 +307,29 @@ type statementRow struct {
 	PostedAt      time.Time
 }
 
-// Statement lists an owner's lines posted in [from, to) with a per-asset running balance that starts from the lines before from.
+type openingRow struct {
+	AccountID AccountID
+	Total     decimal.Decimal
+}
+
+// Statement lists an owner's lines posted in [from, to) with a per-account running balance that starts from the lines before from.
 func (s *Service) Statement(ctx context.Context, ownerType OwnerType, ownerID string, from, to time.Time) ([]StatementLine, error) {
 	db := s.db.WithContext(ctx)
-	var opening []sumRow
+	from, to = from.UTC(), to.UTC()
+	var opening []openingRow
 	err := db.Model(&LineRow{}).
-		Select("ledger_lines.asset AS asset, COALESCE(SUM(ledger_lines.amount), 0) AS total").
+		Select("ledger_lines.account_id AS account_id, COALESCE(SUM(ledger_lines.amount), 0) AS total").
 		Joins("JOIN ledger_accounts ON ledger_accounts.id = ledger_lines.account_id").
 		Joins("JOIN ledger_journals ON ledger_journals.id = ledger_lines.journal_id").
 		Where("ledger_accounts.owner_type = ? AND ledger_accounts.owner_id = ? AND ledger_journals.posted_at < ?", ownerType, ownerID, from).
-		Group("ledger_lines.asset").
+		Group("ledger_lines.account_id").
 		Scan(&opening).Error
 	if err != nil {
 		return nil, fmt.Errorf("ledger: statement opening balance: %w", err)
 	}
-	running := make(map[string]decimal.Decimal, len(opening))
+	running := make(map[AccountID]decimal.Decimal, len(opening))
 	for _, r := range opening {
-		running[r.Asset] = r.Total
+		running[r.AccountID] = r.Total
 	}
 
 	var rows []statementRow
@@ -246,18 +348,19 @@ func (s *Service) Statement(ctx context.Context, ownerType OwnerType, ownerID st
 	}
 	out := make([]StatementLine, 0, len(rows))
 	for _, r := range rows {
-		running[r.Asset] = running[r.Asset].Add(r.Amount)
+		running[r.AccountID] = running[r.AccountID].Add(r.Amount)
 		out = append(out, StatementLine{
-			LineID:      r.LineID,
-			JournalID:   r.JournalID,
-			JournalKind: r.JournalKind,
-			Reference:   Reference{Type: r.ReferenceType, ID: r.ReferenceID},
-			AccountID:   r.AccountID,
-			AccountKind: r.AccountKind,
-			Asset:       r.Asset,
-			Amount:      r.Amount,
-			PostedAt:    r.PostedAt,
-			Running:     running[r.Asset],
+			LineID:         r.LineID,
+			JournalID:      r.JournalID,
+			JournalKind:    r.JournalKind,
+			Reference:      Reference{Type: r.ReferenceType, ID: r.ReferenceID},
+			AccountID:      r.AccountID,
+			AccountKind:    r.AccountKind,
+			Asset:          r.Asset,
+			Amount:         r.Amount,
+			PostedAt:       r.PostedAt,
+			Running:        running[r.AccountID],
+			RunningNatural: NaturalBalance(r.AccountKind, running[r.AccountID]),
 		})
 	}
 	return out, nil
