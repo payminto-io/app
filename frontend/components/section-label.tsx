@@ -6,14 +6,11 @@ interface SectionLabelProps {
   as?: "div" | "label" | "span" | "h3"
 }
 
-/**
- * UPPERCASE tracked label used for section headers and form field labels,
- * matching PayRam's "SELECT MEMBER", "AMOUNT", "ASSETS", "GENERAL" style.
- */
+/** 12px medium sentence-case label for sections and fields. */
 export function SectionLabel({
   children,
   className,
   as: Tag = "div",
 }: SectionLabelProps) {
-  return <Tag className={cn("pm-label", className)}>{children}</Tag>
+  return <Tag className={cn("text-label font-medium text-ink-soft", className)}>{children}</Tag>
 }

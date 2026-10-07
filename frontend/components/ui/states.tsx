@@ -1,9 +1,6 @@
 /**
- * Loading, empty, and error state primitives. Every page uses these —
- * see FRONTEND_CODING_STANDARDS.
- *
- * Upgraded with Payminto design system styling while keeping the
- * exact same export signatures used by all existing pages.
+ * Loading, empty and error state primitives. Every page uses these.
+ * Rules: docs/design/DESIGN.md sections 13 and 14; references.md "Empty and error states".
  */
 import type { ReactNode } from "react";
 import { Skeleton } from "./skeleton";
@@ -12,13 +9,25 @@ import { cn } from "@/lib/utils";
 
 export function LoadingRows({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="space-y-2">
+    <div className="overflow-hidden rounded-md border border-line bg-surface">
       {Array.from({ length: rows }).map((_, i) => (
-        <Skeleton key={i} className="h-12 w-full" />
+        <div key={i} className="flex items-center gap-4 border-b border-line px-3 last:border-0" style={{ height: 36 }}>
+          <Skeleton className="h-3 w-[22%]" />
+          <Skeleton className="h-3 w-[38%]" />
+          <Skeleton className="ml-auto h-3 w-[14%]" />
+        </div>
       ))}
     </div>
   );
 }
+
+export type EmptyStateProps = {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  icon?: ReactNode;
+  className?: string;
+};
 
 export function EmptyState({
   title,
@@ -26,32 +35,24 @@ export function EmptyState({
   action,
   icon,
   className,
-}: {
-  title: string;
-  description?: string;
-  action?: ReactNode;
-  icon?: ReactNode;
-  className?: string;
-}) {
+}: EmptyStateProps) {
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-border bg-card p-10",
+        "flex flex-col items-center justify-center rounded-md border border-dashed border-line-strong bg-surface px-6 py-12 text-center",
         className
       )}
     >
       {icon ? (
-        <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <div className="mb-3 flex size-9 items-center justify-center rounded-sm border border-line bg-surface-sunken text-ink-soft [&_svg]:size-4">
           {icon}
         </div>
       ) : null}
-      <h3 className="text-[18px] font-semibold text-foreground">{title}</h3>
+      <h3 className="text-body font-medium text-ink">{title}</h3>
       {description ? (
-        <p className="mt-1.5 max-w-md text-[14px] text-muted-foreground">
-          {description}
-        </p>
+        <p className="mt-1 max-w-[44ch] text-body-sm text-ink-soft">{description}</p>
       ) : null}
-      {action ? <div className="mt-5">{action}</div> : null}
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
 }
@@ -66,18 +67,11 @@ export function ErrorState({
   retry?: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-destructive/50 bg-destructive/5 p-6">
-      <h3 className="text-sm font-semibold text-destructive">{title}</h3>
-      {message ? (
-        <p className="mt-1 text-sm text-destructive/90">{message}</p>
-      ) : null}
+    <div role="alert" className="rounded-md border border-bad/30 bg-bad-tint px-4 py-3">
+      <h3 className="text-body font-medium text-bad">{title}</h3>
+      {message ? <p className="mt-0.5 text-body-sm text-ink">{message}</p> : null}
       {retry ? (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={retry}
-          className="mt-3 border-destructive/30 text-destructive hover:bg-destructive/10"
-        >
+        <Button variant="outline" size="sm" onClick={retry} className="mt-3">
           Try again
         </Button>
       ) : null}
@@ -89,7 +83,7 @@ export function AccessDeniedState() {
   return (
     <EmptyState
       title="Access denied"
-      description="You don't have permission to view this page."
+      description="Your role does not include this page. Ask an owner to change it."
     />
   );
 }
