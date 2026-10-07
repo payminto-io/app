@@ -64,6 +64,43 @@ The application already enforces this at boot (`backend/internal/environment/`):
 | Observability | CloudWatch logs, metrics and alarms | Alarms on anomalies: drift between ledger and chain, stuck sweeps, unresolved custody claims |
 | Edge protection | CloudFront, AWS WAF | Rate rules on public payment-link and callback routes |
 
+## The code this deployment relies on
+
+### Live refuses unsafe configuration at boot: `backend/internal/environment/service.go`
+
+Every refusal is collected so an operator fixes them in one pass; on AWS these map to the live account's task definition and Secrets Manager entries:
+
+```go
+refuse("development keystore or local vault master key is configured (unset AES_KEY and DEV_KEYSTORE)")
+refuse("secrets vault is in development mode")
+refuse("SERVER must be staging or production so secure cookie, HSTS and secret-strength rules apply")
+refuse("POSTGRES_SSL_MODE must be verify-full (got %q)", facts.DatabaseSSLMode)
+refuse("BLOCKCHAIN_NETWORK_TYPE must be mainnet for live money (got %q)", facts.NetworkType)
+refuse("JWT_SECRET is a development default or shorter than 32 bytes; sessions would be forgeable")
+```
+
+`POSTGRES_SSL_MODE=verify-full` is what RDS with the AWS certificate bundle provides; `JWT_SECRET` comes from Secrets Manager; the slot checks refuse mock providers, so a live task cannot start on the mock connector, custody or CRE provider.
+
+### The ledger is append-only for the application role: `backend/internal/ledger/`
+
+On RDS the migration task runs as the migrator, which hands the ledger tables to a `NOLOGIN` owner role; the ECS app role keeps SELECT and INSERT only, and the live boot check refuses an app role that could rewrite history. `docs/OPERATIONS.md` ("Ledger roles") has the statements for managed Postgres where the migrator is not superuser.
+
+### Code map
+
+| Path | What it gives the AWS deployment |
+| --- | --- |
+| `backend/internal/environment/` | One environment per process, boot refusals, database stamp, environment-bound JWTs |
+| `backend/internal/ledger/` | Append-only double-entry ledger with database-enforced protections |
+| `backend/cmd/migrate` | Migration task, `--ledger-app-role`, `adopt-live` and `adopt-test` |
+| `backend/internal/database/` | Contiguous migration manifest, DSN verification against what Postgres reports |
+| `docker/` and `docker-compose*.yml` | Container images that become the ECS task images |
+
+## Screenshots
+
+The dashboard that runs behind CloudFront, with the test and live switch in the header:
+
+![Dashboard](../../docs/design/screens/pages/home-1440-light.png)
+
 ## Deploy steps (design)
 
 1. Two AWS accounts (test, live) under AWS Organizations; one VPC each.
