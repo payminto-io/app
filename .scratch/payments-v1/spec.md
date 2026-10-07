@@ -64,6 +64,10 @@ Every number is a ledger line or a receipt. No card data on our servers. Live an
 | UI/UX | form design, checkout states, dashboard reviews | Opus |
 | DevOps | compose, CI, mocks, release pipeline, secrets | Opus |
 | QA | money-path tests, conformance suite, security review | Fable for security review, Opus otherwise |
+| Senior designer | Mobbin reference board, design system, auth, shell, checkout | Fable |
+| Junior designer | restyles remaining pages from `docs/design/JUNIOR_BRIEF.md` | Opus |
+
+Design bar: Stripe-level craft with our own identity, never a copy. Every UI ticket reads `docs/design/DESIGN.md` and `docs/design/references.md` (Mobbin references by surface) before starting, and is verified by screenshot at 390px and 1440px in light and dark.
 
 Security review of the money path (tickets 01, 02, 08, 09, 11) is a gate before any live merchant.
 
