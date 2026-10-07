@@ -307,3 +307,82 @@ func TestEnforceModeMatch_Mismatch(t *testing.T) {
 		t.Error("expected mismatch error")
 	}
 }
+
+func TestLoad_GatewayEnvironmentDefaultsToTest(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Gateway.Environment != "test" {
+		t.Errorf("GATEWAY_ENVIRONMENT default = %q, want test", cfg.Gateway.Environment)
+	}
+	if cfg.Database.TestDatabase != "payminto_test" {
+		t.Errorf("POSTGRES_TEST_DATABASE default = %q", cfg.Database.TestDatabase)
+	}
+	if cfg.Security.DevKeystore {
+		t.Error("DEV_KEYSTORE must default to false")
+	}
+	if len(cfg.Modules.Providers) != 0 {
+		t.Errorf("no provider should be configured by default, got %v", cfg.Modules.Providers)
+	}
+}
+
+func TestLoad_GatewayEnvironmentIsClosed(t *testing.T) {
+	t.Setenv("GATEWAY_ENVIRONMENT", "LIVE")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Gateway.Environment != "live" {
+		t.Errorf("GATEWAY_ENVIRONMENT = %q, want canonical live", cfg.Gateway.Environment)
+	}
+	t.Setenv("GATEWAY_ENVIRONMENT", "sandbox")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GATEWAY_ENVIRONMENT") {
+		t.Fatalf("Load() error = %v, want GATEWAY_ENVIRONMENT rejection", err)
+	}
+}
+
+func TestLoad_SlotProvidersAndDevKeystore(t *testing.T) {
+	t.Setenv("CUSTODY_PROVIDER", "mock")
+	t.Setenv("CONNECTORS_PROVIDER", "stripe")
+	t.Setenv("DEV_KEYSTORE", "true")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Modules.Providers["custody"] != "mock" || cfg.Modules.Providers["connectors"] != "stripe" {
+		t.Errorf("providers = %v", cfg.Modules.Providers)
+	}
+	if !cfg.Security.DevKeystore {
+		t.Error("DEV_KEYSTORE=true not read")
+	}
+}
+
+func TestBootFacts_ProjectsConfig(t *testing.T) {
+	t.Setenv("GATEWAY_ENVIRONMENT", "live")
+	t.Setenv("SERVER", "production")
+	t.Setenv("POSTGRES_HOST", "db.internal")
+	t.Setenv("POSTGRES_DATABASE", "gateway")
+	t.Setenv("POSTGRES_PASSWORD", "a-strong-database-secret-value")
+	t.Setenv("JWT_SECRET", "a-strong-jwt-secret-value-with-32-plus-chars")
+	t.Setenv("AES_KEY", "legacy-local-master-key")
+	t.Setenv("BLOCKCHAIN_NETWORK_TYPE", "mainnet")
+	t.Setenv("CUSTODY_PROVIDER", "bitgo")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	facts := cfg.BootFacts()
+	if facts.Environment != "live" || facts.DatabaseName != "gateway" || facts.DatabaseHost != "db.internal" {
+		t.Errorf("facts = %+v", facts)
+	}
+	if !facts.DevKeystore {
+		t.Error("AES_KEY must count as a local vault master key")
+	}
+	if !facts.DeploymentHardened || facts.DatabaseSSLMode != "verify-full" || facts.NetworkType != "mainnet" {
+		t.Errorf("facts = %+v", facts)
+	}
+	if facts.SlotProviders["custody"] != "bitgo" || facts.TestDatabaseName != "payminto_test" {
+		t.Errorf("facts = %+v", facts)
+	}
+}

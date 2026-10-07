@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	environmentpkg "github.com/payminto/payminto/backend/internal/environment"
 )
 
 // Config is the top-level configuration struct loaded from environment variables at startup.
@@ -18,7 +20,24 @@ type Config struct {
 	Security   SecurityConfig
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
+	Gateway    GatewayConfig
+	Modules    ModulesConfig
 }
+
+// GatewayConfig is the money mode this process serves; see internal/environment.
+type GatewayConfig struct {
+	// Environment is "test" or "live" (GATEWAY_ENVIRONMENT, default test).
+	Environment string
+}
+
+// ModulesConfig holds the provider chosen for each slot module (docs/architecture/MODULES.md).
+type ModulesConfig struct {
+	// Providers maps a slot name ("custody") to its provider ("mock", "bitgo"); unset slots are absent.
+	Providers map[string]string
+}
+
+// slotModules are the slot names read as <SLOT>_PROVIDER.
+var slotModules = []string{"custody", "connectors", "conversion", "payout", "kyc", "fraud", "bridge"}
 
 // EmailConfig holds SMTP delivery settings. When Host/From are empty, email
 // delivery falls back to a no-op logger (safe for dev/test).
@@ -51,9 +70,11 @@ type ServerConfig struct {
 
 // DatabaseConfig holds PostgreSQL connection parameters.
 type DatabaseConfig struct {
-	Host               string
-	Port               int
-	Database           string
+	Host     string
+	Port     int
+	Database string
+	// TestDatabase is the name reserved for test money; a live process refuses to open it.
+	TestDatabase       string
 	Username           string
 	Password           string
 	SSLMode            string
@@ -97,6 +118,8 @@ type SecurityConfig struct {
 	JWTSecret       string
 	VaultPassphrase string
 	CustodyEnabled  bool
+	// DevKeystore enables the development keystore (DEV_KEYSTORE); live refuses to boot with it.
+	DevKeystore bool
 }
 
 // Load reads all Payminto configuration from environment variables, falling back
@@ -114,6 +137,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	devKeystore, err := envBoolStrict("DEV_KEYSTORE", false)
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
 		Server: ServerConfig{
 			Port:            envInt("API_PORT", 8080),
@@ -125,6 +152,7 @@ func Load() (*Config, error) {
 			Host:               envStr("POSTGRES_HOST", "localhost"),
 			Port:               envInt("POSTGRES_PORT", 5432),
 			Database:           envStr("POSTGRES_DATABASE", "payminto"),
+			TestDatabase:       envStr("POSTGRES_TEST_DATABASE", "payminto_test"),
 			Username:           envStr("POSTGRES_USERNAME", "payminto"),
 			Password:           envStr("POSTGRES_PASSWORD", ""),
 			SSLMode:            envStr("POSTGRES_SSL_MODE", defaultSSLMode),
@@ -149,6 +177,7 @@ func Load() (*Config, error) {
 			JWTSecret:       envStr("JWT_SECRET", ""),
 			VaultPassphrase: envStr("VAULT_PASSPHRASE", ""),
 			CustodyEnabled:  custodyEnabled,
+			DevKeystore:     devKeystore,
 		},
 		Email: EmailConfig{
 			SMTPHost: envStr("SMTP_HOST", ""),
@@ -160,6 +189,12 @@ func Load() (*Config, error) {
 		Telemetry: TelemetryConfig{
 			MetricsEnabled: envBool("METRICS_ENABLED", true),
 			SentryDSN:      envStr("SENTRY_DSN", ""),
+		},
+		Gateway: GatewayConfig{
+			Environment: envStr("GATEWAY_ENVIRONMENT", string(environmentpkg.Test)),
+		},
+		Modules: ModulesConfig{
+			Providers: envSlotProviders(),
 		},
 	}
 	if err := cfg.validate(); err != nil {
@@ -174,6 +209,12 @@ func (c *Config) validate() error {
 		return err
 	}
 	c.Server.Environment = environment
+
+	gatewayEnv, err := environmentpkg.Parse(c.Gateway.Environment)
+	if err != nil {
+		return fmt.Errorf("GATEWAY_ENVIRONMENT must be test or live; got %q", c.Gateway.Environment)
+	}
+	c.Gateway.Environment = string(gatewayEnv)
 
 	schemaMode := strings.ToLower(strings.TrimSpace(c.Database.SchemaMode))
 	if schemaMode != SchemaModeValidate && schemaMode != SchemaModeAutoMigrate {
@@ -262,6 +303,34 @@ func (d DatabaseConfig) DSN() string {
 		" password=" + d.Password +
 		" dbname=" + d.Database +
 		" sslmode=" + d.SSLMode
+}
+
+// envSlotProviders reads <SLOT>_PROVIDER for every slot module; absent slots are left out.
+func envSlotProviders() map[string]string {
+	providers := map[string]string{}
+	for _, slot := range slotModules {
+		if v := strings.TrimSpace(os.Getenv(strings.ToUpper(slot) + "_PROVIDER")); v != "" {
+			providers[slot] = v
+		}
+	}
+	return providers
+}
+
+// BootFacts projects the loaded configuration onto the environment module's boot gate.
+func (c *Config) BootFacts() environmentpkg.BootFacts {
+	return environmentpkg.BootFacts{
+		Environment:                    environmentpkg.Environment(c.Gateway.Environment),
+		DatabaseName:                   c.Database.Database,
+		DatabaseHost:                   c.Database.Host,
+		TestDatabaseName:               c.Database.TestDatabase,
+		DevKeystore:                    c.Security.DevKeystore || c.Security.AESKey != "",
+		VaultDevMode:                   c.Security.CustodyEnabled && !isStrongSecret(c.Security.VaultPassphrase, 24),
+		SlotProviders:                  c.Modules.Providers,
+		DatabaseSSLMode:                c.Database.SSLMode,
+		DatabaseInsecureLocalException: c.Database.AllowInsecureLocal,
+		DeploymentHardened:             isDeploymentEnvironment(c.Server.Environment),
+		NetworkType:                    c.Blockchain.NetworkType,
+	}
 }
 
 func envStr(key, fallback string) string {
