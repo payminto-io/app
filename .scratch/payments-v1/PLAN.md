@@ -24,7 +24,7 @@ Every merge: `go build`, `go vet`, unit tests, then `make test-integration` on m
 | Ticket | Needs | Notes |
 | --- | --- | --- |
 | 06 routing | 05 | Hyperswitch algorithms plus rail cost, finality and settlement preference |
-| 07 card connector | 05 | Stripe through hosted fields only |
+| 07 demo fiat connectors | 05 | Keypay and Payvang ported from Kuberopay; no Stripe (owner decision) |
 | 10 conversion at receipt | 01, 09 | Jupiter on Solana, executed rate as a ledger trade |
 | 17 public checkout projection | 03, 05, 09 | fields the checkout already renders when present |
 | 23 CRE solvency workflow | 21, 22 | in progress on branch `cre-solvency` |
