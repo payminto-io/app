@@ -79,6 +79,35 @@ own the ledger tables, holds no `UPDATE`, `DELETE`, `TRUNCATE` or `TRIGGER` on t
 when the ledger tables, triggers or functions are missing, and validate mode additionally requires
 migration `2026100701` recorded as applied.
 
+### Environments
+
+One process serves one environment, `GATEWAY_ENVIRONMENT=test|live` (default `test`), and each
+environment has its own database. The database is the authority: on first boot the server (or
+`cmd/migrate up`, or `cmd/devseed`) writes a one-row `gateway_environment` stamp, and every later
+boot of any of the three refuses when the stamp, or the name Postgres reports through
+`current_database()`, disagrees with the process. Live refuses a database named `*_test` or equal
+to `POSTGRES_TEST_DATABASE`; test accepts a non-`*_test` name only on a loopback host and only
+while the stamp says test or the database is new.
+
+#### Adopting an existing database as live
+
+A database that served before environments existed is stamped `test` on its first upgraded boot,
+and every row it holds is test money, so a live process refuses it and would see no balances.
+Adoption relabels it once:
+
+```bash
+GATEWAY_ENVIRONMENT=live SERVER=production ... go run ./cmd/migrate adopt-live --confirm-adopt-live=<database name>
+```
+
+It runs only from a live-configured process (the full live boot gate applies), only while the
+stamp says `test` and was never adopted, and only when the flag names the database Postgres
+reports. In one transaction it calls `ledger_adopt_environment('live')`, a `SECURITY DEFINER`
+function owned by `ledger_owner` that pauses the append-only triggers for exactly that relabel and
+refuses once any live row exists; relabels legacy API keys (no visible prefix) as live, leaving
+`sk_test_` keys as test keys; and restamps the database `live` with `adopted_from = test`.
+Only the migrator role holds `EXECUTE` on the function. Run it before the first live boot; there
+is no reverse.
+
 ## Observability
 
 - **Metrics:** Prometheus exposition at `GET /metrics` (namespace `payminto_`).

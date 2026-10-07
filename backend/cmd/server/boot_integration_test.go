@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/database"
 	"github.com/payminto/payminto/backend/internal/environment"
+	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/service"
 )
@@ -145,11 +147,29 @@ func TestIntegration_LiveProcessBootsAndRefusesTestKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Live runs in validate mode, so the schema is prepared the way an operator would: migrate first.
+	// Live runs in validate mode, so the schema is prepared the way an operator would: the privileged
+	// role migrates, then the server connects as a narrowed application role.
 	if err := database.AutoMigrate(live); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.MigrateExpandSchema(live); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ApplyMigrations(context.Background(), live); err != nil {
+		t.Fatal(err)
+	}
+	const appRole, appPassword = "payminto_app_live", "payminto_app_live_password_x"
+	for _, stmt := range []string{
+		`CREATE ROLE ` + appRole + ` LOGIN PASSWORD '` + appPassword + `'`,
+		`GRANT USAGE ON SCHEMA public TO ` + appRole,
+		`GRANT ALL ON ALL TABLES IN SCHEMA public TO ` + appRole,
+		`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ` + appRole,
+	} {
+		if err := live.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ledger.GrantAppRole(live, appRole); err != nil {
 		t.Fatal(err)
 	}
 	member := models.Member{Name: "m", MemberType: "root", State: "active"}
@@ -178,7 +198,9 @@ func TestIntegration_LiveProcessBootsAndRefusesTestKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	base, _ := runServer(t, liveProcessEnv(liveCfg))
+	appCfg := liveCfg
+	appCfg.Username, appCfg.Password = appRole, appPassword
+	base, _ := runServer(t, liveProcessEnv(appCfg))
 
 	code, body := getEnvironment(t, base, keys[environment.Live])
 	if code != http.StatusOK || body["environment"] != "live" {
@@ -235,7 +257,7 @@ func TestIntegration_LiveRefusesAReachableDatabaseStampedTest(t *testing.T) {
 	defer stop()
 	// The name passes every string check; only what the database itself says can refuse it.
 	liveCfg := stampedDatabase(t, dbCfg, "payminto_prod", environment.Test)
-	requireRefusal(t, liveProcessEnv(liveCfg), `database "payminto_prod" is stamped test`)
+	requireRefusal(t, liveProcessEnv(liveCfg), "is stamped test; a live process must not open it")
 }
 
 func TestIntegration_TestProcessRefusesALoopbackDatabaseStampedLive(t *testing.T) {

@@ -117,6 +117,87 @@ func (m *EnvironmentModule) Stamp(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
+// AdoptResult counts what AdoptLive relabelled.
+type AdoptResult struct {
+	Database       string
+	LedgerAccounts int64
+	LedgerJournals int64
+	APIKeys        int64
+}
+
+// AdoptLive relabels a database that has only ever served test money as live, once. It runs only
+// from a live-configured process, only when the stamp says test and was never adopted before, and
+// only when confirm names the database Postgres reports. Ledger rows move through
+// ledger_adopt_environment (owned by ledger_owner); legacy keys (no visible prefix) become live;
+// prefixed test keys stay test keys. Everything happens in one transaction.
+func (m *EnvironmentModule) AdoptLive(ctx context.Context, db *gorm.DB, confirm string) (AdoptResult, error) {
+	var result AdoptResult
+	if db == nil {
+		return result, errors.New("environment: database is nil")
+	}
+	if m.Environment != environment.Live {
+		return result, fmt.Errorf("%w: adopt-live runs from a live-configured process, this one is %s", environment.ErrBoot, m.Environment)
+	}
+	name, err := m.reportedDatabaseName(ctx, db)
+	if err != nil {
+		return result, err
+	}
+	result.Database = name
+	if environment.NormalizeDatabaseName(confirm) == "" || environment.NormalizeDatabaseName(confirm) != environment.NormalizeDatabaseName(name) {
+		return result, fmt.Errorf("%w: --confirm-adopt-live must name the connected database %q", environment.ErrBoot, name)
+	}
+	if err := environment.CheckDatabase(environment.Live, name, m.testDatabase, m.databaseHost, ""); err != nil {
+		return result, err
+	}
+	if !db.Migrator().HasTable(&environment.StampRow{}) {
+		return result, fmt.Errorf("%w: gateway_environment is missing; run migrations first", environment.ErrBoot)
+	}
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var stamp environment.StampRow
+		if err := tx.First(&stamp, environment.StampID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("%w: database is not stamped; a database that never served test money needs no adoption, boot it live", environment.ErrBoot)
+			}
+			return fmt.Errorf("environment: read stamp: %w", err)
+		}
+		if stamp.Environment != environment.Test || stamp.AdoptedFrom != nil {
+			return fmt.Errorf("%w: database is stamped %s (adopted from %v); adoption happens once", environment.ErrBoot, stamp.Environment, stamp.AdoptedFrom)
+		}
+		if tx.Migrator().HasTable("ledger_accounts") {
+			var counts struct {
+				Accounts int64
+				Journals int64
+			}
+			if err := tx.Raw(`SELECT accounts, journals FROM ledger_adopt_environment(?)`, string(environment.Live)).Scan(&counts).Error; err != nil {
+				return fmt.Errorf("environment: relabel ledger: %w", err)
+			}
+			result.LedgerAccounts, result.LedgerJournals = counts.Accounts, counts.Journals
+		}
+		if tx.Migrator().HasTable("api_keys") {
+			res := tx.Table("api_keys").Where("environment = ? AND prefix = ''", environment.Test).Update("environment", environment.Live)
+			if res.Error != nil {
+				return fmt.Errorf("environment: relabel api keys: %w", res.Error)
+			}
+			result.APIKeys = res.RowsAffected
+		}
+		now := time.Now().UTC()
+		from := environment.Test
+		res := tx.Model(&environment.StampRow{}).Where("id = ? AND environment = ?", environment.StampID, environment.Test).
+			Updates(map[string]any{"environment": environment.Live, "adopted_from": &from, "adopted_at": &now})
+		if res.Error != nil {
+			return fmt.Errorf("environment: restamp: %w", res.Error)
+		}
+		if res.RowsAffected != 1 {
+			return fmt.Errorf("%w: stamp changed under us; nothing adopted", environment.ErrBoot)
+		}
+		return nil
+	})
+	if err != nil {
+		return AdoptResult{Database: name}, err
+	}
+	return result, nil
+}
+
 func (m *EnvironmentModule) reportedDatabaseName(ctx context.Context, db *gorm.DB) (string, error) {
 	if db.Dialector.Name() != "postgres" {
 		return m.databaseName, nil

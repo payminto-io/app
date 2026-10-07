@@ -25,6 +25,7 @@ func main() {
 		seed     = flag.Bool("seed", false, "Explicitly apply network catalog seeds after migrations")
 		seedOnly = flag.Bool("seed-only", false, "Deprecated alias for the explicit seed action")
 		appRole  = flag.String("ledger-app-role", "", "Role to narrow to SELECT, INSERT on the ledger tables (default: $POSTGRES_LEDGER_APP_ROLE)")
+		adopt    = flag.String("confirm-adopt-live", "", "adopt-live only: the name of the connected database, typed out as confirmation")
 	)
 	flag.Parse()
 
@@ -47,16 +48,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}
-	if err := envModule.VerifyDatabase(context.Background(), db); err != nil {
-		log.Fatalf("environment: %v", err)
-	}
 
 	action := "up"
 	if flag.NArg() > 0 {
 		action = flag.Arg(0)
 	}
+	// adopt-live is the one action that expects the stamp to disagree with the process.
+	if action != "adopt-live" {
+		if err := envModule.VerifyDatabase(context.Background(), db); err != nil {
+			log.Fatalf("environment: %v", err)
+		}
+	}
 
 	switch action {
+	case "adopt-live":
+		result, err := envModule.AdoptLive(context.Background(), db, *adopt)
+		if err != nil {
+			log.Fatalf("adopt-live: %v", err)
+		}
+		log.Printf("adopt-live: %s is now live (ledger accounts %d, journals %d, legacy api keys %d)", result.Database, result.LedgerAccounts, result.LedgerJournals, result.APIKeys)
 	case "up":
 		if !*seedOnly {
 			log.Println("Applying checksummed schema migrations...")
@@ -96,7 +106,7 @@ func main() {
 	case "down":
 		log.Fatal("down: unsupported; migrations are forward-only and require a reviewed roll-forward plan")
 	default:
-		log.Fatalf("unknown action %q (try: up, down)", action)
+		log.Fatalf("unknown action %q (try: up, seed, adopt-live)", action)
 	}
 }
 

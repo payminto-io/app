@@ -144,3 +144,62 @@ func TestVerifyDatabaseAndStamp(t *testing.T) {
 		t.Fatalf("stamp rows = %d, want 1", n)
 	}
 }
+
+func TestAdoptLive_Guards(t *testing.T) {
+	ctx := context.Background()
+	db := sqliteDB(t)
+	if err := db.AutoMigrate(&environment.StampRow{}, &models.APIKey{}); err != nil {
+		t.Fatal(err)
+	}
+	test := &EnvironmentModule{Environment: environment.Test, databaseName: "payminto", databaseHost: "localhost", testDatabase: "payminto_test"}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	if _, err := test.AdoptLive(ctx, db, "payminto"); !environment.IsBootRefusal(err) {
+		t.Fatalf("test process adopted: %v", err)
+	}
+	if _, err := live.AdoptLive(ctx, db, "payminto"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "not stamped") {
+		t.Fatalf("unstamped database adopted: %v", err)
+	}
+	if err := test.Stamp(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := live.AdoptLive(ctx, db, "other"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "confirm-adopt-live") {
+		t.Fatalf("wrong confirmation accepted: %v", err)
+	}
+	if _, err := live.AdoptLive(ctx, db, ""); !environment.IsBootRefusal(err) {
+		t.Fatalf("empty confirmation accepted: %v", err)
+	}
+	for _, row := range []models.APIKey{
+		{Key: "legacy", ExternalPlatformID: 1},
+		{Key: "test", ExternalPlatformID: 1, Environment: environment.Test, Prefix: "sk_test_abcd"},
+	} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := live.AdoptLive(ctx, db, " Payminto ")
+	if err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if result.APIKeys != 1 {
+		t.Fatalf("relabelled keys = %d, want only the legacy one", result.APIKeys)
+	}
+	var keys []models.APIKey
+	db.Order("key").Find(&keys)
+	if keys[0].Environment != environment.Live || keys[1].Environment != environment.Test {
+		t.Fatalf("keys after adoption = %+v", keys)
+	}
+	var stamp environment.StampRow
+	db.First(&stamp, environment.StampID)
+	if stamp.Environment != environment.Live || stamp.AdoptedFrom == nil || *stamp.AdoptedFrom != environment.Test || stamp.AdoptedAt == nil {
+		t.Fatalf("stamp after adoption = %+v", stamp)
+	}
+	if _, err := live.AdoptLive(ctx, db, "payminto"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "once") {
+		t.Fatalf("second adoption accepted: %v", err)
+	}
+	if err := live.VerifyDatabase(ctx, db); err != nil {
+		t.Fatalf("live refused its adopted database: %v", err)
+	}
+	if err := test.VerifyDatabase(ctx, db); !environment.IsBootRefusal(err) {
+		t.Fatalf("test process accepted the adopted database: %v", err)
+	}
+}
