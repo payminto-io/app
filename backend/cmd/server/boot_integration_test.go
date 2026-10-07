@@ -362,6 +362,13 @@ func TestIntegration_LiveBootRefusesUnstampedDataUntilAdopted(t *testing.T) {
 	appCfg := prodCfg
 	appCfg.Username, appCfg.Password = appRole, appPassword
 	requireRefusal(t, liveProcessEnv(appCfg), "adopt-live --confirm-adopt-live=payminto_prod")
+	// A refused boot wrote nothing: no stamp and no network-mode row.
+	var modeRows, stamps int64
+	prod.Model(&models.Configuration{}).Where("key = ?", "mode").Count(&modeRows)
+	prod.Model(&environment.StampRow{}).Count(&stamps)
+	if modeRows != 0 || stamps != 0 {
+		t.Fatalf("refused boot wrote mode rows %d, stamps %d", modeRows, stamps)
+	}
 
 	cfgForModule := config.Config{
 		Server:     config.ServerConfig{Environment: config.EnvironmentProduction},

@@ -83,12 +83,13 @@ func main() {
 		log.Fatalf("service registry: %v", err)
 	}
 
+	// Every check runs before the first write: the mode row is only read here, and Finalize writes
+	// the environment stamp and the mode row together, in one transaction, only once all gates passed.
 	modeRepo := service.NewConfigRepoAdapter(reg.ConfigurationRepo())
-	if err := config.EnforceModeMatch(cfg.Blockchain.NetworkType, modeRepo); err != nil {
+	if err := config.CheckModeMatch(cfg.Blockchain.NetworkType, modeRepo); err != nil {
 		log.Fatalf("mode enforcement: %v", err)
 	}
-	// Last boot check: only a database every gate accepted gets stamped, and only an empty one.
-	if err := envModule.Stamp(context.Background(), db); err != nil {
+	if err := envModule.Finalize(context.Background(), db, cfg.Blockchain.NetworkType); err != nil {
 		log.Fatalf("environment: %v", err)
 	}
 

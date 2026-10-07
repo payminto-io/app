@@ -162,7 +162,7 @@ func TestStamp_RefusesAnUnstampedDatabaseThatHoldsData(t *testing.T) {
 	if err := db.AutoMigrate(&environment.StampRow{}, &models.APIKey{}); err != nil {
 		t.Fatal(err)
 	}
-	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test", networkType: "mainnet"}
 	if err := db.Create(&models.APIKey{Key: "legacy", ExternalPlatformID: 1}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestAdoptLive_AcceptsAnUnstampedPopulatedDatabase(t *testing.T) {
 	if err := db.Create(&models.APIKey{Key: "legacy", ExternalPlatformID: 1}).Error; err != nil {
 		t.Fatal(err)
 	}
-	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test", networkType: "mainnet"}
 	result, err := live.AdoptLive(ctx, db, "payminto")
 	if err != nil || result.APIKeys != 1 {
 		t.Fatalf("adopt unstamped = %+v, %v", result, err)
@@ -217,7 +217,7 @@ func TestAdoptTest(t *testing.T) {
 	if err := db.Create(&models.APIKey{Key: "legacy", ExternalPlatformID: 1}).Error; err != nil {
 		t.Fatal(err)
 	}
-	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test", networkType: "mainnet"}
 	if _, err := live.AdoptTest(ctx, db, "payminto"); !environment.IsBootRefusal(err) {
 		t.Fatalf("live process ran adopt-test: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestAdoptLive_Guards(t *testing.T) {
 		t.Fatal(err)
 	}
 	test := &EnvironmentModule{Environment: environment.Test, databaseName: "payminto", databaseHost: "localhost", testDatabase: "payminto_test"}
-	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test"}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test", networkType: "mainnet"}
 	if _, err := test.AdoptLive(ctx, db, "payminto"); !environment.IsBootRefusal(err) {
 		t.Fatalf("test process adopted: %v", err)
 	}
@@ -297,5 +297,104 @@ func TestAdoptLive_Guards(t *testing.T) {
 	}
 	if err := test.VerifyDatabase(ctx, db); !environment.IsBootRefusal(err) {
 		t.Fatalf("test process accepted the adopted database: %v", err)
+	}
+}
+
+func TestStamp_EveryDataTableCountsAsData(t *testing.T) {
+	ctx := context.Background()
+	for _, table := range DataTables() {
+		t.Run(table, func(t *testing.T) {
+			db := sqliteDB(t)
+			if err := db.AutoMigrate(&environment.StampRow{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Exec(`CREATE TABLE ` + table + ` (id integer primary key)`).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Exec(`INSERT INTO ` + table + ` (id) VALUES (1)`).Error; err != nil {
+				t.Fatal(err)
+			}
+			live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test", networkType: "mainnet"}
+			err := live.Stamp(ctx, db)
+			if !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "holds "+table+" rows") {
+				t.Fatalf("Stamp over a %s row = %v, want refusal naming the table", table, err)
+			}
+		})
+	}
+	expected := []string{"members", "external_platforms", "api_keys", "payment_requests", "deposits", "deposit_addresses", "withdrawals", "sweeps", "wallets", "address_pools", "secrets_vaults", "ledger_accounts", "ledger_journals", "fee_rules"}
+	if got := DataTables(); strings.Join(got, ",") != strings.Join(expected, ",") {
+		t.Fatalf("DataTables() = %v", got)
+	}
+}
+
+func TestFinalize_WritesStampAndModeTogetherOnlyAfterEveryCheck(t *testing.T) {
+	ctx := context.Background()
+	db := sqliteDB(t)
+	if err := db.AutoMigrate(&environment.StampRow{}, &models.Configuration{}, &models.APIKey{}); err != nil {
+		t.Fatal(err)
+	}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test", networkType: "mainnet"}
+	// Populated and unstamped: refused, and no mode row may be left behind.
+	if err := db.Create(&models.APIKey{Key: "legacy", ExternalPlatformID: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Finalize(ctx, db, "mainnet"); !environment.IsBootRefusal(err) {
+		t.Fatalf("Finalize over data = %v", err)
+	}
+	var modes, stamps int64
+	db.Model(&models.Configuration{}).Count(&modes)
+	db.Model(&environment.StampRow{}).Count(&stamps)
+	if modes != 0 || stamps != 0 {
+		t.Fatalf("a refused boot wrote mode rows %d, stamps %d", modes, stamps)
+	}
+	db.Unscoped().Where("1 = 1").Delete(&models.APIKey{})
+	// Mode row disagrees: refused, nothing written.
+	if err := db.Create(&models.Configuration{Key: "mode", Value: "testnet"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Finalize(ctx, db, "mainnet"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "network mode mismatch") {
+		t.Fatalf("Finalize with a testnet row = %v", err)
+	}
+	db.Model(&environment.StampRow{}).Count(&stamps)
+	if stamps != 0 {
+		t.Fatal("stamp written despite the mode mismatch")
+	}
+	db.Unscoped().Where("key = ?", "mode").Delete(&models.Configuration{})
+	// Empty and acceptable: stamp and mode row land together.
+	if err := live.Finalize(ctx, db, "mainnet"); err != nil {
+		t.Fatalf("Finalize on an empty database: %v", err)
+	}
+	var mode models.Configuration
+	if err := db.Where("key = ?", "mode").First(&mode).Error; err != nil || mode.Value != "mainnet" {
+		t.Fatalf("mode row after Finalize = %+v, %v", mode, err)
+	}
+	if err := live.Finalize(ctx, db, "mainnet"); err != nil {
+		t.Fatalf("Finalize is not idempotent: %v", err)
+	}
+}
+
+func TestAdoption_ChecksTheNetworkMode(t *testing.T) {
+	ctx := context.Background()
+	db := sqliteDB(t)
+	if err := db.AutoMigrate(&environment.StampRow{}, &models.Configuration{}, &models.APIKey{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.APIKey{Key: "legacy", ExternalPlatformID: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.Configuration{Key: "mode", Value: "testnet"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: "db.internal", testDatabase: "payminto_test", networkType: "mainnet"}
+	if _, err := live.AdoptLive(ctx, db, "payminto"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "network mode") {
+		t.Fatalf("adopt-live on a testnet database = %v, want refusal", err)
+	}
+	db.Model(&models.Configuration{}).Where("key = ?", "mode").Update("value", "mainnet")
+	test := &EnvironmentModule{Environment: environment.Test, databaseName: "payminto", databaseHost: "localhost", testDatabase: "payminto_test", networkType: "testnet"}
+	if _, err := test.AdoptTest(ctx, db, "payminto"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "mainnet") {
+		t.Fatalf("adopt-test on a mainnet database = %v, want refusal", err)
+	}
+	if _, err := live.AdoptLive(ctx, db, "payminto"); err != nil {
+		t.Fatalf("adopt-live on a mainnet database: %v", err)
 	}
 }
