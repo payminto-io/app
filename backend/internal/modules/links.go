@@ -18,8 +18,8 @@ type LinksModule struct {
 
 // WireLinks needs the fee port, a PaymentCreator and the environment module; links take the process environment.
 func WireLinks(deps Deps) (*LinksModule, error) {
-	if deps.DB == nil || deps.Config == nil || deps.Fees == nil || deps.LinkPayments == nil || deps.Environment == nil || deps.Environment.Guard == nil {
-		return nil, fmt.Errorf("modules: links needs DB, Config, Fees, LinkPayments and Environment")
+	if deps.DB == nil || deps.Config == nil || deps.FeePort == nil || deps.LinkPayments == nil || deps.Environment == nil || deps.Environment.Guard == nil {
+		return nil, fmt.Errorf("modules: links needs DB, Config, FeePort, LinkPayments and Environment")
 	}
 	precision, err := fees.ParsePrecision(deps.Config.Fees.AssetPrecision)
 	if err != nil {
@@ -32,7 +32,7 @@ func WireLinks(deps Deps) (*LinksModule, error) {
 	if lc.LeaseSeconds < 60 || lc.MaxOpenPayments < 0 || lc.MaxOpenPaymentsPerClient < 0 {
 		return nil, fmt.Errorf("modules: LINKS_LEASE_SECONDS must be at least 60 and the LINKS_MAX_OPEN_PAYMENTS caps at least 0")
 	}
-	svc := links.NewService(links.NewPGStore(deps.DB), deps.Fees, deps.LinkPayments,
+	svc := links.NewService(links.NewPGStore(deps.DB), deps.FeePort, deps.LinkPayments,
 		links.WithPrecision(precision), links.WithGuard(deps.Environment.Guard),
 		links.WithLease(time.Duration(lc.LeaseSeconds)*time.Second),
 		links.WithLimits(links.ReserveLimits{MaxOpen: lc.MaxOpenPayments, MaxOpenPerClient: lc.MaxOpenPaymentsPerClient}),

@@ -11,3 +11,5 @@ runs = 256
 
 [fmt]
 line_length = 120
+# Vendored Chainlink sources keep upstream formatting so a diff against the pinned commit stays clean.
+ignore = ["test/cre/vendor/**"]

@@ -1,0 +1,252 @@
+// Package connectors is the slot module for payment processors: card, bank and chain.
+// The switch (internal/paymentswitch) depends only on this file; providers live in subfolders.
+// Design: .scratch/payments-v1/issues/05-switch-core.md, docs/architecture/MODULES.md.
+package connectors
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/shopspring/decimal"
+)
+
+// Code identifies a provider in configuration and in the status map ("mock", "chaindeposit", "stripe").
+type Code string
+
+// RawStatus is a status string exactly as the provider reports it; the switch maps it, never interprets it.
+type RawStatus string
+
+// Method is the payment method family a connector can take.
+type Method string
+
+const (
+	MethodCard  Method = "card"
+	MethodBank  Method = "bank"
+	MethodChain Method = "chain"
+)
+
+// CaptureMethod says whether an authorization is captured immediately or by a later Capture call.
+type CaptureMethod string
+
+const (
+	CaptureAutomatic CaptureMethod = "automatic"
+	CaptureManual    CaptureMethod = "manual"
+)
+
+// Error contract. Only ErrDeclined is definitive: the provider refused and nothing happened. ErrUnsupported and
+// ErrInvalidRequest are raised before any provider call. Every other error, including ErrTimeout, a context
+// deadline, a reset after send or a parse failure, means "outcome unknown": the switch keeps the operation in
+// flight and resolves it with Sync, retrying with the same IdempotencyKey. A provider must never return
+// ErrDeclined for a call that may have taken effect.
+var (
+	ErrUnsupported      = errors.New("connectors: operation not supported by this connector")
+	ErrNotFound         = errors.New("connectors: transaction not known to the connector")
+	ErrTimeout          = errors.New("connectors: no definitive answer from the connector; sync later")
+	ErrDeclined         = errors.New("connectors: provider refused the operation; nothing happened")
+	ErrInvalidRequest   = errors.New("connectors: invalid request")
+	ErrWebhookSignature = errors.New("connectors: webhook signature invalid")
+	ErrWebhookStale     = errors.New("connectors: webhook outside the accepted time window")
+	ErrWebhookMalformed = errors.New("connectors: webhook body malformed")
+	ErrUnknownConnector = errors.New("connectors: connector not registered")
+)
+
+// Definitive reports whether err proves the operation did not take effect at the provider.
+func Definitive(err error) bool { return errors.Is(err, ErrDeclined) }
+
+// Money is an exact amount in one asset (ISO currency or token code). Never a float.
+type Money struct {
+	Amount decimal.Decimal
+	Asset  string
+}
+
+// Capabilities declares what a provider can do. The switch refuses operations the provider cannot do
+// before calling it, and verifies every RawStatus has a status-map entry at registration.
+type Capabilities struct {
+	Methods        []Method
+	ManualCapture  bool
+	PartialCapture bool
+	Void           bool
+	Refund         bool
+	PartialRefund  bool
+	Webhooks       bool
+	Sync           bool
+	RefundSync     bool
+	// WatchesAfterTerminal says the provider keeps reporting funds that arrive after a terminal state (a chain
+	// address stays live); the switch keeps syncing such attempts for a retention window.
+	WatchesAfterTerminal bool
+	// RawStatuses is every status this provider can report for payments; RawRefundStatuses for refunds.
+	RawStatuses       []RawStatus
+	RawRefundStatuses []RawStatus
+}
+
+// PaymentMethod is a token or reference, never raw card data (CLAUDE.md: no card data on these servers).
+type PaymentMethod struct {
+	Type  Method
+	Token string
+	// Details carries provider-specific, non-sensitive hints (chain code, asset code, wallet address).
+	Details map[string]string
+}
+
+// NextAction tells the customer what to do before the payment can proceed.
+type NextAction struct {
+	Type string `json:"type"`
+	// RedirectURL for 3DS or hosted pages; Address, Amount and Asset for a chain deposit.
+	RedirectURL string `json:"redirect_url,omitempty"`
+	Address     string `json:"address,omitempty"`
+	Amount      string `json:"amount,omitempty"`
+	Asset       string `json:"asset,omitempty"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+}
+
+type AuthorizeRequest struct {
+	AttemptID  string
+	IntentID   string
+	MerchantID string
+	// PlatformID is the tenant the merchant acts under (Payminto external platform); chain deposits need it.
+	PlatformID     string
+	Money          Money
+	CaptureMethod  CaptureMethod
+	PaymentMethod  PaymentMethod
+	ReturnURL      string
+	Description    string
+	IdempotencyKey string
+	Metadata       map[string]string
+}
+
+type AuthorizeResponse struct {
+	ConnectorTransactionID string
+	RawStatus              RawStatus
+	// AmountReceived with ReceivedAsset is what actually arrived (a chain deposit's token and chain-qualified code).
+	AmountReceived *decimal.Decimal
+	ReceivedAsset  string
+	NextAction     *NextAction
+	ErrorCode      string
+	ErrorMessage   string
+}
+
+type CaptureRequest struct {
+	AttemptID              string
+	ConnectorTransactionID string
+	Money                  Money
+	IdempotencyKey         string
+}
+
+type CaptureResponse struct {
+	ConnectorCaptureID string
+	RawStatus          RawStatus
+	AmountCaptured     decimal.Decimal
+	ErrorCode          string
+	ErrorMessage       string
+}
+
+type VoidRequest struct {
+	AttemptID              string
+	ConnectorTransactionID string
+	Reason                 string
+	IdempotencyKey         string
+}
+
+type VoidResponse struct {
+	RawStatus RawStatus
+	// AmountReceived with ReceivedAsset reports funds that arrived before the void took effect (chain deposits).
+	AmountReceived *decimal.Decimal
+	ReceivedAsset  string
+	ErrorCode      string
+	ErrorMessage   string
+}
+
+type RefundRequest struct {
+	RefundID               string
+	AttemptID              string
+	ConnectorTransactionID string
+	Money                  Money
+	Reason                 string
+	IdempotencyKey         string
+}
+
+type RefundResponse struct {
+	ConnectorRefundID string
+	RawStatus         RawStatus
+	ErrorCode         string
+	ErrorMessage      string
+}
+
+// SyncRequest carries our attempt id as well, because after ErrTimeout the switch holds no connector id.
+type SyncRequest struct {
+	AttemptID              string
+	ConnectorTransactionID string
+}
+
+// AmountReceived with ReceivedAsset is what actually arrived (a chain deposit's token and chain-qualified code).
+type SyncResponse struct {
+	ConnectorTransactionID string
+	RawStatus              RawStatus
+	AmountCaptured         *decimal.Decimal
+	AmountReceived         *decimal.Decimal
+	ReceivedAsset          string
+	NextAction             *NextAction
+	ErrorCode              string
+	ErrorMessage           string
+}
+
+// SyncRefundRequest carries our refund id as well, because after an unknown outcome the switch may hold no connector id.
+type SyncRefundRequest struct {
+	RefundID               string
+	AttemptID              string
+	ConnectorTransactionID string
+	ConnectorRefundID      string
+}
+
+type SyncRefundResponse struct {
+	ConnectorRefundID string
+	RawStatus         RawStatus
+	ErrorCode         string
+	ErrorMessage      string
+}
+
+// WebhookKind says which object a webhook event is about.
+type WebhookKind string
+
+const (
+	WebhookPayment WebhookKind = "payment"
+	WebhookRefund  WebhookKind = "refund"
+)
+
+// WebhookEvent is a verified, decoded provider notification.
+type WebhookEvent struct {
+	// EventID is the provider's unique delivery id. The switch persists (Code, EventID) and rejects a
+	// second delivery with the same id, so a connector must never return an empty or derived id.
+	EventID                string
+	Kind                   WebhookKind
+	ConnectorTransactionID string
+	ConnectorRefundID      string
+	RawStatus              RawStatus
+	AmountCaptured         *decimal.Decimal
+	AmountReceived         *decimal.Decimal
+	ReceivedAsset          string
+	OccurredAt             time.Time
+}
+
+// Connector is the port every provider implements. Operations the provider cannot do return ErrUnsupported.
+// Capture, Void and Refund must honour IdempotencyKey: a repeat with the same key returns the first outcome.
+// VerifyWebhook checks authenticity (signature and a timestamp window, ErrWebhookStale outside it) and decodes
+// the event; replay protection is the switch's job via WebhookEvent.EventID.
+type Connector interface {
+	Code() Code
+	Capabilities() Capabilities
+	Authorize(ctx context.Context, req AuthorizeRequest) (AuthorizeResponse, error)
+	Capture(ctx context.Context, req CaptureRequest) (CaptureResponse, error)
+	Void(ctx context.Context, req VoidRequest) (VoidResponse, error)
+	Refund(ctx context.Context, req RefundRequest) (RefundResponse, error)
+	Sync(ctx context.Context, req SyncRequest) (SyncResponse, error)
+	SyncRefund(ctx context.Context, req SyncRefundRequest) (SyncRefundResponse, error)
+	VerifyWebhook(ctx context.Context, headers http.Header, body []byte) (WebhookEvent, error)
+}
+
+// Lookup is the read side of the registry the switch depends on.
+type Lookup interface {
+	Get(code Code) (Connector, bool)
+	Codes() []Code
+}

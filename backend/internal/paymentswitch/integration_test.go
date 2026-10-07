@@ -1,0 +1,376 @@
+//go:build integration
+
+package paymentswitch_test
+
+import (
+	"context"
+	"errors"
+	"strconv"
+	"sync"
+	"testing"
+
+	"github.com/payminto/payminto/backend/internal/connectors"
+	"github.com/payminto/payminto/backend/internal/connectors/mock"
+	"github.com/payminto/payminto/backend/internal/database"
+	"github.com/payminto/payminto/backend/internal/fees"
+	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/models"
+	"github.com/payminto/payminto/backend/internal/modules"
+	"github.com/payminto/payminto/backend/internal/paymentswitch"
+	"github.com/shopspring/decimal"
+)
+
+func newPostgresFixture(t *testing.T) *fixture {
+	t.Helper()
+	db, cleanup := database.NewTestDB(t)
+	t.Cleanup(cleanup)
+	reg := connectors.NewRegistry()
+	m := mock.New()
+	if err := reg.Register(m); err != nil {
+		t.Fatal(err)
+	}
+	led := &recordingLedger{inner: ledger.New(db)}
+	selector := paymentswitch.FirstEnabledSelector{Merchants: paymentswitch.StaticMerchantConnectors{mock.Code}, Connectors: reg}
+	return &fixture{t: t, db: db, svc: paymentswitch.New(db, reg, selector, led), mock: m, ledger: led, ctx: context.Background()}
+}
+
+func TestIntegration_SchemaConvergesAndConstraintsHold(t *testing.T) {
+	f := newPostgresFixture(t)
+	if _, err := database.ApplyMigrations(context.Background(), f.db); err != nil {
+		t.Fatalf("ApplyMigrations after dev-style migrate: %v", err)
+	}
+	for _, name := range []string{
+		"switch_payment_intents_status_check", "switch_payment_attempts_status_check", "switch_refunds_status_check",
+		"switch_payment_attempts_intent_id_fkey", "switch_refunds_attempt_id_fkey", "switch_payment_intents_amounts_check",
+		"switch_anomalies_entity_check",
+	} {
+		var n int64
+		if err := f.db.Raw(`SELECT count(*) FROM pg_constraint WHERE conname = ?`, name).Scan(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("constraint %s count = %d, want 1", name, n)
+		}
+	}
+	for _, index := range []string{"switch_intents_merchant_idempotency_key", "switch_attempts_connector_tx_key", "switch_webhook_events_connector_event_key"} {
+		var n int64
+		if err := f.db.Raw(`SELECT count(*) FROM pg_indexes WHERE indexname = ?`, index).Scan(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("index %s count = %d, want 1", index, n)
+		}
+	}
+	err := f.db.Exec(`INSERT INTO switch_payment_intents (id, merchant_id, idempotency_key, request_hash, status, amount, asset, capture_method, payment_method, metadata)
+		VALUES ('pi_bad', 'm', 'k', repeat('a', 64), 'paid', 1, 'USD', 'automatic', '{}', '{}')`).Error
+	if err == nil {
+		t.Fatal("a status outside the vocabulary must be rejected by the database")
+	}
+}
+
+func TestIntegration_PersistsExactAmountsAndHistory(t *testing.T) {
+	f := newPostgresFixture(t)
+	amount, _ := decimal.NewFromString("1234.567890123456789012")
+	in := f.create(paymentswitch.CreateCommand{Money: paymentswitch.Money{Amount: amount, Asset: "USDC"}, CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	f.wantStatus(in, paymentswitch.IntentRequiresCapture)
+	part, _ := decimal.NewFromString("0.000000000000000001")
+	in, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{Amount: &part})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := f.get(in.ID)
+	if !v.Intent.Money.Amount.Equal(amount) || !v.Intent.AmountCaptured.Equal(part) || v.Intent.Status != paymentswitch.IntentPartiallyCaptured {
+		t.Fatalf("intent = %+v", v.Intent)
+	}
+	if len(v.Attempts) != 1 || !v.Attempts[0].AmountCaptured.Equal(part) {
+		t.Fatalf("attempt = %+v", v.Attempts)
+	}
+	var transitions int64
+	f.db.Model(&paymentswitch.TransitionRow{}).Where("entity_id = ? AND from_status <> to_status", v.Attempts[0].ID).Count(&transitions)
+	if transitions != 4 {
+		t.Fatalf("attempt transitions = %d, want started, authorized, capture_initiated, partial_charged", transitions)
+	}
+	bal, err := f.ledger.inner.Balances(f.ctx, ledger.OwnerMember, merchant)
+	if err != nil || !bal["USDC"].Equal(part) {
+		t.Fatalf("merchant USDC natural balance = %v, %v; want %s", bal, err, part)
+	}
+}
+
+// Concurrent confirms on one intent: exactly one attempt is created and one authorization reaches the connector.
+func TestIntegration_ConcurrentConfirm_OnlyOneAttemptWins(t *testing.T) {
+	f := newPostgresFixture(t)
+	in := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess)})
+	const racers = 12
+	var wg sync.WaitGroup
+	results := make(chan error, racers)
+	for range racers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := f.svc.Confirm(f.ctx, merchant, in.ID, paymentswitch.ConfirmCommand{})
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	var wins, losses int
+	for err := range results {
+		switch {
+		case err == nil:
+			wins++
+		case errors.Is(err, paymentswitch.ErrInvalidTransition), errors.Is(err, paymentswitch.ErrConcurrentUpdate):
+			losses++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if wins != 1 || losses != racers-1 {
+		t.Fatalf("wins = %d losses = %d, want 1 and %d", wins, losses, racers-1)
+	}
+	v := f.get(in.ID)
+	if len(v.Attempts) != 1 || v.Intent.Status != paymentswitch.IntentSucceeded {
+		t.Fatalf("attempts = %d status = %s", len(v.Attempts), v.Intent.Status)
+	}
+	if f.mock.LastTransactionID() != "mock_tx_1" {
+		t.Fatalf("connector saw more than one authorization: last = %s", f.mock.LastTransactionID())
+	}
+	f.wantPayments(1)
+}
+
+// The same webhook delivered many times at once posts the journal once; the unique event id serialises them.
+func TestIntegration_ConcurrentWebhookDeliveries_PostOnce(t *testing.T) {
+	f := newPostgresFixture(t)
+	in := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioAsync), Confirm: true})
+	a := f.wantAttempt(in.ID, paymentswitch.AttemptPending)
+	h, body := f.mock.SignWebhook(mock.Event{EventID: "evt_once", TransactionID: a.ConnectorTransactionID, Status: string(mock.StatusCaptured)})
+	const deliveries = 10
+	var wg sync.WaitGroup
+	type outcome struct {
+		res paymentswitch.WebhookResult
+		err error
+	}
+	outcomes := make(chan outcome, deliveries)
+	for range deliveries {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := f.svc.HandleWebhook(f.ctx, mock.Code, h, body)
+			outcomes <- outcome{res, err}
+		}()
+	}
+	wg.Wait()
+	close(outcomes)
+	var ok, replays int
+	for o := range outcomes {
+		switch {
+		case o.err != nil:
+			t.Fatalf("unexpected error: %v", o.err)
+		case o.res.Ignored && o.res.IgnoreWhy == "replay":
+			replays++
+		case !o.res.Ignored:
+			ok++
+		default:
+			t.Fatalf("unexpected ignore: %+v", o.res)
+		}
+	}
+	if ok != 1 || replays != deliveries-1 {
+		t.Fatalf("processed = %d replays = %d", ok, replays)
+	}
+	f.wantPayments(1)
+	f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentSucceeded)
+}
+
+// C2: concurrent captures on one authorization: exactly one connector call, one journal.
+func TestIntegration_ConcurrentCapture_ExactlyOneConnectorCall(t *testing.T) {
+	f := newPostgresFixture(t)
+	in := f.create(paymentswitch.CreateCommand{CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	f.wantStatus(in, paymentswitch.IntentRequiresCapture)
+	const racers = 10
+	var wg sync.WaitGroup
+	results := make(chan error, racers)
+	for i := range racers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			amount := decimal.NewFromInt(int64(50 + i))
+			_, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{Amount: &amount})
+			results <- err
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+	var wins int
+	for err := range results {
+		switch {
+		case err == nil:
+			wins++
+		case errors.Is(err, paymentswitch.ErrInvalidTransition), errors.Is(err, paymentswitch.ErrConcurrentUpdate):
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if wins != 1 || f.mock.Calls("capture") != 1 {
+		t.Fatalf("wins = %d connector capture calls = %d, want 1 and 1", wins, f.mock.Calls("capture"))
+	}
+	f.wantPayments(1)
+	v := f.get(in.ID)
+	if v.Intent.Status != paymentswitch.IntentPartiallyCaptured || !v.Attempts[0].AmountCaptured.Equal(v.Attempts[0].AmountToCapture) {
+		t.Fatalf("after race = %+v / %+v", v.Intent, v.Attempts[0])
+	}
+}
+
+// I10: a capture apply and the provider's captured webhook for the same attempt run concurrently in a loop and
+// must never deadlock; one of them lands the money, the other is ignored, and exactly one journal exists per intent.
+func TestIntegration_CaptureApplyAndWebhookNeverDeadlock(t *testing.T) {
+	f := newPostgresFixture(t)
+	const rounds = 15
+	for i := range rounds {
+		in := f.create(paymentswitch.CreateCommand{IdempotencyKey: "dl-" + decimal.NewFromInt(int64(i)).String(), CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+		a := f.wantAttempt(in.ID, paymentswitch.AttemptAuthorized)
+		h, body := f.mock.SignWebhook(mock.Event{EventID: "evt-dl-" + in.ID, TransactionID: a.ConnectorTransactionID, Status: string(mock.StatusCaptured), AmountCaptured: "100"})
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{})
+			errs <- err
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := f.svc.HandleWebhook(f.ctx, mock.Code, h, body)
+			errs <- err
+		}()
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil && !errors.Is(err, paymentswitch.ErrInvalidTransition) && !errors.Is(err, paymentswitch.ErrConcurrentUpdate) {
+				t.Fatalf("round %d: unexpected error (a deadlock surfaces as 40P01): %v", i, err)
+			}
+		}
+		v := f.get(in.ID)
+		if v.Intent.Status != paymentswitch.IntentSucceeded && v.Intent.Status != paymentswitch.IntentProcessing {
+			t.Fatalf("round %d: status = %s", i, v.Intent.Status)
+		}
+		if v.Intent.Status == paymentswitch.IntentProcessing {
+			f.sync(merchant, in.ID)
+		}
+		f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentSucceeded)
+	}
+	f.wantPayments(rounds)
+}
+
+func TestIntegration_ConcurrentRefundsCannotOverRefund(t *testing.T) {
+	f := newPostgresFixture(t)
+	in := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	const racers = 8
+	sixty := decimal.NewFromInt(60)
+	var wg sync.WaitGroup
+	errs := make(chan error, racers)
+	for i := range racers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := f.svc.Refund(f.ctx, merchant, in.ID, paymentswitch.RefundCommand{IdempotencyKey: "r" + decimal.NewFromInt(int64(i)).String(), Amount: &sixty})
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	var ok int
+	for err := range errs {
+		if err == nil {
+			ok++
+		} else if !errors.Is(err, paymentswitch.ErrAmountExceeds) && !errors.Is(err, paymentswitch.ErrConcurrentUpdate) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("refunds of 60 on 100 captured: succeeded = %d, want 1", ok)
+	}
+	f.wantRefundJournals(1)
+	if v := f.get(in.ID); !v.Intent.AmountRefunded.Equal(sixty) {
+		t.Fatalf("amount refunded = %s", v.Intent.AmountRefunded)
+	}
+}
+
+// Fees on Postgres through the real fees module: the fee journal is posted exactly once, in the same transaction as
+// the payment journal, keyed fee:attempt:<attempt id>, and a later Sync adds nothing.
+func TestIntegration_FeeJournalPostsOnceWithThePaymentJournal(t *testing.T) {
+	f := newPostgresFixture(t)
+	ctx := context.Background()
+	platform := models.ExternalPlatform{Name: "switch-fees"}
+	if err := f.db.Create(&platform).Error; err != nil {
+		t.Fatal(err)
+	}
+	member := models.Member{Name: "fee merchant", MemberType: "merchant", State: "active"}
+	if err := f.db.Create(&member).Error; err != nil {
+		t.Fatal(err)
+	}
+	feeSvc := fees.NewService(f.db, f.ledger.inner, fees.DefaultPolicy(), fees.WithEnvironment("test"))
+	rule, err := feeSvc.CreateRule(ctx, fees.RuleInput{
+		Scope:   fees.Scope{Method: fees.MethodCard, Currency: "USD"},
+		Pricing: fees.Pricing{Percent: decimal.RequireFromString("2.5"), Flat: decimal.RequireFromString("0.30"), FeeBearer: fees.BearerMerchant},
+	}, "member:1")
+	if err != nil {
+		t.Fatalf("create fee rule: %v", err)
+	}
+	reg := connectors.NewRegistry()
+	m := mock.New()
+	if err := reg.Register(m); err != nil {
+		t.Fatal(err)
+	}
+	selector := paymentswitch.FirstEnabledSelector{Merchants: paymentswitch.StaticMerchantConnectors{mock.Code}, Connectors: reg}
+	svc := paymentswitch.New(f.db, reg, selector, f.ledger, paymentswitch.WithFees(modules.FeesAdapter{Port: feeSvc}, modules.PaymintoPaymentRecords{DB: f.db}))
+	merchantID := strconv.FormatUint(uint64(member.ID), 10)
+	platformID := strconv.FormatUint(uint64(platform.ID), 10)
+
+	in, err := svc.Create(ctx, paymentswitch.CreateCommand{MerchantID: merchantID, PlatformID: platformID, Money: usd(100), PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	if err != nil {
+		t.Fatalf("create+confirm: %v", err)
+	}
+	if in.Status != paymentswitch.IntentSucceeded {
+		t.Fatalf("status = %s", in.Status)
+	}
+	view, err := svc.Get(ctx, merchantID, in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := view.Attempts[0].ID
+	countFee := func() int64 {
+		var n int64
+		f.db.Model(&ledger.JournalRow{}).Where("kind = ? AND idempotency_key = ?", ledger.KindFee, "fee:attempt:"+attemptID).Count(&n)
+		return n
+	}
+	if countFee() != 1 {
+		t.Fatalf("fee journals = %d, want 1", countFee())
+	}
+	var txids []int64
+	if err := f.db.Raw(`SELECT posting_txid FROM ledger_journals WHERE idempotency_key IN (?, ?)`, "switch.payment."+attemptID, "fee:attempt:"+attemptID).Scan(&txids).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(txids) != 2 || txids[0] != txids[1] {
+		t.Fatalf("payment and fee journals must share one transaction, posting_txid = %v", txids)
+	}
+	var snapshots, postings int64
+	f.db.Table("fee_snapshots").Where("attempt_id = ?", attemptID).Count(&snapshots)
+	f.db.Table("fee_postings").Where("attempt_id = ?", attemptID).Count(&postings)
+	if snapshots != 1 || postings != 1 {
+		t.Fatalf("snapshots = %d postings = %d, want 1 and 1 (rule %d)", snapshots, postings, rule.ID)
+	}
+	if _, err := svc.Sync(ctx, merchantID, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if countFee() != 1 {
+		t.Fatalf("fee journals after sync = %d, want 1", countFee())
+	}
+	bal, err := f.ledger.inner.Balances(ctx, ledger.OwnerMember, merchantID)
+	if err != nil || !bal["USD"].Equal(decimal.RequireFromString("97.2")) {
+		t.Fatalf("merchant USD balance = %v, %v; want 100 less 2.5%% + 0.30", bal, err)
+	}
+
+	noRule, err := svc.Create(ctx, paymentswitch.CreateCommand{MerchantID: merchantID, PlatformID: platformID, Money: paymentswitch.Money{Amount: decimal.NewFromInt(10), Asset: "EUR"}, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	if !errors.Is(err, paymentswitch.ErrPaymentRecord) || noRule.ID != "" {
+		t.Fatalf("a non-USD intent cannot be priced in Payminto's record: %+v, %v", noRule, err)
+	}
+}

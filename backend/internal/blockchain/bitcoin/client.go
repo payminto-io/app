@@ -76,8 +76,8 @@ func (a *Adapter) GetBalance(ctx context.Context, address, token string) (*big.I
 	}
 	// C2: use json.Number for the amount field to avoid float64 precision loss.
 	var result struct {
-		Success     bool        `json:"success"`
-		TotalAmount json.Number `json:"total_amount"`
+		Success      bool        `json:"success"`
+		TotalAmount  json.Number `json:"total_amount"`
 		TxOutSetInfo struct {
 			TotalAmount json.Number `json:"total_amount"`
 		} `json:"txoutsetinfo"`

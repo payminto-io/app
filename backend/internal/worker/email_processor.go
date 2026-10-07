@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	emailProcessorBatchSize   = 50
+	emailProcessorBatchSize    = 50
 	emailProcessorTickInterval = 10 * time.Second
-	emailMaxAttempts          = 7
+	emailMaxAttempts           = 7
 )
 
 // emailRetrySchedule defines the back-off delays for failed email events.
