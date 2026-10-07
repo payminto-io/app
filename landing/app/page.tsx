@@ -50,25 +50,25 @@ function Navbar() {
 const MARKET = [
   {
     value: "~$390B",
-    label: "genuine stablecoin payments in the 12 months to September 2025",
+    label: "stablecoin payments, year to September 2025",
     source: "a16z State of Crypto 2025",
     href: "https://a16zcrypto.com/posts/article/state-of-crypto-report-2025/",
   },
   {
     value: "$226B",
-    label: "of it business to business, up 733% year on year",
+    label: "of it B2B, up 733% year on year",
     source: "a16z State of Crypto 2025",
     href: "https://a16zcrypto.com/posts/article/state-of-crypto-report-2025/",
   },
   {
     value: "32.6%",
-    label: "of weekly adjusted stablecoin transfer volume ran on Solana in April 2026",
+    label: "of stablecoin transfer volume on Solana, April 2026",
     source: "bex.co",
     href: "https://bex.co/blog/2026/04/03/solana-650b-stablecoin-volume-record-svm-settlement-layer",
   },
   {
     value: "2",
-    label: "crypto connectors in Hyperswitch, the open-source orchestrator at scale; one shut on 2026-03-31",
+    label: "crypto connectors in Hyperswitch at scale. One shut in March 2026",
     source: "Hyperswitch docs",
     href: "https://docs.hyperswitch.io/integrations/connectors-integrations/payment-processor-capabilities/payment-methods-setup/crypto",
   },
@@ -88,9 +88,8 @@ function Market() {
             </h2>
           </div>
           <p className="text-[17px] font-semibold leading-[1.5] text-foreground-soft">
-            Merchants who want stablecoins next to cards choose between closed, custodial
-            processors and open-source tools that cover one rail. And a merchant who lets a
-            gateway hold money has to trust its balance sheet.
+            Closed custodial processors, or open source that covers one rail. Either way you
+            are trusting someone else&apos;s balance sheet.
           </p>
         </div>
         <ul data-reveal-stagger className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
@@ -123,9 +122,8 @@ function Screens() {
             </h2>
           </div>
           <p className="text-[17px] font-semibold leading-[1.5] text-foreground-soft">
-            A payment link with its checkout preview built by the server, so the fee shown is
-            the fee charged, and the hosted checkout a payer sees once a USDC payment is final.
-            Development previews with sample data.
+            The server builds the checkout preview, so the fee shown is the fee charged.
+            Sample data.
           </p>
         </div>
         <div className="relative pb-16 md:pb-24">
@@ -168,12 +166,12 @@ function Screens() {
 }
 
 const FEATURES = [
-  ["One ledger for every rail", "Card and stablecoin payments land as the same double-entry lines. Balances are derived, never stored, and the application role cannot rewrite history."],
-  ["Fees you can audit", "Versioned fee rules, never edited in place. Every payment records the rule version it paid."],
-  ["A payment switch", "Intents and attempts, idempotency keys, exclusive claims so a capture is never sent twice, and a reconciler that resolves unknown outcomes from the provider."],
-  ["Payment links", "A six-step builder with a checkout preview built by the server, unguessable short links and QR codes."],
-  ["Live and test isolation", "One environment per process. Live refuses to boot with development keys, mock providers, test databases or testnets."],
-  ["RPC as evidence", "Live needs two distinct RPC providers per chain. A deposit is dropped only when both agree."],
+  ["One ledger for every rail", "Card and stablecoin payments land as the same double-entry lines. Balances are derived, never stored."],
+  ["Fees you can audit", "Versioned rules, never edited in place. Every payment records the version it paid."],
+  ["A payment switch", "Intents, attempts and exclusive claims, so a capture is never sent twice."],
+  ["Payment links", "Six-step builder, unguessable short links, QR codes."],
+  ["Live and test isolation", "One environment per process. Live refuses development keys, mock providers and testnets."],
+  ["RPC as evidence", "Two distinct providers per chain. A deposit is dropped only when both agree."],
 ] as const;
 
 function Features() {
@@ -230,8 +228,7 @@ function Status() {
           <span className="brand-underline">what is not yet.</span>
         </h2>
         <p className="mb-12 max-w-2xl text-[17px] font-semibold leading-[1.5] text-foreground-soft">
-          Every merged module went through independent review rounds; the findings and fixes
-          are in the commit history.
+          Every merged module went through independent review rounds.
         </p>
         <div className="grid gap-5 md:grid-cols-2">
           <div className="card-ring-lg bg-surface-mint p-7 md:p-9">
@@ -275,8 +272,7 @@ function SelfHost() {
           <span className="brand-underline">Your ledger.</span>
         </h2>
         <p className="mb-10 text-[17px] font-semibold leading-[1.5] text-foreground-soft">
-          Install each Node workspace once, then run each service in its own terminal. The
-          backend target loads <code className="font-mono text-[15px]">backend/.env</code>.
+          Install once, then run each service in its own terminal.
         </p>
         <div className="card-ring overflow-hidden font-mono text-[13px]" data-reveal>
           <div className="flex items-center justify-between border-b border-border bg-surface-soft px-4 py-2.5">
@@ -298,10 +294,6 @@ function SelfHost() {
             <span className="text-brand">$ </span>make smoke-local
           </pre>
         </div>
-        <p className="mt-5 text-[14px] font-semibold text-foreground-muted">
-          Tests, the CRE simulation and the full repository map are in the
-          repository README.
-        </p>
       </div>
     </section>
   );
@@ -328,13 +320,25 @@ function Demo() {
             </h2>
           </div>
           <p className="text-[17px] font-semibold leading-[1.5] text-foreground-soft">
-            A payment taken on a testnet, read back through two RPC providers, settled on one
-            ledger, and attested by a Chainlink CRE workflow.
+            Checkout, ledger, attestation. One pass, no cuts.
           </p>
         </div>
         <figure className="card-ring-lg overflow-hidden" data-reveal>
           <DemoVideo videoId={DEMO_VIDEO_ID} poster={DEMO_POSTER} title="Payminto demo" />
         </figure>
+        <ul className="mt-6 flex flex-wrap items-center gap-2" aria-label="What the demo covers">
+          <li className="rounded-full bg-surface-soft px-3.5 py-1.5 font-mono text-[12px] font-bold text-foreground-muted">
+            88s
+          </li>
+          {["Problem", "Product", "Solana", "Chainlink CRE", "NOWNodes"].map((c) => (
+            <li
+              key={c}
+              className="rounded-full bg-surface-mint px-3.5 py-1.5 text-[12px] font-bold text-brand-ink"
+            >
+              {c}
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
@@ -342,10 +346,10 @@ function Demo() {
 
 // TOKEN2049 hackathon tracks. One line each, from each tracks/<name>/README.md.
 const TRACKS = [
-  ["Chainlink", "A CRE workflow attests what the ledger owes against reserves on chain, and the gateway re-verifies every report from its own RPC."],
-  ["Solana", "USDC and USDT accepted as separate assets on one ledger, with sweeps that survive crashes and racing workers."],
-  ["NOWNodes", "RPC treated as evidence: two distinct providers for every money decision."],
-  ["AWS", "Runs inside the merchant's own account, with isolated keys per environment."],
+  ["Chainlink", "A CRE workflow attests what the ledger owes against reserves on chain."],
+  ["Solana", "USDC and USDT as separate assets, with crash-safe sweeps."],
+  ["NOWNodes", "RPC as evidence: two providers for every money decision."],
+  ["AWS", "Runs in the merchant's own account, isolated keys per environment."],
 ] as const;
 
 function Tracks() {
@@ -373,9 +377,9 @@ function Tracks() {
 
 // Pitch deck, "Business model": open self-hosted core, paid enterprise operations.
 const REVENUE = [
-  ["Core", "Self-hosted", "Payment core, dashboard, API and MCP server, plus community connectors. The merchant runs it on their own infrastructure."],
-  ["Licence", "Enterprise", "Managed operations and monitoring, audit reporting and compliance support, priority connectors and an SLA."],
-  ["Services", "Connectors", "New acquirer and chain connectors, written from the provider's API docs and paid per integration."],
+  ["Core", "Self-hosted", "Core, dashboard, API and MCP server. The merchant runs it."],
+  ["Licence", "Enterprise", "Managed operations, audit reporting, priority connectors, SLA."],
+  ["Services", "Connectors", "New acquirer and chain connectors, paid per integration."],
 ] as const;
 
 function Revenue() {
@@ -408,23 +412,23 @@ function Revenue() {
 const FAQS = [
   {
     q: "Who holds the money?",
-    a: "Payminto is software you run. Card and UPI money moves through the payment providers you connect. Stablecoins arrive at deposit accounts derived from keys you configure and are swept to your hot wallet. Custody providers such as BitGo are in progress on branches.",
+    a: "You do. Card and UPI money moves through the providers you connect; stablecoins land in deposit accounts derived from your own keys and sweep to your wallet.",
   },
   {
     q: "What does Payminto cost?",
-    a: "The code is MIT licensed. The payment providers and networks you connect charge their own fees. The fees you charge are versioned rules, and every payment records the version it paid.",
+    a: "The code is MIT licensed. Your providers and networks charge their own fees; the fees you charge are versioned rules.",
   },
   {
     q: "Do I need Chainlink to run it?",
-    a: "No. The CRE module is off by default (CRE_ENABLED=false), and with it off the gateway behaves exactly as without it. Running the workflow in production needs Chainlink CRE Early Access; the steps are in cre/README.md.",
+    a: "No. The module is off by default, and with it off the gateway behaves exactly as without it.",
   },
   {
     q: "What happens if a worker crashes mid-sweep?",
-    a: "The claim, its links and its lock are written in one transaction before anything is signed, and every signature is saved before it is sent. A restarted or second worker resumes from the database and the chain, and every transition is a compare-and-set, so nothing is sent twice.",
+    a: "Claims and locks are written before anything is signed, and every signature is saved before it is sent. A restarted worker resumes from the database and the chain.",
   },
   {
     q: "Why two RPC providers?",
-    a: "A single node can lag or briefly lose a transaction, which makes a live deposit look missing or dropped. Live refuses to boot with fewer than two distinct endpoints, and a deposit is dropped only when both agree after finalization.",
+    a: "One node can lag or briefly lose a transaction. Live refuses fewer than two endpoints, and a deposit is dropped only when both agree.",
   },
 ];
 

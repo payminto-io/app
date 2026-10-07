@@ -44,9 +44,8 @@ export function Hero() {
               </span>
             </h1>
             <p data-hero-in="copy" className="t-lead mb-8 max-w-xl">
-              Run it on your own servers. Connect payment providers and stablecoins as peer
-              rails on one double-entry ledger, onboard your merchants, and turn on a Chainlink
-              CRE workflow when you want anyone to check that the gateway holds what it owes.
+              Cards and stablecoins as peer rails on one double-entry ledger. Your servers,
+              your keys, your balance sheet.
             </p>
             <div data-hero-in="copy" className="flex flex-wrap gap-3">
               <a href={LINKS.app} className="btn btn-primary">
