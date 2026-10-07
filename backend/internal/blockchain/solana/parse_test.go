@@ -1,0 +1,156 @@
+package solana
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/shopspring/decimal"
+)
+
+var (
+	fxOwner   = MustPublicKey("HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk")
+	fxPayer   = MustPublicKey("9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY")
+	fxUSDC    = MustPublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	fxUSDT    = MustPublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYb")
+	fxUSDCATA = MustPublicKey("5N3f1tj9v1vc5TUZ8S7mCAnVmjVKrfnzXWhxLaxyZAgt")
+	fxUSDTATA = MustPublicKey("4fz24twEFEWmsAKeeD7hgGZtVBHiGjRLEFuciSgRcgdw")
+)
+
+func usdcWatch() Watch {
+	return Watch{Owner: fxOwner, TokenAccount: fxUSDCATA, Mint: fxUSDC, TokenProgram: TokenProgram, Decimals: 6}
+}
+
+func usdtWatch() Watch {
+	return Watch{Owner: fxOwner, TokenAccount: fxUSDTATA, Mint: fxUSDT, TokenProgram: TokenProgram, Decimals: 6}
+}
+
+func fixtureTx(t *testing.T, name string) *ParsedTransaction {
+	t.Helper()
+	tx, err := LoadFixtureTransaction(filepath.Join("testdata", "tx", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tx
+}
+
+func TestExtractDeposits_USDCTransferChecked(t *testing.T) {
+	credit, anomalies := ExtractDeposits(fixtureTx(t, "usdc_transfer_checked.json"), usdcWatch())
+	if credit == nil {
+		t.Fatal("expected a credit")
+	}
+	if !credit.Amount.Equal(decimal.RequireFromString("25")) {
+		t.Fatalf("amount = %s, want 25", credit.Amount)
+	}
+	if credit.From != fxPayer.String() || credit.To != fxUSDCATA.String() || credit.Mint != fxUSDC.String() {
+		t.Fatalf("credit routing wrong: %+v", credit)
+	}
+	if credit.Slot != 250000123 || credit.Signature == "" {
+		t.Fatalf("credit slot/signature wrong: %+v", credit)
+	}
+	if len(anomalies) != 0 {
+		t.Fatalf("unexpected anomalies: %+v", anomalies)
+	}
+}
+
+func TestExtractDeposits_USDTPlainTransferResolvesMintFromBalances(t *testing.T) {
+	credit, anomalies := ExtractDeposits(fixtureTx(t, "usdt_transfer.json"), usdtWatch())
+	if credit == nil || !credit.Amount.Equal(decimal.RequireFromString("10")) {
+		t.Fatalf("credit = %+v, want 10 USDT", credit)
+	}
+	if credit.Mint != fxUSDT.String() {
+		t.Fatalf("mint = %s, want USDT", credit.Mint)
+	}
+	if len(anomalies) != 0 {
+		t.Fatalf("unexpected anomalies: %+v", anomalies)
+	}
+	// The same transaction is not a USDC deposit.
+	if c, _ := ExtractDeposits(fixtureTx(t, "usdt_transfer.json"), usdcWatch()); c != nil {
+		t.Fatalf("USDT transfer credited to USDC watch: %+v", c)
+	}
+}
+
+func TestExtractDeposits_USDTToUSDCPaymentIsWrongMintAnomaly(t *testing.T) {
+	credit, anomalies := ExtractDeposits(fixtureTx(t, "wrong_mint_usdt_to_usdc_payment.json"), usdcWatch())
+	if credit != nil {
+		t.Fatalf("wrong-mint transfer must never be credited: %+v", credit)
+	}
+	if len(anomalies) != 1 || anomalies[0].Kind != AnomalyWrongMint {
+		t.Fatalf("anomalies = %+v, want one wrong_mint", anomalies)
+	}
+	a := anomalies[0]
+	if a.Mint != fxUSDT.String() || a.To != fxUSDTATA.String() || !a.Amount.Equal(decimal.RequireFromString("25")) {
+		t.Fatalf("anomaly detail wrong: %+v", a)
+	}
+}
+
+func TestExtractDeposits_PaymentToOwnerCreatesATAAndCredits(t *testing.T) {
+	credit, anomalies := ExtractDeposits(fixtureTx(t, "owner_payment_creates_ata.json"), usdcWatch())
+	if credit == nil || !credit.Amount.Equal(decimal.RequireFromString("40")) {
+		t.Fatalf("credit = %+v, want 40 USDC", credit)
+	}
+	if len(anomalies) != 0 {
+		t.Fatalf("unexpected anomalies: %+v", anomalies)
+	}
+}
+
+func TestExtractDeposits_NativeSOLToOwnerIsAnomaly(t *testing.T) {
+	credit, anomalies := ExtractDeposits(fixtureTx(t, "native_sol_to_owner.json"), usdcWatch())
+	if credit != nil {
+		t.Fatal("SOL must not be credited as USDC")
+	}
+	if len(anomalies) != 1 || anomalies[0].Kind != AnomalyNativeToOwner || !anomalies[0].Amount.Equal(decimal.RequireFromString("0.5")) {
+		t.Fatalf("anomalies = %+v", anomalies)
+	}
+}
+
+func TestExtractDeposits_FailedTransactionYieldsNothing(t *testing.T) {
+	credit, anomalies := ExtractDeposits(fixtureTx(t, "failed_transfer.json"), usdcWatch())
+	if credit != nil || len(anomalies) != 0 {
+		t.Fatalf("failed tx produced credit=%+v anomalies=%+v", credit, anomalies)
+	}
+}
+
+func TestExtractDeposits_InnerCPITransferIsCredited(t *testing.T) {
+	credit, anomalies := ExtractDeposits(fixtureTx(t, "cpi_inner_transfer.json"), usdcWatch())
+	if credit == nil || !credit.Amount.Equal(decimal.RequireFromString("12.5")) {
+		t.Fatalf("credit = %+v, want 12.5", credit)
+	}
+	if len(anomalies) != 0 {
+		t.Fatalf("unexpected anomalies: %+v", anomalies)
+	}
+}
+
+func TestExtractDeposits_BalanceRiseWithoutParsedTransferIsFlagged(t *testing.T) {
+	tx := fixtureTx(t, "usdc_transfer_checked.json")
+	tx.Transaction.Message.Instructions = nil
+	credit, anomalies := ExtractDeposits(tx, usdcWatch())
+	if credit != nil {
+		t.Fatal("no parsed transfer means no credit")
+	}
+	if len(anomalies) != 1 || anomalies[0].Kind != AnomalyUnparsedCredit || !anomalies[0].Amount.Equal(decimal.RequireFromString("25")) {
+		t.Fatalf("anomalies = %+v", anomalies)
+	}
+}
+
+func TestExtractDeposits_Token2022ProgramRejectedForSPLAsset(t *testing.T) {
+	tx := fixtureTx(t, "usdc_transfer_checked.json")
+	tx.Transaction.Message.Instructions[0].ProgramID = Token2022Program.String()
+	credit, anomalies := ExtractDeposits(tx, usdcWatch())
+	if credit != nil {
+		t.Fatal("token-2022 transfer credited to an SPL asset")
+	}
+	if len(anomalies) == 0 || anomalies[0].Kind != AnomalyWrongTokenProgram {
+		t.Fatalf("anomalies = %+v", anomalies)
+	}
+}
+
+func TestFeePayerRentRefund(t *testing.T) {
+	tx := fixtureTx(t, "usdc_transfer_checked.json")
+	if got := FeePayerRentRefund(tx); got != 0 {
+		t.Fatalf("refund = %d, want 0", got)
+	}
+	tx.Meta.PostBalances[0] = tx.Meta.PreBalances[0] - tx.Meta.Fee + 2039280
+	if got := FeePayerRentRefund(tx); got != 2039280 {
+		t.Fatalf("refund = %d, want 2039280", got)
+	}
+}

@@ -1,0 +1,30 @@
+{
+  "slot": 250001200,
+  "blockTime": 1759839400,
+  "transaction": {
+    "signatures": ["3aB5cD7eF9gH2jK4lM6nP8qR1sT3uV5wX7yZ9aB2cD4eF6gH8jK1lM3nP5qR7sT9uV2wX4yZ6aB8cD1eF3gH5j"],
+    "message": {
+      "accountKeys": [
+        {"pubkey": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY", "signer": true, "writable": true, "source": "transaction"},
+        {"pubkey": "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk", "signer": false, "writable": true, "source": "transaction"},
+        {"pubkey": "11111111111111111111111111111111", "signer": false, "writable": false, "source": "transaction"}
+      ],
+      "instructions": [
+        {"program": "system", "programId": "11111111111111111111111111111111", "parsed": {"type": "transfer", "info": {"destination": "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk", "lamports": 500000000, "source": "9h1cLBiraaUqM1CdJTaVaew1oQtgQUW24FZ8YdnLLgJY"}}, "stackHeight": null}
+      ],
+      "recentBlockhash": "5fH8kM2nP4qS6tV8xZ1bD3eG5hJ7kL9mN2pR4sU6vX8y"
+    }
+  },
+  "meta": {
+    "err": null,
+    "status": {"Ok": null},
+    "fee": 5000,
+    "preBalances": [3000000000, 0, 1],
+    "postBalances": [2499995000, 500000000, 1],
+    "innerInstructions": [],
+    "preTokenBalances": [],
+    "postTokenBalances": [],
+    "logMessages": [],
+    "computeUnitsConsumed": 150
+  }
+}
