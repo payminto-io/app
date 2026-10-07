@@ -99,3 +99,168 @@ func TestSolanaDeposit_UnresolvedSignatureDoesNotBlockExpiryForever(t *testing.T
 		t.Fatalf("expired scan did not resolve it: unresolved=%q deposits=%d", got.UnresolvedSignatures, len(f.depositsFor(pr)))
 	}
 }
+
+// processingSweepRows writes the rows a crash before signing leaves behind, aged past the validity window.
+func (f *sweepFixture) processingSweepRows(ata string, dep models.Deposit) models.Sweep {
+	f.t.Helper()
+	sweep := models.Sweep{Status: SweepStatusProcessing, BlockchainID: f.chain.ID}
+	must(f.t, f.db.Create(&sweep).Error)
+	must(f.t, f.db.Create(&models.SweepTransaction{Amount: dep.Amount, FromAddress: ata, ToAddress: "hot", Status: SweepTxStatusPending, SweepID: sweep.ID, BlockchainCurrencyID: f.usdc.ID}).Error)
+	must(f.t, f.db.Create(&models.SolanaSweepDeposit{SweepID: sweep.ID, DepositID: dep.ID}).Error)
+	must(f.t, f.db.Create(&models.SolanaSweepLock{TokenAccount: ata, SweepID: sweep.ID}).Error)
+	f.db.Model(&models.Deposit{}).Where("id = ?", dep.ID).Update("status", models.DepositStatusSwept)
+	f.db.Model(&models.Sweep{}).Where("id = ?", sweep.ID).Update("created_at", f.now.Add(-time.Hour))
+	return sweep
+}
+
+func (f *sweepFixture) history(sigs ...string) {
+	f.rpc.On("getSignaturesForAddress", func([]any) (any, error) {
+		out := make([]map[string]any, len(sigs))
+		for i, s := range sigs {
+			out[i] = map[string]any{"signature": s, "slot": 700, "err": nil, "confirmationStatus": "finalized"}
+		}
+		return out, nil
+	})
+}
+
+func (f *sweepFixture) finalizedEverywhere() {
+	f.statuses(map[string]any{"slot": 700, "confirmations": nil, "err": nil, "confirmationStatus": "finalized"})
+}
+
+// NEW2-I2, balance moved: a processing sweep with no attempt whose account was drained by a transaction
+// our fee payer signed records that transaction as its attempt, with a real height, and books it.
+func TestSolanaSweep_ProcessingWithoutAttemptRecoversOurTransactionFromHistory(t *testing.T) {
+	f := newSweepFixture(t)
+	_, ata, deps := f.newOwner("25")
+	f.balanceAlways("0")
+	sweep := f.processingSweepRows(ata, deps[0])
+	f.history("OURS")
+	f.rpc.Result("getBlockHeight", 1000)
+	f.unknownEverywhere()
+	f.finalizedTx("OURS", ata, "25000000") // unknownEverywhere reset getTransaction
+	ctx := context.Background()
+	f.svc.TrackConfirmations(ctx)
+	att := f.attempts(sweep.ID)
+	if len(att) != 1 || att[0].Signature != "OURS" || att[0].LastValidBlockHeight == 0 || f.sweepStatus(sweep.ID) != SweepStatusPending {
+		t.Fatalf("not recovered: sweep=%s attempts=%+v", f.sweepStatus(sweep.ID), att)
+	}
+	if att[0].LastValidBlockHeight != 1000+solana.BlockhashValidityBlocks {
+		t.Fatalf("recovered height = %d", att[0].LastValidBlockHeight)
+	}
+	f.finalizedEverywhere()
+	f.rpc.Result("getAccountInfo", solana.ContextValue(1, nil))
+	if done, err := f.svc.TrackConfirmations(ctx); err != nil || done != 1 {
+		t.Fatalf("track: %d %v", done, err)
+	}
+	if f.sweepStatus(sweep.ID) != SweepStatusCompleted || f.depositStatus(deps[0].ID) != models.DepositStatusSwept {
+		t.Fatalf("sweep=%s deposit=%s", f.sweepStatus(sweep.ID), f.depositStatus(deps[0].ID))
+	}
+	var locks int64
+	f.db.Model(&models.SolanaSweepLock{}).Count(&locks)
+	if locks != 0 {
+		t.Fatal("lock kept after booking")
+	}
+}
+
+// NEW2-I2, balance moved by someone else: the sweep fails, the account is set aside with an anomaly.
+func TestSolanaSweep_ProcessingWithoutAttemptAndForeignDrainFailsWithAnomaly(t *testing.T) {
+	f := newSweepFixture(t)
+	_, ata, deps := f.newOwner("25")
+	f.balanceAlways("0")
+	sweep := f.processingSweepRows(ata, deps[0])
+	f.history("THEIRS")
+	f.rpc.Result("getTransaction", map[string]any{"slot": 700, "transaction": map[string]any{"signatures": []string{"THEIRS"}, "message": map[string]any{
+		"accountKeys": []any{map[string]any{"pubkey": fxPayer, "signer": true}}, "instructions": []any{}}}, "meta": map[string]any{"err": nil}})
+	f.svc.TrackConfirmations(context.Background())
+	acct, _ := f.accounts.GetByTokenAccount(ata)
+	missed, _ := f.missed.ListUnresolved()
+	if f.sweepStatus(sweep.ID) != SweepStatusFailed || acct.Status != models.SolanaDepositAccountDrained || len(missed) != 1 || !strings.HasPrefix(missed[0].Reason, anomalyUnexplainedDrain) {
+		t.Fatalf("sweep=%s account=%s missed=%+v", f.sweepStatus(sweep.ID), acct.Status, missed)
+	}
+	if n, _ := f.svc.SweepConfirmed(context.Background()); n != 0 {
+		t.Fatal("a drained account was swept again")
+	}
+}
+
+// A pending sweep whose account sits below its claim with nothing finalized waits, and after DrainWait
+// with nothing of ours in the history it fails with an anomaly instead of waiting forever.
+func TestSolanaSweep_ShortBalanceWaitsThenNeedsAnExplanation(t *testing.T) {
+	f := newSweepFixture(t)
+	_, ata, deps := f.newOwner("25")
+	f.balanceAlways("25000000")
+	f.blockhash(500)
+	f.rpc.Result("sendTransaction", "SIGS")
+	ctx := context.Background()
+	f.svc.SweepConfirmed(ctx)
+	f.balanceAlways("0")
+	f.unknownEverywhere()
+	f.rpc.Result("getBlockHeight", 600)
+	f.history()
+	f.svc.TrackConfirmations(ctx)
+	if f.sweepStatus(1) != SweepStatusPending {
+		t.Fatalf("did not wait: %s", f.sweepStatus(1))
+	}
+	f.svc.now = func() time.Time { return f.now.Add(2 * time.Hour) }
+	f.db.Model(&models.SolanaSweepAttempt{}).Where("sweep_id = ?", 1).Update("created_at", f.now.Add(-2*time.Hour))
+	f.svc.TrackConfirmations(ctx)
+	acct, _ := f.accounts.GetByTokenAccount(ata)
+	if f.sweepStatus(1) != SweepStatusFailed || acct.Status != models.SolanaDepositAccountDrained || f.depositStatus(deps[0].ID) != models.DepositStatusConfirmed {
+		t.Fatalf("sweep=%s account=%s deposit=%s", f.sweepStatus(1), acct.Status, f.depositStatus(deps[0].ID))
+	}
+}
+
+// Every signature is in the database before any node sees it.
+func TestSolanaSweep_SignatureIsPersistedBeforeSend(t *testing.T) {
+	f := newSweepFixture(t)
+	f.newOwner("25")
+	f.balanceAlways("25000000")
+	f.blockhash(500)
+	var atSend []models.SolanaSweepAttempt
+	f.rpc.On("sendTransaction", func(p []any) (any, error) {
+		tx, err := solana.DecodeTransactionBase64(solana.FirstParamString(p))
+		must(t, err)
+		must(t, f.db.Where("signature = ?", tx.Signature()).Find(&atSend).Error)
+		return tx.Signature(), nil
+	})
+	if n, _ := f.svc.SweepConfirmed(context.Background()); n != 1 {
+		t.Fatal("not sent")
+	}
+	if len(atSend) != 1 || atSend[0].Status != models.SolanaSweepAttemptSigned || atSend[0].LastValidBlockHeight != 500 {
+		t.Fatalf("attempt at send time = %+v", atSend)
+	}
+	if att := f.attempts(1); att[0].Status != models.SolanaSweepAttemptSent {
+		t.Fatalf("after ack: %+v", att)
+	}
+}
+
+// A signed attempt whose send failed in transport and never landed expires on evidence and is rebuilt.
+func TestSolanaSweep_SignedAttemptThatNeverLandedIsRebuilt(t *testing.T) {
+	f := newSweepFixture(t)
+	f.newOwner("25")
+	f.balanceAlways("25000000")
+	f.blockhash(500)
+	f.rpc.On("sendTransaction", func([]any) (any, error) { return nil, errors.New("connection reset by peer") })
+	ctx := context.Background()
+	f.svc.SweepConfirmed(ctx)
+	if att := f.attempts(1); len(att) != 1 || att[0].Status != models.SolanaSweepAttemptSigned {
+		t.Fatalf("attempts = %+v", att)
+	}
+	f.unknownEverywhere()
+	f.rpc.Result("getBlockHeight", 600)
+	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "7pWqF1vXjQ2nD4sT8kL6mB3cR5yH9wE2aG7uN1xP4zV8", "lastValidBlockHeight": 750}))
+	f.rpc.Result("sendTransaction", "SIGR2")
+	f.svc.TrackConfirmations(ctx)
+	att := f.attempts(1)
+	if len(att) != 2 || att[0].Status != models.SolanaSweepAttemptExpired || att[1].Status != models.SolanaSweepAttemptSent || att[1].LastValidBlockHeight != 750 {
+		t.Fatalf("attempts after rebuild = %+v", att)
+	}
+}
+
+// NEW2-I4 at the database: the lock's unique index refuses a second sweep on one account.
+func TestSolanaSweep_LockIsUniquePerAccount(t *testing.T) {
+	f := newSweepFixture(t)
+	must(t, f.db.Create(&models.SolanaSweepLock{TokenAccount: "ATA1", SweepID: 1}).Error)
+	if err := f.db.Create(&models.SolanaSweepLock{TokenAccount: "ATA1", SweepID: 2}).Error; err == nil {
+		t.Fatal("second lock on one account accepted")
+	}
+}

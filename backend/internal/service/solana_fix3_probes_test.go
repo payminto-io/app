@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -243,7 +242,6 @@ func TestProbe2_SecondSweepBroadcastWhileFirstIsTracked(t *testing.T) {
 	if missed, _ := f.missed.ListUnresolved(); len(missed) != 0 {
 		t.Fatalf("anomalies: %+v", missed)
 	}
-	_ = strings.ToUpper
 }
 
 func decimalFromString(s string) decimal.Decimal { return decimal.RequireFromString(s) }
