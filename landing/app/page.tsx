@@ -7,6 +7,7 @@ import { CopyButton } from "./sections/copy-button";
 import { LINKS } from "./sections/links";
 import { ThemeImage } from "./sections/theme-image";
 import { DemoVideo } from "./sections/demo-video";
+import { PlatformDiagram } from "./sections/platform-diagram";
 
 // Section order: hero, market, flow (pinned), solvency (pinned), solana, screens,
 // features, status, self-host, FAQ, CTA, footer. Motion rules: docs/MOTION.md.
@@ -308,37 +309,47 @@ const DEMO_POSTER = "/demo/payminto-demo-poster.jpg";
 
 function Demo() {
   return (
-    <section id="demo" className="section-alt border-y border-border py-24 md:py-32">
+    <section id="demo" className="section-alt border-y border-border py-20 md:py-28">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <div className="mb-12 grid gap-6 lg:grid-cols-[1.1fr_1fr] lg:items-end">
-          <div>
-            <p className="eyebrow mb-4">Demo</p>
-            <h2 className="font-display text-[44px] font-black text-foreground md:text-[56px]" data-reveal>
-              Eighty-eight seconds,
+        <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:items-center lg:gap-14">
+          {/* Left: the one-liner, and a picture of what this is. */}
+          <div data-reveal>
+            <div className="mb-6 flex items-center gap-2.5">
+              <Image src="/brand/mark.svg" alt="" width={32} height={32} className="img-light" />
+              <Image src="/brand/mark-dark.svg" alt="" width={32} height={32} className="img-dark" />
+              <span className="text-[17px] font-bold tracking-tight text-foreground">payminto</span>
+            </div>
+            <h2 className="font-display mb-5 text-[32px] font-black leading-[1.1] text-foreground md:text-[40px]">
+              Take card and crypto payments
               <br />
-              <span className="brand-underline">end to end.</span>
+              <span className="brand-underline">on software you run yourself.</span>
             </h2>
+            <p className="mb-9 text-[16px] font-semibold leading-[1.5] text-foreground-soft">
+              Every rail posts to one ledger inside your own deployment. Payouts leave from there.
+            </p>
+            <PlatformDiagram />
           </div>
-          <p className="text-[17px] font-semibold leading-[1.5] text-foreground-soft">
-            Checkout, ledger, attestation. One pass, no cuts.
-          </p>
+
+          {/* Right: the video. */}
+          <div data-reveal>
+            <figure className="card-ring-lg overflow-hidden">
+              <DemoVideo videoId={DEMO_VIDEO_ID} poster={DEMO_POSTER} title="Payminto demo" />
+            </figure>
+            <ul className="mt-5 flex flex-wrap items-center gap-2" aria-label="What the video covers">
+              <li className="rounded-full bg-surface-soft px-3.5 py-1.5 font-mono text-[12px] font-bold text-foreground-muted">
+                88s
+              </li>
+              {["Problem", "Product", "Solana", "Chainlink CRE", "NOWNodes"].map((c) => (
+                <li
+                  key={c}
+                  className="rounded-full bg-surface-mint px-3.5 py-1.5 text-[12px] font-bold text-brand-ink"
+                >
+                  {c}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-        <figure className="card-ring-lg overflow-hidden" data-reveal>
-          <DemoVideo videoId={DEMO_VIDEO_ID} poster={DEMO_POSTER} title="Payminto demo" />
-        </figure>
-        <ul className="mt-6 flex flex-wrap items-center gap-2" aria-label="What the demo covers">
-          <li className="rounded-full bg-surface-soft px-3.5 py-1.5 font-mono text-[12px] font-bold text-foreground-muted">
-            88s
-          </li>
-          {["Problem", "Product", "Solana", "Chainlink CRE", "NOWNodes"].map((c) => (
-            <li
-              key={c}
-              className="rounded-full bg-surface-mint px-3.5 py-1.5 text-[12px] font-bold text-brand-ink"
-            >
-              {c}
-            </li>
-          ))}
-        </ul>
       </div>
     </section>
   );
@@ -534,11 +545,11 @@ export default function Home() {
     <main id="top" className="min-h-screen bg-background text-foreground">
       <Navbar />
       <Hero />
+      <Demo />
       <Market />
       <Flow />
       <Solvency />
       <Solana />
-      <Demo />
       <Screens />
       <Features />
       <Status />
