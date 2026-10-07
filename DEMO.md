@@ -2,6 +2,11 @@
 
 Everything below runs locally. Nothing is deployed to a public network. Screens marked "Sample data" are dev previews of the real pages.
 
+## Pitch deck
+
+Check the pitch deck here: [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1QpXIgz82kQVeH15eYvIeyOrCwypKGi2K/view).
+It covers the product, the AWS reference deployment, the NOWNodes, Chainlink CRE, and Solana settlement flow, and screenshots of the running product.
+
 ## The story (60 seconds)
 
 An open-source, self-hostable payment gateway where fiat and stablecoins are peer rails and every number is a double-entry ledger line.
