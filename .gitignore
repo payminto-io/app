@@ -30,3 +30,4 @@ docker/postgres/data/
 # OS
 .DS_Store
 Thumbs.db
+.superpowers/
