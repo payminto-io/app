@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/links"
 	"github.com/payminto/payminto/backend/internal/modules"
@@ -260,7 +261,8 @@ func TestNewRouterGuardsMerchantLinkRoutesButNotTheCheckout(t *testing.T) {
 	f := newRBACFixture(t)
 	store := links.NewMemStore()
 	svc := links.NewService(store, linksFees{}, &linksCreator{})
-	r := NewRouter(RouterConfig{AuthSvc: f.auth, MEPRoleSvc: f.mep, Links: &modules.LinksModule{Port: svc}})
+	r := NewRouter(RouterConfig{AuthSvc: f.auth, MEPRoleSvc: f.mep, Links: &modules.LinksModule{Port: svc},
+		Environment: &modules.EnvironmentModule{Environment: environment.Test}})
 	for _, rt := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v2/links"}, {http.MethodGet, "/api/v2/links"}, {http.MethodGet, "/api/v2/links/x"},
 		{http.MethodPatch, "/api/v2/links/x"}, {http.MethodDelete, "/api/v2/links/x"},
