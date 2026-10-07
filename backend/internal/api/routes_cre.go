@@ -281,7 +281,8 @@ func (h *creHandler) publicAttestation(c *gin.Context) {
 	out["consumer_address"] = addrOrNil(cfg.ConsumerAddress)
 	out["forwarder_address"] = addrOrNil(cfg.ForwarderAddress)
 	out["gateway_id"] = "0x" + common.Bytes2Hex(cfg.GatewayID[:])
-	out["independently_signed"] = a.Provider == cre.ProviderChainlink
+	// A simulated record (simulator identity or simulation forwarder) is never presented as a production attestation.
+	out["independently_signed"] = a.Provider == cre.ProviderChainlink && !a.Simulated
 	c.JSON(http.StatusOK, out)
 }
 
@@ -380,7 +381,7 @@ func statusJSON(rep cre.StatusReport) gin.H {
 		"enabled": rep.Enabled, "provider": rep.Provider, "degraded_from": rep.DegradedFrom, "missing_keys": missing,
 		"environment": string(rep.Environment), "chain": rep.Chain, "consumer_address": rep.ConsumerAddress, "forwarder_address": rep.ForwarderAddress,
 		"workflow_owner": rep.WorkflowOwner, "trigger_signer": rep.TriggerSigner, "trigger_signer_address": rep.TriggerSignerAddress,
-		"gateway_id": rep.GatewayID, "public_base_url": rep.PublicBaseURL, "public_verify_enabled": rep.PublicVerifyEnabled,
+		"gateway_id": rep.GatewayID, "public_base_url": rep.PublicBaseURL, "public_verify_enabled": rep.PublicVerifyEnabled, "forwarder_simulated": rep.ForwarderSimulated,
 		"health":    gin.H{"status": string(rep.Health.Status), "message": rep.Health.Message},
 		"workflows": workflows,
 	}

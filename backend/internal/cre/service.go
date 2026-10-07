@@ -37,6 +37,8 @@ type Config struct {
 	Confirmations         uint64
 
 	PublicVerifyEnabled bool
+	// ForwarderSimulated: every record of this deployment is simulated (mock or simulation forwarder).
+	ForwarderSimulated bool
 	// ReadTokens are the per-workflow bearer credentials; the service keeps only their hashes.
 	ReadTokens map[Kind]string
 
@@ -510,6 +512,7 @@ type StatusReport struct {
 	GatewayID            string
 	PublicBaseURL        string
 	PublicVerifyEnabled  bool
+	ForwarderSimulated   bool
 	Health               Health
 	Workflows            []WorkflowStatus
 }
@@ -518,7 +521,7 @@ func (s *Service) Status(ctx context.Context) (StatusReport, error) {
 	rep := StatusReport{
 		Enabled: s.Enabled(), Provider: s.cfg.Provider, DegradedFrom: s.cfg.DegradedFrom, MissingKeys: s.cfg.MissingKeys,
 		Chain: s.cfg.Chain, TriggerSigner: s.cfg.TriggerSigner, PublicBaseURL: s.cfg.PublicBaseURL,
-		PublicVerifyEnabled: s.cfg.PublicVerifyEnabled, Health: Health{Status: HealthOff},
+		PublicVerifyEnabled: s.cfg.PublicVerifyEnabled, ForwarderSimulated: s.cfg.ForwarderSimulated, Health: Health{Status: HealthOff},
 	}
 	if s.guard != nil {
 		rep.Environment = s.guard.Current()

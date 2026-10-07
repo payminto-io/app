@@ -66,6 +66,8 @@ export interface AttestationStatus {
   gateway_id: string;
   public_base_url: string;
   public_verify_enabled: boolean;
+  /** True when the forwarder is a mock or simulation forwarder: every record of this deployment is simulated. */
+  forwarder_simulated: boolean;
   health: { status: "ok" | "degraded" | "down" | "off" | string; message: string };
   workflows: WorkflowStatus[];
 }

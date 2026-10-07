@@ -88,7 +88,9 @@ func WireCRE(deps Deps, opts CREOptions) (*CREModule, error) {
 	if store == nil {
 		store = cre.NewPostgresStore(deps.DB)
 	}
-	verifier := &cre.Verifier{Provider: provider, GatewayID: sc.GatewayID, Chain: sc.Chain, Bindings: sc.Bindings}
+	live := deps.Environment != nil && deps.Environment.Environment == environment.Live
+	verifier := &cre.Verifier{Provider: provider, GatewayID: sc.GatewayID, Chain: sc.Chain, Bindings: sc.Bindings, SimulatedForwarder: cfg.ForwarderSimulated, Live: live}
+	sc.ForwarderSimulated = cfg.ForwarderSimulated
 
 	var attester cre.Attester
 	var mockProvider *mock.Provider
@@ -121,6 +123,11 @@ func WireCRE(deps Deps, opts CREOptions) (*CREModule, error) {
 			sc.Bindings[k] = cre.Binding{ID: common.HexToHash(strings.TrimPrefix(ids[k], "0x")), Owner: common.HexToAddress(owner), Name: cre.KeystoneName(names[k])}
 		}
 		verifier.Consumer = sc.ConsumerAddress
+		for k, b := range sc.Bindings {
+			if live && cre.IsSimulatorBinding(b) {
+				return nil, fmt.Errorf("modules: cre binding for %s is the simulator's identity; refused in live", k)
+			}
+		}
 		reader := opts.Reader
 		if reader == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

@@ -259,3 +259,40 @@ func TestCRE_LiveConfirmationsDefaultAndZeroRefused(t *testing.T) {
 		t.Fatalf("zero confirmations accepted in live: %v", err)
 	}
 }
+
+func TestCRE_LiveRefusesSimulatorIdentities(t *testing.T) {
+	clearCRE(t)
+	liveEnv(t)
+	t.Setenv("CRE_ENABLED", "true")
+	t.Setenv("CRE_PROVIDER", "chainlink")
+	setChainlinkKeys(t)
+	if _, err := Load(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CRE_FORWARDER_SIMULATED", "true")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "CRE_FORWARDER_SIMULATED") {
+		t.Fatalf("simulation forwarder accepted in live: %v", err)
+	}
+	t.Setenv("CRE_FORWARDER_SIMULATED", "false")
+	t.Setenv("CRE_WORKFLOW_ID_SOLVENCY", "0x"+strings.Repeat("11", 32))
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "simulator") {
+		t.Fatalf("simulator workflow id accepted in live: %v", err)
+	}
+	t.Setenv("CRE_WORKFLOW_ID_SOLVENCY", strings.Repeat("a", 64))
+	t.Setenv("CRE_WORKFLOW_OWNER", "0x"+strings.Repeat("aa", 20))
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "simulator") {
+		t.Fatalf("simulator owner accepted in live: %v", err)
+	}
+	// Development accepts them: that is the simulate tier.
+	clearCRE(t)
+	t.Setenv("SERVER", "development")
+	t.Setenv("CRE_ENABLED", "true")
+	t.Setenv("CRE_PROVIDER", "chainlink")
+	setChainlinkKeys(t)
+	t.Setenv("CRE_FORWARDER_SIMULATED", "true")
+	t.Setenv("CRE_WORKFLOW_OWNER", "0x"+strings.Repeat("aa", 20))
+	cfg, err := Load()
+	if err != nil || !cfg.CRE.ForwarderSimulated {
+		t.Fatalf("development simulate tier refused: %v", err)
+	}
+}

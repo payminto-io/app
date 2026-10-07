@@ -381,3 +381,35 @@ func TestVerify_EmptyReportIsInvalid(t *testing.T) {
 func containsErr(reason string, target error) bool {
 	return len(reason) >= len(target.Error()) && reason[:len(target.Error())] == target.Error()
 }
+
+// The CRE simulator signs with a fixed identity; such records are simulated (never production) and refused in live.
+func TestVerify_SimulatorIdentityIsSimulatedAndRefusedInLive(t *testing.T) {
+	f := newFixture(t)
+	item := f.confirmedItem(t)
+	report := f.depositReport(t, []DepositItem{item})
+	f.bindings[KindDepositFinality] = Binding{ID: SimulatorWorkflowID, Owner: SimulatorOwner, Name: KeystoneName("deposit_finality")}
+	raw := f.onChain(KindDepositFinality, report)
+	m := Metadata{WorkflowID: SimulatorWorkflowID, Owner: SimulatorOwner, WorkflowName: KeystoneName("deposit_finality"), ReportID: [2]byte{0, 1}}
+	raw.Metadata = m.Encode()
+	v := f.verifier(ProviderChainlink)
+	rows, err := v.Verify(context.Background(), raw)
+	if err != nil || len(rows) != 1 || !rows[0].Simulated || rows[0].Status != StatusAttested {
+		t.Fatalf("simulator rows = %+v err %v", rows, err)
+	}
+	v.Live = true
+	if _, err := v.Verify(context.Background(), raw); !errors.Is(err, ErrSimulated) || !IsRejection(err) {
+		t.Fatalf("live: err = %v, want ErrSimulated", err)
+	}
+	// A simulation forwarder marks every record simulated, whatever identity signed it.
+	f2 := newFixture(t)
+	v2 := f2.verifier(ProviderChainlink)
+	v2.SimulatedForwarder = true
+	rows, err = v2.Verify(context.Background(), f2.onChain(KindDepositFinality, f2.depositReport(t, []DepositItem{f2.confirmedItem(t)})))
+	if err != nil || !rows[0].Simulated {
+		t.Fatalf("simulation forwarder rows = %+v err %v", rows, err)
+	}
+	v2.Live = true
+	if _, err := v2.Verify(context.Background(), f2.onChain(KindDepositFinality, f2.depositReport(t, []DepositItem{f2.confirmedItem(t)}))); !errors.Is(err, ErrSimulated) {
+		t.Fatalf("live simulation forwarder: %v", err)
+	}
+}

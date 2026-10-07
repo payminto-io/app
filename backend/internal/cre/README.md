@@ -34,6 +34,7 @@ The consumer ABI is embedded from `abi/GatewayAttestations.json`; `abi_test.go` 
 
 Mirrors the audited contract. In order: version, exact length and metadata decode; `(workflowId, owner, Keystone name)` against the kind's `Binding`; gateway id; evidence (chainlink: tx present, emitter is the consumer, calldata report hashes to the logged `reportHash`, log at or below the finality bound, else `ErrUnconfirmed` which is retryable; mock: signature recovers to the dev key); not in the future; payload hash never recorded for this provider (`ErrReplayed`); then per item the subject lookup and fact comparison.
 There is no ordering between distinct reports and no age limit on recording.
+A report carrying the CRE simulator's fixed identity (`SimulatorWorkflowID` 0x11..11, `SimulatorOwner` 0xaa..aa) or arriving through a simulation forwarder (`CRE_FORWARDER_SIMULATED`) is stored `simulated=true`, never presented as production (`independently_signed=false`), and refused outright in live (`ErrSimulated`); config also refuses the flag and those identities in staging and production.
 Per-item outcomes: `attested` (every served fact matches), `mismatch` (figures differ from what the gateway served: deposit token/amount/destination, solvency liabilities/decimals, conversion pair; raised as an anomaly), `ignored` (the contract superseded the solvency item), `failed` (subject never served). Whole-report refusals store nothing; the poller keeps a `failed` row for a definitively refused on-chain report.
 
 ## Service (`service.go`, `worker.go`)

@@ -51,6 +51,10 @@ type Verifier struct {
 	Now  func() time.Time
 	// Chain is stamped on the rows.
 	Chain string
+	// SimulatedForwarder is true when CRE_FORWARDER_ADDRESS is a mock or simulation forwarder: every record is simulated.
+	SimulatedForwarder bool
+	// Live refuses simulated identities outright instead of recording them as simulated.
+	Live bool
 }
 
 // Verify returns one row per item. A whole-report failure is an error; a per-item finding is a row with
@@ -83,6 +87,11 @@ func (v *Verifier) Verify(ctx context.Context, raw RawAttestation) ([]Attestatio
 	if report.GatewayID != v.GatewayID {
 		return nil, fmt.Errorf("%w: %x", ErrWrongGateway, report.GatewayID)
 	}
+	simulated := raw.Simulated || v.SimulatedForwarder || IsSimulatorIdentity(meta)
+	if simulated && v.Live {
+		return nil, fmt.Errorf("%w: workflow %x owner %s", ErrSimulated, meta.WorkflowID, common.BytesToAddress(meta.Owner[:]))
+	}
+	raw.Simulated = simulated
 	if err := v.checkEvidence(raw); err != nil {
 		return nil, err
 	}
@@ -339,7 +348,7 @@ func CheckpointSubject(cp Checkpoint) Subject {
 
 // IsRejection says whether an error is a definitive verdict on the report (the cursor may pass it).
 func IsRejection(err error) bool {
-	for _, target := range []error{ErrInvalidReport, ErrForged, ErrReplayed, ErrWrongWorkflow, ErrWrongOwner, ErrWrongName, ErrWrongGateway, ErrWrongEmitter, ErrDisabled, ErrUnsupported} {
+	for _, target := range []error{ErrInvalidReport, ErrForged, ErrReplayed, ErrWrongWorkflow, ErrWrongOwner, ErrWrongName, ErrWrongGateway, ErrWrongEmitter, ErrSimulated, ErrDisabled, ErrUnsupported} {
 		if errors.Is(err, target) {
 			return true
 		}

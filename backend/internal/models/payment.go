@@ -11,17 +11,17 @@ import (
 // address assignment.
 type PaymentRequest struct {
 	PaymintoModel
-	ReferenceID        string           `gorm:"type:varchar(100);not null;uniqueIndex" json:"referenceID"`
-	AmountInUSD        decimal.Decimal  `gorm:"type:numeric(38,18);not null" json:"amountInUSD"`
-	State              string           `gorm:"type:varchar(20);default:'OPEN';not null" json:"state"`
-	CustomerEmail      *string          `gorm:"type:text" json:"customerEmail,omitempty"`
-	CustomerID         *string          `gorm:"type:text" json:"customerID,omitempty"`
-	InvoiceID          *string          `gorm:"type:text" json:"invoiceID,omitempty"`
-	ExpiresAt          *time.Time       `json:"expiresAt,omitempty"`
-	ConfirmedAt        *time.Time       `json:"confirmedAt,omitempty"`
+	ReferenceID   string          `gorm:"type:varchar(100);not null;uniqueIndex" json:"referenceID"`
+	AmountInUSD   decimal.Decimal `gorm:"type:numeric(38,18);not null" json:"amountInUSD"`
+	State         string          `gorm:"type:varchar(20);default:'OPEN';not null" json:"state"`
+	CustomerEmail *string         `gorm:"type:text" json:"customerEmail,omitempty"`
+	CustomerID    *string         `gorm:"type:text" json:"customerID,omitempty"`
+	InvoiceID     *string         `gorm:"type:text" json:"invoiceID,omitempty"`
+	ExpiresAt     *time.Time      `json:"expiresAt,omitempty"`
+	ConfirmedAt   *time.Time      `json:"confirmedAt,omitempty"`
 
-	MemberID           uint `gorm:"not null" json:"memberID"`
-	ExternalPlatformID uint `gorm:"not null" json:"externalPlatformID"`
+	MemberID           uint  `gorm:"not null" json:"memberID"`
+	ExternalPlatformID uint  `gorm:"not null" json:"externalPlatformID"`
 	DepositAddressID   *uint `json:"depositAddressID,omitempty"`
 
 	Member           *Member           `gorm:"foreignKey:MemberID" json:"-"`

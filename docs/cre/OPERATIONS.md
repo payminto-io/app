@@ -11,7 +11,7 @@ Design: `docs/cre/SPEC.md`. Code: `backend/internal/cre/README.md`.
 | --- | --- | --- |
 | `none` (default) | nothing | no routes, no worker, no tables read; the settings page says the module is off |
 | `mock` | `CRE_ENABLED=true CRE_PROVIDER=mock` | records with `provider=mock`, signed by an in-process dev key; every badge says Mock; refused in live |
-| simulate | mock plus the CRE CLI and the workflow code (tickets 23 to 25) | the real workflows run locally with `cre workflow simulate`; records still carry `provider=mock`, `simulated=true` |
+| simulate | the CRE CLI and the workflow code (tickets 23 to 25) writing through a mock forwarder, `CRE_PROVIDER=chainlink` with `CRE_FORWARDER_SIMULATED=true` | the real workflows run locally with `cre workflow simulate`; every record is `simulated=true` (the simulator's fixed identity, workflow id `0x11..11` and owner `0xaa..aa`, is recognised too) and is never presented as a production attestation |
 | `chainlink` | Chainlink Early Access, deployed workflows, a consumer contract, a signer-held trigger key | records read from your own RPC and verified before they are stored or shown |
 
 ## Mock, locally
@@ -85,6 +85,7 @@ Every record, mock or chainlink, passes `verify.go` and mirrors the audited cont
 - replay is the contract's rule: `keccak256(report)` recorded once per provider; a second delivery of the same bytes is `409 replayed`, and distinct reports are not ordered;
 - every item is matched to a subject the gateway served: a deposit's token, amount and destination must equal what was credited; a solvency item's liabilities and decimals must equal the checkpoint's figures for that asset; a conversion's pair must be the trade's base/quote. A difference is stored as `mismatch` and raised as an anomaly, never shown as attested. A solvency item the contract recorded as superseded (`SolvencyIgnored`) is stored as `ignored`.
 
+A record is `simulated` when its workflow identity is the CRE simulator's fixed identity or `CRE_FORWARDER_SIMULATED=true`; the dashboard labels it and the public page answers `independently_signed: false`. Live refuses both the flag and those identities at boot, and the verifier refuses such a report in live.
 A report refused for a definitive reason (forged, wrong workflow, malformed) is kept as a `failed` row so an operator can see it; the poll cursor then passes it.
 RPC and provider errors are sanitized (URLs and token-shaped strings stripped) before they reach health, the status page or a log line.
 

@@ -208,6 +208,7 @@ var (
 	ErrUnconfirmed     = errors.New("cre: log is not yet confirmed")
 	ErrStale           = errors.New("cre: report is too old")
 	ErrWrongName       = errors.New("cre: report from an unexpected workflow name")
+	ErrSimulated       = errors.New("cre: simulated attestation refused in live")
 	ErrNotFinal        = errors.New("cre: provider error; retry later")
 	ErrUnknownSubject  = errors.New("cre: report names a subject the gateway never asked about")
 	ErrSubjectMismatch = errors.New("cre: attested facts differ from what the gateway credited")

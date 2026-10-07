@@ -18,12 +18,12 @@ func (Webhook) TableName() string { return "webhooks" }
 
 type WebhookDeliveryLog struct {
 	PaymintoModel
-	Event        string  `gorm:"type:varchar(50);not null" json:"event"`
-	Payload      string  `gorm:"type:text;not null" json:"payload"`
-	Status       string  `gorm:"type:varchar(20);default:'pending'" json:"status"`
-	ResponseCode *int    `json:"responseCode,omitempty"`
-	ResponseBody *string `gorm:"type:text" json:"responseBody,omitempty"`
-	Attempts     int     `gorm:"default:0" json:"attempts"`
+	Event        string     `gorm:"type:varchar(50);not null" json:"event"`
+	Payload      string     `gorm:"type:text;not null" json:"payload"`
+	Status       string     `gorm:"type:varchar(20);default:'pending'" json:"status"`
+	ResponseCode *int       `json:"responseCode,omitempty"`
+	ResponseBody *string    `gorm:"type:text" json:"responseBody,omitempty"`
+	Attempts     int        `gorm:"default:0" json:"attempts"`
 	NextRetryAt  *time.Time `json:"nextRetryAt,omitempty"`
 	DeliveredAt  *time.Time `json:"deliveredAt,omitempty"`
 

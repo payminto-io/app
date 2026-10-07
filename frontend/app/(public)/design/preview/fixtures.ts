@@ -119,6 +119,7 @@ const attestationStatus = {
   gateway_id: "0x8a1f3c5e7b9d2f4a6c8e0b1d3f5a7c9e2b4d6f8a0c1e3b5d7f9a2c4e6b8d0f1a",
   public_base_url: "http://localhost:8090",
   public_verify_enabled: true,
+  forwarder_simulated: false,
   health: { status: "ok", message: "mock provider; attestations are signed by an in-process dev key" },
   workflows: [
     {

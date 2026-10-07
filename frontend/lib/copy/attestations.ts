@@ -18,6 +18,8 @@ export const ATTESTATIONS_COPY = {
     mock: "Mock",
     chainlink: "Chainlink CRE",
     mockNote: "Mock attestations are signed by a key inside this gateway. They prove the pipeline works, not that anyone independent checked the numbers.",
+    simulatedNote: "This deployment writes through a simulation forwarder. Every record here is simulated and is never presented as a production attestation.",
+    simulated: "Simulated",
     degraded: (missing: string[]) =>
       `Chainlink was configured but ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} missing, so this process fell back to the mock provider. Live would refuse to start.`,
   },

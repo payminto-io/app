@@ -12,7 +12,7 @@ import AttestationsSettingsPage from "./page";
 const onStatus: AttestationStatus = {
   enabled: true, provider: "mock", degraded_from: "", missing_keys: [], environment: "test", chain: "ethereum-testnet-sepolia-base-1",
   consumer_address: "", forwarder_address: "", workflow_owner: "0x4c1e9d2a7b3f5e8c0a6d1f2b3c4d5e6f7a8b9c0d", trigger_signer: "keyring://cre-trigger",
-  trigger_signer_address: "0x4c1e9d2a7b3f5e8c0a6d1f2b3c4d5e6f7a8b9c0d", gateway_id: "0x12", public_base_url: "http://localhost:8090", public_verify_enabled: true,
+  trigger_signer_address: "0x4c1e9d2a7b3f5e8c0a6d1f2b3c4d5e6f7a8b9c0d", gateway_id: "0x12", public_base_url: "http://localhost:8090", public_verify_enabled: true, forwarder_simulated: false,
   health: { status: "ok", message: "mock provider" },
   workflows: [
     {
@@ -43,6 +43,17 @@ describe("attestations settings page", () => {
     expect(screen.queryByText("Fresh")).toBeNull();
     // Empty addresses are omitted rather than rendered blank.
     expect(screen.queryByText("Consumer contract")).toBeNull();
+  });
+
+  it("labels a simulated record and a simulation forwarder, never as production", () => {
+    const verified = { ...onStatus.workflows[0].last_attestation!, id: "r3", status: "attested", simulated: true };
+    status.mockReturnValue({
+      data: { ...onStatus, provider: "chainlink", forwarder_simulated: true, workflows: [{ ...onStatus.workflows[0], state: "fresh", last_attestation: verified, last_verified: verified }] },
+      error: null, isPending: false, refetch: vi.fn(),
+    });
+    render(<AttestationsSettingsPage />);
+    expect(screen.getByText(/simulation forwarder/)).toBeInTheDocument();
+    expect(screen.getAllByText("Simulated").length).toBeGreaterThan(0);
   });
 
   it("shows the real error, not a guess, when the status cannot load", () => {

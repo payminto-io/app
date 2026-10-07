@@ -237,7 +237,7 @@ func TestCRERoutes_SubmitVerifiesReplaysAndForgeries(t *testing.T) {
 		t.Fatalf("get = %d %v", w.Code, got)
 	}
 	w, pub := do(r, http.MethodGet, "/api/v1/public/attestations/"+ids[0].(string), "")
-	if w.Code != 200 || pub["independently_signed"] != false || pub["gateway_id"] == nil {
+	if w.Code != 200 || pub["independently_signed"] != false || pub["simulated"] != true || pub["gateway_id"] == nil {
 		t.Fatalf("public = %d %v", w.Code, pub)
 	}
 	if w, _ := do(r, http.MethodGet, "/api/v1/public/attestations/nope", ""); w.Code != 404 {

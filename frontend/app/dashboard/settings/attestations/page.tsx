@@ -81,6 +81,7 @@ function OnState({ status }: { status: AttestationStatus }) {
         <div className="space-y-4">
           {status.degraded_from ? <Notice tone="wait">{C.provider.degraded(status.missing_keys)}</Notice> : null}
           {status.provider === "mock" ? <Notice tone="note">{C.provider.mockNote}</Notice> : null}
+          {status.forwarder_simulated ? <Notice tone="note">{C.provider.simulatedNote}</Notice> : null}
           <DetailList columns={2}>
             <DetailItem label={C.provider.label}>{providerLabel(status.provider)}</DetailItem>
             <DetailItem label={f.health}>
@@ -168,6 +169,7 @@ function WorkflowsTable({ chain, workflows }: { chain: string; workflows: Workfl
             {a ? <DateTime value={a.recorded_at} /> : <span className="text-ink-soft">{w.noRecord}</span>}
             <div className="flex flex-wrap items-center gap-2">
               {a ? <StatusBadge status={a.status} /> : null}
+              {a?.simulated ? <StatusBadge status="simulated" /> : null}
               {href ? (
                 <a href={href} target="_blank" rel="noreferrer" className="tap text-body-sm text-tide hover:text-tide-strong">
                   {C.fields.explorer}

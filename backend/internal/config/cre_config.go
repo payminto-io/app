@@ -47,6 +47,8 @@ type CREConfig struct {
 	PollInterval          time.Duration
 	VerifyConfirmations   uint64
 
+	// ForwarderSimulated marks CRE_FORWARDER_ADDRESS as a mock or simulation forwarder; refused in live.
+	ForwarderSimulated  bool
 	PublicVerifyEnabled bool
 	// PublicBaseURL is this deployment's public API base; gatewayId is its keccak256 (SPEC section 5).
 	PublicBaseURL string
@@ -76,6 +78,10 @@ func loadCRE() (CREConfig, error) {
 		return CREConfig{}, err
 	}
 	publicVerify, err := envBoolStrict("CRE_PUBLIC_VERIFY_ENABLED", true)
+	if err != nil {
+		return CREConfig{}, err
+	}
+	forwarderSimulated, err := envBoolStrict("CRE_FORWARDER_SIMULATED", false)
 	if err != nil {
 		return CREConfig{}, err
 	}
@@ -122,6 +128,7 @@ func loadCRE() (CREConfig, error) {
 		PollInterval:                     poll,
 		VerifyConfirmations:              confirmations,
 		PublicVerifyEnabled:              publicVerify,
+		ForwarderSimulated:               forwarderSimulated,
 		PublicBaseURL:                    strings.TrimRight(strings.TrimSpace(envStr("CRE_PUBLIC_BASE_URL", "")), "/"),
 		ReadTokenSolvency:                strings.TrimSpace(envStr("CRE_READ_TOKEN_SOLVENCY", "")),
 		ReadTokenDepositFinality:         strings.TrimSpace(envStr("CRE_READ_TOKEN_DEPOSIT_FINALITY", "")),
@@ -191,6 +198,21 @@ func (c *CREConfig) validate(environment string) error {
 	for key, value := range map[string]string{"CRE_WORKFLOW_ID_SOLVENCY": c.WorkflowIDSolvency, "CRE_WORKFLOW_ID_DEPOSIT_FINALITY": c.WorkflowIDDepositFinality, "CRE_WORKFLOW_ID_CONVERSION_REFERENCE": c.WorkflowIDConversionReference} {
 		if value != "" && !workflowIDPattern.MatchString(value) {
 			return fmt.Errorf("%s must be a 32-byte hex workflow id; got %q", key, value)
+		}
+	}
+	if live && c.ForwarderSimulated {
+		return fmt.Errorf("%s refuses CRE_FORWARDER_SIMULATED=true; a simulation forwarder never carries production attestations", strings.ToLower(environment))
+	}
+	if live {
+		for key, value := range map[string]string{"CRE_WORKFLOW_ID_SOLVENCY": c.WorkflowIDSolvency, "CRE_WORKFLOW_ID_DEPOSIT_FINALITY": c.WorkflowIDDepositFinality, "CRE_WORKFLOW_ID_CONVERSION_REFERENCE": c.WorkflowIDConversionReference} {
+			if strings.EqualFold(strings.TrimPrefix(value, "0x"), strings.Repeat("11", 32)) {
+				return fmt.Errorf("%s refuses %s: that is the CRE simulator's fixed workflow id", strings.ToLower(environment), key)
+			}
+		}
+		for key, value := range map[string]string{"CRE_WORKFLOW_OWNER": c.WorkflowOwner, "CRE_WORKFLOW_OWNER_SOLVENCY": c.WorkflowOwnerSolvency, "CRE_WORKFLOW_OWNER_DEPOSIT_FINALITY": c.WorkflowOwnerDepositFinality, "CRE_WORKFLOW_OWNER_CONVERSION_REFERENCE": c.WorkflowOwnerConversionReference} {
+			if strings.EqualFold(strings.TrimPrefix(value, "0x"), strings.Repeat("aa", 20)) {
+				return fmt.Errorf("%s refuses %s: that is the CRE simulator's fixed owner", strings.ToLower(environment), key)
+			}
 		}
 	}
 	if c.Provider == CREProviderChainlink && live && c.VerifyConfirmations == 0 {
