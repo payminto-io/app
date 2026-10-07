@@ -91,6 +91,22 @@ AutoMigrate, which only runs under `SERVER=development|test`. The order is:
 Order matters: a blanket `GRANT ALL` after the narrowing re-grants `UPDATE`
 and `DELETE` on the ledger and the server will refuse to start.
 
+## Demo media
+
+The 88-second demo video is **not in the repository** (27 MB). It lives outside the
+working tree and nginx serves it directly, so byte-range seeking works and nothing
+is fetched from a third party:
+
+```
+/var/www/payminto-media/payminto-demo.mp4
+/var/www/payminto-media/payminto-demo-poster.jpg
+```
+
+The `location /media/` block on the payminto.io vhost aliases that directory. The
+landing page references `/media/payminto-demo.mp4`, so a `git pull` and rebuild
+never touches the file — but a fresh host must repopulate it, from the project's
+own release asset or the Google Drive copy, before the demo section will play.
+
 ## TLS
 
 **Issued 2026-10-07** for `payminto.io`, `www`, `app`, `checkout` (one cert,

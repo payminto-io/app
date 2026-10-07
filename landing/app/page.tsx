@@ -5,6 +5,7 @@ import { Solvency } from "./sections/solvency";
 import { Solana } from "./sections/solana";
 import { CopyButton } from "./sections/copy-button";
 import { LINKS } from "./sections/links";
+import { ThemeImage } from "./sections/theme-image";
 
 // Section order: hero, market, flow (pinned), solvency (pinned), solana, screens,
 // features, status, self-host, FAQ, CTA, footer. Motion rules: docs/MOTION.md.
@@ -22,6 +23,7 @@ function Navbar() {
             ["How it flows", "#flow"],
             ["Solvency", "#solvency"],
             ["Solana", "#solana"],
+            ["Demo", "#demo"],
             ["Self-host", "#self-host"],
             ["Business model", "#business-model"],
           ].map(([label, href]) => (
@@ -127,8 +129,9 @@ function Screens() {
         </div>
         <div className="relative pb-16 md:pb-24">
           <figure className="card-ring-lg overflow-hidden md:mr-[18%]" data-reveal>
-            <Image
-              src="/screens/link-detail.png"
+            <ThemeImage
+              srcLight="/screens/link-detail.png"
+              srcDark="/screens/link-detail-dark.png"
               alt="Payment link detail: item, payment methods with the fee rule version, and a live checkout preview"
               width={1440}
               height={900}
@@ -138,8 +141,9 @@ function Screens() {
           </figure>
           <div data-parallax="-140" className="absolute -bottom-2 right-0 w-[40%] max-w-[300px] md:bottom-0">
             <figure className="overflow-hidden rounded-[22px] bg-surface shadow-float ring-1 ring-border">
-              <Image
-                src="/screens/checkout-paid.png"
+              <ThemeImage
+                srcLight="/screens/checkout-paid.png"
+                srcDark="/screens/checkout-paid-dark.png"
                 alt="Hosted checkout showing a paid USDC payment on Solana with received and final steps"
                 width={780}
                 height={1120}
@@ -297,6 +301,47 @@ function SelfHost() {
           Tests, the CRE simulation and the full repository map are in the
           repository README.
         </p>
+      </div>
+    </section>
+  );
+}
+
+// Demo video is served from this origin (nginx /media/), not a third party.
+const DEMO_VIDEO = "/media/payminto-demo.mp4";
+const DEMO_POSTER = "/media/payminto-demo-poster.jpg";
+
+function Demo() {
+  return (
+    <section id="demo" className="section-alt border-y border-border py-24 md:py-32">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <div className="mb-12 grid gap-6 lg:grid-cols-[1.1fr_1fr] lg:items-end">
+          <div>
+            <p className="eyebrow mb-4">Demo</p>
+            <h2 className="font-display text-[44px] font-black text-foreground md:text-[56px]" data-reveal>
+              Eighty-eight seconds,
+              <br />
+              <span className="brand-underline">end to end.</span>
+            </h2>
+          </div>
+          <p className="text-[17px] font-semibold leading-[1.5] text-foreground-soft">
+            A payment taken on a testnet, read back through two RPC providers, settled on one
+            ledger, and attested by a Chainlink CRE workflow.
+          </p>
+        </div>
+        <figure className="card-ring-lg overflow-hidden" data-reveal>
+          <video
+            controls
+            preload="none"
+            playsInline
+            poster={DEMO_POSTER}
+            className="block h-auto w-full bg-black"
+            width={1920}
+            height={1080}
+          >
+            <source src={DEMO_VIDEO} type="video/mp4" />
+            Your browser cannot play embedded video.
+          </video>
+        </figure>
       </div>
     </section>
   );
@@ -496,6 +541,7 @@ export default function Home() {
       <Flow />
       <Solvency />
       <Solana />
+      <Demo />
       <Screens />
       <Features />
       <Status />
