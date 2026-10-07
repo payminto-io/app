@@ -19,7 +19,7 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
-// SchemaSQL is the DDL migration 2026100706 must repeat verbatim.
+// SchemaSQL is the DDL migration 2026100710 must repeat verbatim.
 func SchemaSQL() string { return schemaSQL }
 
 // Migrate creates the link tables in dev/test; Postgres only.
@@ -566,7 +566,7 @@ func toPayment(r paymentRow, answers []answerRow) (LinkPayment, error) {
 
 func findPayment(tx *gorm.DB, linkID, key string) (*LinkPayment, error) {
 	var rows []paymentRow
-	if err := tx.Where("link_id = ? AND idempotency_key = ?", linkID, key).Limit(1).Find(&rows).Error; err != nil {
+	if err := tx.Where("link_id = ? AND idempotency_key = ? AND status <> 'released'", linkID, key).Limit(1).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("links: find payment: %w", err)
 	}
 	if len(rows) == 0 {
@@ -612,7 +612,7 @@ func (s *PGStore) Reserve(ctx context.Context, p LinkPayment, now time.Time, lim
 		if l.MultiUse {
 			var counts struct{ Open, Mine int }
 			if err := tx.Raw(`SELECT count(*) AS open, count(*) FILTER (WHERE client_key = ?) AS mine
-				FROM payment_link_payments WHERE link_id = ? AND open_until > ?`, p.ClientKey, p.LinkID, now).Scan(&counts).Error; err != nil {
+				FROM payment_link_payments WHERE link_id = ? AND status <> 'released' AND open_until > ?`, p.ClientKey, p.LinkID, now).Scan(&counts).Error; err != nil {
 				return fmt.Errorf("links: count open payments: %w", err)
 			}
 			if err := openPaymentsError(l, limits, counts.Open, counts.Mine); err != nil {
@@ -675,7 +675,8 @@ func (s *PGStore) Complete(ctx context.Context, id string, created CreatedPaymen
 func (s *PGStore) Release(ctx context.Context, id string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var linkIDs []string
-		if err := tx.Raw(`DELETE FROM payment_link_payments WHERE id = ? AND status = 'pending' RETURNING link_id`, id).Scan(&linkIDs).Error; err != nil {
+		if err := tx.Raw(`UPDATE payment_link_payments SET status = 'released', updated_at = now()
+			WHERE id = ? AND status = 'pending' RETURNING link_id`, id).Scan(&linkIDs).Error; err != nil {
 			return fmt.Errorf("links: release reservation: %w", err)
 		}
 		if len(linkIDs) == 0 {
@@ -700,4 +701,36 @@ func (s *PGStore) ExpiredPending(ctx context.Context, now time.Time, limit int) 
 		out[i] = p
 	}
 	return out, nil
+}
+
+func (s *PGStore) Link(ctx context.Context, id string) (Link, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return Link{}, ErrStoreNotFound
+	}
+	return s.loadOne(s.db.WithContext(ctx), "id = ?", id)
+}
+
+func (s *PGStore) OpenCreated(ctx context.Context, linkID string, now time.Time, limit int) ([]LinkPayment, error) {
+	var rows []paymentRow
+	if err := s.db.WithContext(ctx).Where("link_id = ? AND status = 'created' AND open_until > ?", linkID, now).
+		Order("created_at").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("links: open uses: %w", err)
+	}
+	out := make([]LinkPayment, len(rows))
+	for i, r := range rows {
+		p, err := toPayment(r, nil)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = p
+	}
+	return out, nil
+}
+
+func (s *PGStore) CloseUses(ctx context.Context, ids []string, now time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.db.WithContext(ctx).Exec(`UPDATE payment_link_payments SET open_until = ?, updated_at = now()
+		WHERE id IN ? AND status = 'created' AND open_until > ?`, now, ids, now).Error
 }

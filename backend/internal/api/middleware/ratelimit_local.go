@@ -65,12 +65,9 @@ func RateLimitStrict(rdb *redis.Client, scope string, limit int, window time.Dur
 		redisOK := false
 		if rdb != nil {
 			ctx := c.Request.Context()
-			count, err := rdb.Incr(ctx, key).Result()
+			count, err := incrWindow(ctx, rdb, key, window)
 			if err == nil {
 				redisOK = true
-				if count == 1 {
-					rdb.Expire(ctx, key, window)
-				}
 				allowed, remaining = count <= int64(limit), max(limit-int(count), 0)
 			}
 		}

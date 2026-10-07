@@ -317,11 +317,17 @@ type FeeQuoter interface {
 type PaymentCreator interface {
 	// Connectors names the connectors that can take m for currency in env; empty means unavailable, "" is unscoped.
 	Connectors(ctx context.Context, env Environment, currency string, m MethodSpec) ([]string, error)
-	// CreatePayment is idempotent on req.LinkPaymentID: a second call returns the payment the first made.
+	// CreatePayment is idempotent on req.LinkPaymentID, which must be the payment's unique reference: a second call
+	// returns the payment the first made, and a call after FencePayment fails with ErrNotCreated.
 	// Only an error wrapping ErrNotCreated, or a *Error, promises that no payment exists; any other error is ambiguous.
 	CreatePayment(ctx context.Context, req PaymentRequest) (CreatedPayment, error)
-	// FindPayment looks a payment up by LinkPaymentID. found=false with a nil error means definitively absent.
-	FindPayment(ctx context.Context, linkPaymentID string) (created CreatedPayment, found bool, err error)
+	// FencePayment settles a use whose outcome is unknown: it returns the live payment for req.LinkPaymentID
+	// (found), or atomically makes one impossible to create from then on (found=false). An error leaves both open.
+	FencePayment(ctx context.Context, req PaymentRequest) (created CreatedPayment, found bool, err error)
+	// CancelPayment cancels the payment of a use the link no longer tracks; nil when there is none.
+	CancelPayment(ctx context.Context, linkPaymentID string) error
+	// OpenPayments reports which of these uses' payments are still open and unpaid (not paid, cancelled or expired).
+	OpenPayments(ctx context.Context, linkPaymentIDs []string) (map[string]bool, error)
 }
 
 // ErrNotCreated is what a PaymentCreator wraps when it is certain no payment exists; only then is a use released.

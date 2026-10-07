@@ -10,6 +10,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/links"
+	"github.com/payminto/payminto/backend/internal/paymentswitch"
 	"gorm.io/gorm"
 )
 
@@ -189,6 +190,9 @@ func MigrateExpandSchema(db *gorm.DB) error {
 		return err
 	}
 	if err := fees.Migrate(db); err != nil {
+		return err
+	}
+	if err := paymentswitch.Migrate(db); err != nil {
 		return err
 	}
 	return links.Migrate(db)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/links"
 	"github.com/payminto/payminto/backend/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // paymintoLinkCurrency is the only currency Payminto's payment_requests carry (amount_in_usd).
@@ -75,17 +77,26 @@ func (c *LinkPaymentCreator) Offerings(ctx context.Context, _ links.Environment)
 	return out, nil
 }
 
-// lookup reads the payment a link use made; a cancelled payment counts as not created.
-func (c *LinkPaymentCreator) lookup(ctx context.Context, linkPaymentID string) (*models.PaymentRequest, error) {
+// lookupAny reads the payment_requests row carrying a link use's reference, live or cancelled.
+func (c *LinkPaymentCreator) lookupAny(ctx context.Context, linkPaymentID string) (*models.PaymentRequest, error) {
 	var rows []models.PaymentRequest
 	err := c.db.WithContext(ctx).Where("reference_id = ?", LinkPaymentReference(linkPaymentID)).Limit(1).Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("links: look up payment %s: %w", linkPaymentID, err)
 	}
-	if len(rows) == 0 || rows[0].State == models.PaymentStateCancelled {
+	if len(rows) == 0 {
 		return nil, nil
 	}
 	return &rows[0], nil
+}
+
+// lookup reads the live payment a link use made; a cancelled payment (or a fence) counts as none.
+func (c *LinkPaymentCreator) lookup(ctx context.Context, linkPaymentID string) (*models.PaymentRequest, error) {
+	pr, err := c.lookupAny(ctx, linkPaymentID)
+	if err != nil || pr == nil || pr.State == models.PaymentStateCancelled {
+		return nil, err
+	}
+	return pr, nil
 }
 
 func (c *LinkPaymentCreator) created(ctx context.Context, pr *models.PaymentRequest) links.CreatedPayment {
@@ -97,12 +108,69 @@ func (c *LinkPaymentCreator) created(ctx context.Context, pr *models.PaymentRequ
 	return out
 }
 
-func (c *LinkPaymentCreator) FindPayment(ctx context.Context, linkPaymentID string) (links.CreatedPayment, bool, error) {
-	pr, err := c.lookup(ctx, linkPaymentID)
-	if err != nil || pr == nil {
+// FencePayment claims the use's reference with a cancelled placeholder unless a payment already holds it, so a
+// stalled CreatePayment that arrives later hits the reference_id unique index instead of creating a live payment.
+func (c *LinkPaymentCreator) FencePayment(ctx context.Context, req links.PaymentRequest) (links.CreatedPayment, bool, error) {
+	fence := models.PaymentRequest{
+		ReferenceID: LinkPaymentReference(req.LinkPaymentID), AmountInUSD: req.CustomerTotal, State: models.PaymentStateCancelled,
+		MemberID: req.MemberID, ExternalPlatformID: req.PlatformID,
+	}
+	if err := c.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "reference_id"}}, DoNothing: true}).
+		Create(&fence).Error; err != nil {
+		return links.CreatedPayment{}, false, fmt.Errorf("links: fence payment %s: %w", req.LinkPaymentID, err)
+	}
+	pr, err := c.lookupAny(ctx, req.LinkPaymentID)
+	switch {
+	case err != nil:
 		return links.CreatedPayment{}, false, err
+	case pr == nil:
+		return links.CreatedPayment{}, false, fmt.Errorf("links: fence for %s neither written nor found", req.LinkPaymentID)
+	case pr.State == models.PaymentStateCancelled:
+		return links.CreatedPayment{}, false, nil
 	}
 	return c.created(ctx, pr), true, nil
+}
+
+// CancelPayment cancels the use's payment while nothing has been paid into it; a payment already receiving funds is
+// an error for the caller to record.
+func (c *LinkPaymentCreator) CancelPayment(ctx context.Context, linkPaymentID string) error {
+	pr, err := c.lookupAny(ctx, linkPaymentID)
+	if err != nil || pr == nil || pr.State == models.PaymentStateCancelled {
+		return err
+	}
+	res := c.db.WithContext(ctx).Model(&models.PaymentRequest{}).
+		Where("id = ? AND state = ?", pr.ID, models.PaymentStateOpen).Update("state", models.PaymentStateCancelled)
+	if res.Error != nil {
+		return fmt.Errorf("links: cancel payment %s: %w", pr.ReferenceID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("links: payment %s is %s and cannot be cancelled", pr.ReferenceID, pr.State)
+	}
+	return nil
+}
+
+// OpenPayments reports which uses' payments are still open: not filled, cancelled or past their expiry.
+func (c *LinkPaymentCreator) OpenPayments(ctx context.Context, linkPaymentIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(linkPaymentIDs))
+	if len(linkPaymentIDs) == 0 {
+		return out, nil
+	}
+	refs := make([]string, len(linkPaymentIDs))
+	for i, id := range linkPaymentIDs {
+		refs[i] = LinkPaymentReference(id)
+	}
+	var open []string
+	err := c.db.WithContext(ctx).Model(&models.PaymentRequest{}).
+		Where("reference_id IN ? AND state IN ? AND (expires_at IS NULL OR expires_at > ?)", refs,
+			[]string{models.PaymentStateOpen, models.PaymentStatePartiallyFilled}, time.Now()).
+		Pluck("reference_id", &open).Error
+	if err != nil {
+		return nil, fmt.Errorf("links: open payments: %w", err)
+	}
+	for _, ref := range open {
+		out[strings.TrimPrefix(ref, linkReferencePrefix)] = true
+	}
+	return out, nil
 }
 
 // CreatePayment returns the existing payment for req.LinkPaymentID, or creates it with the link's quote expiry
@@ -148,6 +216,14 @@ func (c *LinkPaymentCreator) CreatePayment(ctx context.Context, req links.Paymen
 		return links.CreatedPayment{}, fmt.Errorf("%w: %v", links.ErrNotCreated, createErr)
 	case pr == nil:
 		return links.CreatedPayment{}, errors.New("links: payment service reported success but no payment exists")
+	case createErr != nil:
+		// The service failed after writing (its own rollback failed too): cancel the half-made payment or say so.
+		if cerr := c.CancelPayment(settled, req.LinkPaymentID); cerr != nil {
+			slog.Error("links: anomaly: half-created payment could not be cancelled", "payment_reference", pr.ReferenceID,
+				"create_error", createErr, "cancel_error", cerr)
+			return links.CreatedPayment{}, errors.Join(createErr, cerr)
+		}
+		return links.CreatedPayment{}, fmt.Errorf("%w: %v", links.ErrNotCreated, createErr)
 	}
 	if req.FeeRuleID != 0 {
 		if err := c.db.WithContext(settled).Exec(`UPDATE payment_requests SET fee_rule_id = ?, fee_rule_version = ?

@@ -15,10 +15,10 @@ type testAdapter struct {
 	mainnet bool
 }
 
-func (t *testAdapter) Name() string                            { return t.name }
-func (t *testAdapter) Code() string                            { return t.code }
-func (t *testAdapter) IsMainnet() bool                         { return t.mainnet }
-func (t *testAdapter) GenerateAddress(uint32) (string, error)  { return "", nil }
+func (t *testAdapter) Name() string                           { return t.name }
+func (t *testAdapter) Code() string                           { return t.code }
+func (t *testAdapter) IsMainnet() bool                        { return t.mainnet }
+func (t *testAdapter) GenerateAddress(uint32) (string, error) { return "", nil }
 func (t *testAdapter) GetBalance(context.Context, string, string) (*big.Int, error) {
 	return big.NewInt(0), nil
 }

@@ -1,5 +1,5 @@
 -- Payment links, their line items and questions, and each use with its answers (ticket 03, internal/links/README.md).
--- Idempotent: links.Migrate runs it in dev/test and migration 2026100706 repeats it verbatim.
+-- Idempotent: links.Migrate runs it in dev/test and migration 2026100710 repeats it verbatim.
 
 CREATE TABLE IF NOT EXISTS payment_links (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS payment_link_payments (
     link_id uuid NOT NULL REFERENCES payment_links (id) ON DELETE RESTRICT,
     idempotency_key varchar(128) NOT NULL CHECK (length(idempotency_key) >= 1),
     request_hash char(64) NOT NULL,
-    status varchar(16) NOT NULL CHECK (status IN ('pending', 'created')),
+    -- pending while the payment is being created, created once it exists, released once it provably never will.
+    status varchar(16) NOT NULL CHECK (status IN ('pending', 'created', 'released')),
     environment varchar(8) NOT NULL CHECK (environment IN ('live', 'test')),
     method varchar(16) NOT NULL CHECK (method IN ('card', 'upi', 'bank', 'crypto')),
     chain varchar(20) NOT NULL DEFAULT '',
@@ -121,13 +122,14 @@ CREATE TABLE IF NOT EXISTS payment_link_payments (
     open_until timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT payment_link_payments_key_key UNIQUE (link_id, idempotency_key),
     CONSTRAINT payment_link_payments_fee_rule_fkey FOREIGN KEY (fee_rule_id, fee_rule_version)
         REFERENCES fee_rules (id, version) ON DELETE RESTRICT,
     CONSTRAINT payment_link_payments_rule_pair CHECK ((fee_rule_id IS NULL) = (fee_rule_version IS NULL)),
-    CONSTRAINT payment_link_payments_created_have_ref CHECK (status = 'pending' OR payment_reference IS NOT NULL)
+    CONSTRAINT payment_link_payments_created_have_ref CHECK (status <> 'created' OR payment_reference IS NOT NULL)
 );
 
+-- One live use per key; a released use keeps its row (and answers) and frees the key for a fresh attempt.
+CREATE UNIQUE INDEX IF NOT EXISTS payment_link_payments_key_idx ON payment_link_payments (link_id, idempotency_key) WHERE status <> 'released';
 CREATE INDEX IF NOT EXISTS payment_link_payments_link_open_idx ON payment_link_payments (link_id, open_until);
 CREATE INDEX IF NOT EXISTS payment_link_payments_pending_idx ON payment_link_payments (reserved_until) WHERE status = 'pending';
 

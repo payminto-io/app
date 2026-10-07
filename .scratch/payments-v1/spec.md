@@ -83,7 +83,7 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 04 | Payment link form with live preview | Frontend + UI/UX | 03 |
 | 05 | Switch core: intents, attempts, connector interface, status map | Principal | 01 |
 | 06 | Routing engine | Principal | 05 |
-| 07 | Card connector through hosted fields | Backend | 05 |
+| 07 | Demo fiat connectors: Keypay (Kuberpayss port) and Payvang | Backend | 05 |
 | 08 | Custody provider interface, mock and direct-to-wallet | Blockchain | 01 |
 | 09 | Solana adapter, USDC and USDT side by side | Solana | 08 |
 | 10 | Conversion at receipt | Blockchain | 01, 09 |

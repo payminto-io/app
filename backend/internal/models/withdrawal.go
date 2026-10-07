@@ -12,23 +12,23 @@ import (
 //	                                                                 ↘ failed
 type Withdrawal struct {
 	PaymintoModel
-	ReferenceID          string           `gorm:"type:varchar(100);not null;uniqueIndex" json:"referenceID"`
-	State                string           `gorm:"type:varchar(30);default:'pending-approval';not null;index" json:"state"`
-	Email                *string          `gorm:"type:text" json:"email,omitempty"`
-	BlockchainCode       string           `gorm:"type:varchar(20);not null" json:"blockchainCode"`
-	CurrencyCode         string           `gorm:"type:varchar(20);not null" json:"currencyCode"`
-	Amount               decimal.Decimal  `gorm:"type:numeric(38,18);not null" json:"amount"`
-	AmountInUSD          *decimal.Decimal `gorm:"type:numeric(38,18)" json:"amountInUSD,omitempty"`
-	NetworkFee           *decimal.Decimal `gorm:"type:numeric(38,18)" json:"networkFee,omitempty"`
-	ToAddress            string           `gorm:"type:varchar(100);not null" json:"toAddress"`
-	Memo                 *string          `gorm:"type:text" json:"memo,omitempty"`
-	CustomerID           *string          `gorm:"type:text" json:"customerID,omitempty"`
+	ReferenceID    string           `gorm:"type:varchar(100);not null;uniqueIndex" json:"referenceID"`
+	State          string           `gorm:"type:varchar(30);default:'pending-approval';not null;index" json:"state"`
+	Email          *string          `gorm:"type:text" json:"email,omitempty"`
+	BlockchainCode string           `gorm:"type:varchar(20);not null" json:"blockchainCode"`
+	CurrencyCode   string           `gorm:"type:varchar(20);not null" json:"currencyCode"`
+	Amount         decimal.Decimal  `gorm:"type:numeric(38,18);not null" json:"amount"`
+	AmountInUSD    *decimal.Decimal `gorm:"type:numeric(38,18)" json:"amountInUSD,omitempty"`
+	NetworkFee     *decimal.Decimal `gorm:"type:numeric(38,18)" json:"networkFee,omitempty"`
+	ToAddress      string           `gorm:"type:varchar(100);not null" json:"toAddress"`
+	Memo           *string          `gorm:"type:text" json:"memo,omitempty"`
+	CustomerID     *string          `gorm:"type:text" json:"customerID,omitempty"`
 
-	MemberID             uint  `gorm:"not null;index" json:"memberID"`
-	ExternalPlatformID   uint  `gorm:"not null;index" json:"externalPlatformID"`
-	BlockchainCurrencyID uint  `gorm:"not null" json:"blockchainCurrencyID"`
-	OTPID                *uint `json:"otpID,omitempty"`
-	ApprovedByMemberID   *uint `json:"approvedByMemberID,omitempty"`
+	MemberID             uint       `gorm:"not null;index" json:"memberID"`
+	ExternalPlatformID   uint       `gorm:"not null;index" json:"externalPlatformID"`
+	BlockchainCurrencyID uint       `gorm:"not null" json:"blockchainCurrencyID"`
+	OTPID                *uint      `json:"otpID,omitempty"`
+	ApprovedByMemberID   *uint      `json:"approvedByMemberID,omitempty"`
 	ApprovedAt           *time.Time `json:"approvedAt,omitempty"`
 	InitiatedAt          *time.Time `json:"initiatedAt,omitempty"`
 	SentAt               *time.Time `json:"sentAt,omitempty"`

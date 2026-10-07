@@ -53,6 +53,9 @@ services:
       BLOCKCHAIN_NETWORK_TYPE: testnet
       API_PORT: 8080
       JWT_SECRET: payminto-development-jwt-secret-not-for-production
+      # No proxy in this stack: clients reach the backend directly, so no X-Forwarded-For is trusted.
+      # Put a proxy in front and this must name it (docs/OPERATIONS.md, Client IPs).
+      TRUSTED_PROXIES: ""
       CUSTODY_ENABLED: "true"
       VAULT_PASSPHRASE: payminto-development-vault-passphrase-only
     depends_on:

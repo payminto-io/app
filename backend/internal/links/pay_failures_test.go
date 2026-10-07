@@ -275,3 +275,48 @@ func TestMerchantFeePreviewPerMethod(t *testing.T) {
 		t.Fatalf("bank %+v", b)
 	}
 }
+
+func TestOpenCapsIgnorePaidPayments(t *testing.T) {
+	f := newFixture(t, WithLimits(ReserveLimits{MaxOpen: 100, MaxOpenPerClient: 3}))
+	in := validInput()
+	in.MultiUse = true
+	l := f.published(in)
+	for i := range 3 {
+		req := payReq(fmt.Sprint("k", i))
+		req.ClientIP = "198.51.100.4"
+		res, err := f.pay(l.ShortCode, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.creator.markPaid(res.PaymentReference)
+	}
+	req := payReq("k4")
+	req.ClientIP = "198.51.100.4"
+	if _, err := f.pay(l.ShortCode, req); err != nil {
+		t.Fatalf("a fourth payer after three paid: %v", err)
+	}
+}
+
+func TestIPv6ClientsAreGroupedBySlash64(t *testing.T) {
+	if clientKey("2001:db8:1:2::1") != clientKey("2001:db8:1:2:ffff::9") {
+		t.Fatal("two addresses in one /64 are different clients")
+	}
+	if clientKey("2001:db8:1:2::1") == clientKey("2001:db8:1:3::1") {
+		t.Fatal("two /64s are one client")
+	}
+	if clientKey("::ffff:198.51.100.4") != clientKey("198.51.100.4") || clientKey("198.51.100.4") == clientKey("198.51.100.5") {
+		t.Fatal("IPv4 keys are not per address")
+	}
+	f := newFixture(t, WithLimits(ReserveLimits{MaxOpenPerClient: 2}))
+	in := validInput()
+	in.MultiUse = true
+	l := f.published(in)
+	for i, ip := range []string{"2001:db8::1", "2001:db8::2", "2001:db8::3"} {
+		req := payReq(fmt.Sprint("v6-", i))
+		req.ClientIP = ip
+		_, err := f.pay(l.ShortCode, req)
+		if want := i == 2; (CodeOf(err) == CodeOpenPaymentsLimit) != want {
+			t.Fatalf("payer %d from %s: %v", i, ip, err)
+		}
+	}
+}

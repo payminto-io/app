@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -39,10 +40,17 @@ func decString(d *decimal.Decimal) string {
 	return d.String()
 }
 
-// clientKey hashes the payer's IP; the raw address is never stored.
+// clientKey hashes the payer's IP, grouping IPv6 by /64 (one subscriber's allocation); the raw address is never stored.
 func clientKey(ip string) string {
 	if ip == "" {
 		return ""
+	}
+	if parsed := net.ParseIP(ip); parsed != nil {
+		if v4 := parsed.To4(); v4 != nil {
+			ip = v4.String()
+		} else {
+			ip = (&net.IPNet{IP: parsed.Mask(net.CIDRMask(64, 128)), Mask: net.CIDRMask(64, 128)}).String()
+		}
 	}
 	sum := sha256.Sum256([]byte("payminto/links/client/" + ip))
 	return hex.EncodeToString(sum[:])
@@ -108,6 +116,7 @@ func (s *Service) Pay(ctx context.Context, code string, req PayRequest) (PayResu
 	p.ReservedUntil = now.Add(s.lease)
 	p.OpenUntil = p.ReservedUntil
 
+	s.closeFinishedUses(ctx, l, now)
 	reserved, existing, err := s.store.Reserve(ctx, p, now, s.limits)
 	if err != nil {
 		return PayResult{}, storeErr(err)
@@ -139,12 +148,57 @@ func (s *Service) Pay(ctx context.Context, code string, req PayRequest) (PayResu
 		return PayResult{}, inProgress(reserved.ReservedUntil, s.now())
 	}
 	if err := s.store.Complete(ctx, reserved.ID, created, s.openUntil(l, created)); err != nil {
+		if errors.Is(err, ErrStale) {
+			return PayResult{}, s.orphaned(ctx, l, reserved, created)
+		}
 		slog.Error("links: payment created but use not completed; the resolver will finish it",
 			"link_payment_id", reserved.ID, "payment_reference", created.Reference, "error", err)
 		return PayResult{}, inProgress(reserved.ReservedUntil, s.now())
 	}
 	reserved.Status, reserved.PaymentReference, reserved.Processor = paymentCreated, created.Reference, &created
 	return s.result(l, reserved, false), nil
+}
+
+// orphaned handles a payment that exists although its use was settled first. If the use was released, nobody has
+// been shown this payment, so it is cancelled and recorded as an anomaly; if it was completed, that outcome stands.
+func (s *Service) orphaned(ctx context.Context, l Link, reserved LinkPayment, created CreatedPayment) error {
+	cur, err := s.store.FindPayment(ctx, l.ID, reserved.IdempotencyKey)
+	if err == nil && cur != nil && cur.ID == reserved.ID {
+		return inProgress(s.now(), s.now())
+	}
+	cerr := s.creator.CancelPayment(context.WithoutCancel(ctx), reserved.ID)
+	slog.Error("links: anomaly: payment created for a released use; cancelled",
+		"link_payment_id", reserved.ID, "payment_reference", created.Reference, "cancel_error", cerr)
+	return newErr(CodePaymentCreationFailed, "", "the payment could not be created; retry with the same key")
+}
+
+// closeFinishedUses stops counting this link's paid, cancelled or expired payments against the open caps.
+func (s *Service) closeFinishedUses(ctx context.Context, l Link, now time.Time) {
+	if !l.MultiUse || (s.limits.MaxOpen == 0 && s.limits.MaxOpenPerClient == 0) {
+		return
+	}
+	uses, err := s.store.OpenCreated(ctx, l.ID, now, max(s.limits.MaxOpen, 100))
+	if err != nil || len(uses) == 0 {
+		return
+	}
+	ids := make([]string, len(uses))
+	for i, u := range uses {
+		ids[i] = u.ID
+	}
+	open, err := s.creator.OpenPayments(ctx, ids)
+	if err != nil {
+		slog.Warn("links: open payment status unavailable; caps count every unexpired payment", "link_id", l.ID, "error", err)
+		return
+	}
+	var done []string
+	for _, id := range ids {
+		if !open[id] {
+			done = append(done, id)
+		}
+	}
+	if err := s.store.CloseUses(ctx, done, now); err != nil {
+		slog.Warn("links: close finished uses", "link_id", l.ID, "error", err)
+	}
 }
 
 func (s *Service) paymentRequest(l Link, p LinkPayment) PaymentRequest {
@@ -212,12 +266,12 @@ const (
 	outcomeReleased
 )
 
-// resolve settles a pending use whose lease ended: a payment found by LinkPaymentID completes it,
-// a definitively absent one releases it, anything else leaves it pending.
+// resolve settles a pending use whose lease ended. FencePayment either returns the payment, which completes the
+// use, or makes it impossible to create, after which releasing the use cannot strand a live payment.
 func (s *Service) resolve(ctx context.Context, l Link, p LinkPayment) (outcome, LinkPayment, error) {
-	created, found, err := s.creator.FindPayment(ctx, p.ID)
+	created, found, err := s.creator.FencePayment(ctx, s.paymentRequest(l, p))
 	if err != nil {
-		return 0, p, fmt.Errorf("links: look up payment for %s: %w", p.ID, err)
+		return 0, p, fmt.Errorf("links: fence payment for %s: %w", p.ID, err)
 	}
 	if found {
 		err = s.store.Complete(ctx, p.ID, created, s.openUntil(l, created))
@@ -230,7 +284,7 @@ func (s *Service) resolve(ctx context.Context, l Link, p LinkPayment) (outcome, 
 		switch {
 		case ferr != nil:
 			return 0, p, ferr
-		case cur == nil:
+		case cur == nil || cur.ID != p.ID:
 			return outcomeReleased, p, nil
 		case cur.Status == paymentCreated:
 			return outcomeCompleted, *cur, nil
@@ -254,7 +308,12 @@ func (s *Service) ResolveExpired(ctx context.Context, limit int) (completed, rel
 		return 0, 0, err
 	}
 	for _, p := range pending {
-		out, _, rerr := s.resolve(ctx, Link{Input: Input{QuoteExpirySeconds: DefaultInput().QuoteExpirySeconds}}, p)
+		l, lerr := s.store.Link(ctx, p.LinkID)
+		if lerr != nil {
+			err = errors.Join(err, lerr)
+			continue
+		}
+		out, _, rerr := s.resolve(ctx, l, p)
 		switch {
 		case rerr != nil:
 			slog.Error("links: resolve an expired reservation", "link_payment_id", p.ID, "error", rerr)

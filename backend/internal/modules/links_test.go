@@ -19,8 +19,12 @@ func (nopCreator) Connectors(context.Context, links.Environment, string, links.M
 func (nopCreator) CreatePayment(context.Context, links.PaymentRequest) (links.CreatedPayment, error) {
 	return links.CreatedPayment{}, nil
 }
-func (nopCreator) FindPayment(context.Context, string) (links.CreatedPayment, bool, error) {
+func (nopCreator) FencePayment(context.Context, links.PaymentRequest) (links.CreatedPayment, bool, error) {
 	return links.CreatedPayment{}, false, nil
+}
+func (nopCreator) CancelPayment(context.Context, string) error { return nil }
+func (nopCreator) OpenPayments(context.Context, []string) (map[string]bool, error) {
+	return map[string]bool{}, nil
 }
 
 func linksDeps(t *testing.T, server string, env environment.Environment, fc config.FeesConfig) Deps {
@@ -30,9 +34,9 @@ func linksDeps(t *testing.T, server string, env environment.Environment, fc conf
 		t.Fatal(err)
 	}
 	return Deps{
-		DB:     &gorm.DB{},
-		Config: &config.Config{Server: config.ServerConfig{Environment: server}, Fees: fc, Links: config.LinksConfig{LeaseSeconds: 300, MaxOpenPayments: 100, MaxOpenPaymentsPerClient: 3}},
-		Fees:   fees.NewService(&gorm.DB{}, nil, fees.DefaultPolicy()), LinkPayments: nopCreator{},
+		DB:      &gorm.DB{},
+		Config:  &config.Config{Server: config.ServerConfig{Environment: server}, Fees: fc, Links: config.LinksConfig{LeaseSeconds: 300, MaxOpenPayments: 100, MaxOpenPaymentsPerClient: 3}},
+		FeePort: fees.NewService(&gorm.DB{}, nil, fees.DefaultPolicy()), LinkPayments: nopCreator{},
 		Environment: &EnvironmentModule{Environment: env, Guard: guard},
 	}
 }
@@ -56,7 +60,7 @@ func TestWireLinksTakesTheProcessEnvironmentNotSERVER(t *testing.T) {
 func TestWireLinksRefusesMissingDepsAndBadConfig(t *testing.T) {
 	for name, edit := range map[string]func(*Deps){
 		"no creator":     func(d *Deps) { d.LinkPayments = nil },
-		"no fees":        func(d *Deps) { d.Fees = nil },
+		"no fees":        func(d *Deps) { d.FeePort = nil },
 		"no environment": func(d *Deps) { d.Environment = nil },
 		"bad precision":  func(d *Deps) { d.Config.Fees.AssetPrecision = "XRP:x" },
 		"short lease":    func(d *Deps) { d.Config.Links.LeaseSeconds = 10 },

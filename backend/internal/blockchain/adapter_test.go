@@ -10,9 +10,9 @@ import (
 
 type mockAdapter struct{}
 
-func (m *mockAdapter) Name() string    { return "mock" }
-func (m *mockAdapter) Code() string    { return "MOCK" }
-func (m *mockAdapter) IsMainnet() bool { return false }
+func (m *mockAdapter) Name() string                               { return "mock" }
+func (m *mockAdapter) Code() string                               { return "MOCK" }
+func (m *mockAdapter) IsMainnet() bool                            { return false }
 func (m *mockAdapter) GenerateAddress(idx uint32) (string, error) { return "0xmock", nil }
 func (m *mockAdapter) GetBalance(ctx context.Context, addr string, token string) (*big.Int, error) {
 	return big.NewInt(1000), nil
