@@ -58,6 +58,25 @@ func (c *LinkPaymentCreator) Connectors(ctx context.Context, _ links.Environment
 	return []string{""}, nil
 }
 
+var _ links.Catalog = (*LinkPaymentCreator)(nil)
+
+// Offerings lists crypto in USD for every asset an active chain accepts deposits of, the same rows Connectors checks.
+func (c *LinkPaymentCreator) Offerings(ctx context.Context, _ links.Environment) ([]links.Offering, error) {
+	var rows []struct{ Chain, Asset string }
+	err := c.db.WithContext(ctx).Raw(`SELECT DISTINCT upper(bc.blockchain_code) AS chain, upper(bc.currency_code) AS asset
+		FROM blockchain_currencies bc JOIN blockchains b ON b.id = bc.blockchain_id
+		WHERE bc.deleted_at IS NULL AND b.deleted_at IS NULL AND b.status = 'active' AND bc.deposit_enabled
+		ORDER BY 1, 2`).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("links: payminto offerings: %w", err)
+	}
+	out := make([]links.Offering, len(rows))
+	for i, r := range rows {
+		out[i] = links.Offering{Currency: paymintoLinkCurrency, Method: links.MethodSpec{Method: fees.MethodCrypto, Chain: r.Chain, Asset: r.Asset}}
+	}
+	return out, nil
+}
+
 // lookupAny reads the payment_requests row carrying a link use's reference, live or cancelled.
 func (c *LinkPaymentCreator) lookupAny(ctx context.Context, linkPaymentID string) (*models.PaymentRequest, error) {
 	var rows []models.PaymentRequest

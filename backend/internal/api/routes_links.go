@@ -33,6 +33,8 @@ func RegisterLinksRoutes(rg *gin.RouterGroup, m *modules.LinksModule, auth Links
 		g := rg.Group("/links", auth.Merchant)
 		g.POST("", h.create)
 		g.GET("", h.list)
+		g.GET("/options", h.options)
+		g.POST("/preview", h.preview)
 		g.GET("/:id", h.get)
 		g.PATCH("/:id", h.update)
 		g.DELETE("/:id", h.remove)
@@ -73,6 +75,8 @@ type linkResponse struct {
 	PublishedAt *time.Time        `json:"published_at"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
+	// MerchantName is the platform's display name, the one checkout shows.
+	MerchantName *string `json:"merchant_name"`
 	// FeePreview is set on single-link responses; lists leave it null to avoid pricing every row.
 	FeePreview []links.MethodPreview `json:"fee_preview"`
 	links.Input
@@ -80,14 +84,24 @@ type linkResponse struct {
 
 // toDetail is toResponse plus the per-method fee preview the form shows before publishing.
 func (h *linksHandler) toDetail(c *gin.Context, l links.Link) linkResponse {
-	r := h.toResponse(l)
+	r := h.toResponse(l, h.merchant(c, l.ExternalPlatformID))
 	r.FeePreview = h.port.FeePreview(c.Request.Context(), l)
 	return r
 }
 
-func (h *linksHandler) toResponse(l links.Link) linkResponse {
+// merchant is the display name for responses; a lookup failure leaves it null rather than failing the request.
+func (h *linksHandler) merchant(c *gin.Context, platformID uint) *string {
+	name, err := h.port.MerchantName(c.Request.Context(), platformID)
+	if err != nil {
+		_ = c.Error(err)
+		return nil
+	}
+	return optStr(name)
+}
+
+func (h *linksHandler) toResponse(l links.Link, merchant *string) linkResponse {
 	r := linkResponse{
-		ID: l.ID, Status: l.Status, Environment: l.Environment, Total: l.Total, UsesCount: l.UsesCount,
+		MerchantName: merchant, ID: l.ID, Status: l.Status, Environment: l.Environment, Total: l.Total, UsesCount: l.UsesCount,
 		Revision: l.Revision, PublishedAt: l.PublishedAt, CreatedAt: l.CreatedAt, UpdatedAt: l.UpdatedAt, Input: l.Input,
 	}
 	if l.ShortCode != "" {
@@ -254,10 +268,46 @@ func (h *linksHandler) list(c *gin.Context) {
 		return
 	}
 	out := make([]linkResponse, len(ls))
+	merchant := h.merchant(c, actor.PlatformID)
 	for i, l := range ls {
-		out[i] = h.toResponse(l)
+		out[i] = h.toResponse(l, merchant)
 	}
 	c.JSON(http.StatusOK, gin.H{"links": out, "total": total})
+}
+
+// preview renders the posted form as checkout would, without storing it; ?link_id= previews over a saved link's state.
+func (h *linksHandler) preview(c *gin.Context) {
+	actor, ok := linksActor(c)
+	if !ok {
+		return
+	}
+	raw, ok := readBody(c)
+	if !ok {
+		return
+	}
+	in := links.DefaultInput()
+	if !decodeOnto(c, raw, &in) {
+		return
+	}
+	res, err := h.port.Preview(c.Request.Context(), actor.PlatformID, in, c.Query("link_id"))
+	if err != nil {
+		linksError(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, res)
+}
+
+func (h *linksHandler) options(c *gin.Context) {
+	if _, ok := linksActor(c); !ok {
+		return
+	}
+	o, err := h.port.Options(c.Request.Context())
+	if err != nil {
+		linksError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, o)
 }
 
 func (h *linksHandler) get(c *gin.Context) {

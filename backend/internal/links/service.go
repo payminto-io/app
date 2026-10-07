@@ -454,11 +454,17 @@ func (s *Service) Render(ctx context.Context, code string) (RenderModel, error) 
 	if err != nil {
 		return RenderModel{}, err
 	}
+	m, _, err := s.render(ctx, l)
+	return m, err
+}
+
+// render builds the checkout view of l and names the methods it leaves out; Render and Preview share it.
+func (s *Service) render(ctx context.Context, l Link) (RenderModel, []DroppedMethod, error) {
 	merchant, err := s.store.MerchantName(ctx, l.ExternalPlatformID)
 	if err != nil {
-		return RenderModel{}, err
+		return RenderModel{}, nil, err
 	}
-	methods := []RenderMethod{}
+	methods, dropped := []RenderMethod{}, []DroppedMethod{}
 	for _, m := range l.Methods {
 		amount, known := decimal.Zero, l.Total != nil
 		if known {
@@ -468,9 +474,10 @@ func (s *Service) Render(ctx context.Context, code string) (RenderModel, error) 
 		}
 		p, e, err := s.price(ctx, l, m, amount, known)
 		if err != nil {
-			return RenderModel{}, err
+			return RenderModel{}, nil, err
 		}
 		if e != nil {
+			dropped = append(dropped, DroppedMethod{Method: m.Method, Chain: strOrNil(m.Chain), Asset: strOrNil(m.Asset), Code: e.Code, Message: e.Message})
 			continue
 		}
 		rm := RenderMethod{Method: m.Method, Chain: strOrNil(m.Chain), Asset: strOrNil(m.Asset)}
@@ -479,5 +486,5 @@ func (s *Service) Render(ctx context.Context, code string) (RenderModel, error) 
 		}
 		methods = append(methods, rm)
 	}
-	return s.renderModel(l, merchant, methods, availability(l, s.now())), nil
+	return s.renderModel(l, merchant, methods, availability(l, s.now())), dropped, nil
 }

@@ -1956,6 +1956,8 @@ The full list of validation codes and when they apply is in `backend/internal/li
 | POST | `/api/v2/links/:id/pause` | 200 link | Active to paused. |
 | POST | `/api/v2/links/:id/archive` | 200 link | Draft, active or paused to archived (terminal). |
 | POST | `/api/v2/links/:id/duplicate` | 201 link | New draft with the same form. |
+| POST | `/api/v2/links/preview?link_id=` | 200 `{model, dropped_methods}` | Renders the posted form body exactly as `GET /public/links/:short_code` would once published, without storing it. `model` is the public render model (per-line totals, fees on methods, `merchant_name`); `dropped_methods` is `[{method, chain, asset, code, message}]` for methods checkout would leave out (`method_no_connector`, `method_no_fee_rule`, `surcharge_forbidden`, `surcharge_needs_quote`, `fee_exceeds_amount`). With `link_id`, status, uses and short code come from that link. Shape errors are 422 as on save. |
+| GET | `/api/v2/links/options` | 200 `{environment, currencies, methods: [{method, chain, asset, currencies}]}` | What the form may offer in the process environment: each method the payment creator takes that has a connector and an active fee rule, and the link currencies it works in. Empty when the creator cannot list its offerings. |
 
 Link body (create and PATCH), all optional on a draft:
 
@@ -1979,7 +1981,7 @@ line_items: [{name, quantity, unit_price, tax_rate}],
 questions: [{key, label, type: "text" | "select" | "checkbox", options?, required, per_order}]
 ```
 
-Link response: the body fields above plus `id`, `status`, `environment` (`live` | `test`), `short_code`, `url` (`<CHECKOUT_BASE_URL>/l/<short_code>`, the QR payload; both null on a draft), `total` (the fixed amount or the server's line-item sum; null for customer-entered), `uses_count`, `revision`, `published_at`, `created_at`, `updated_at`, and on single-link responses `fee_preview`: `[{method, chain, asset, connector, rule_id, rule_version, fee_bearer, fee_currency, amount, fee, tax, customer_total, merchant_net, unavailable}]` (null in lists).
+Link response: the body fields above plus `id`, `status`, `environment` (`live` | `test`), `short_code`, `url` (`<CHECKOUT_BASE_URL>/l/<short_code>`, the QR payload; both null on a draft), `total` (the fixed amount or the server's line-item sum; null for customer-entered), `uses_count`, `revision`, `published_at`, `created_at`, `updated_at`, `merchant_name`, and on single-link responses `fee_preview`: `[{method, chain, asset, connector, rule_id, rule_version, fee_bearer, fee_currency, amount, fee, tax, customer_total, merchant_net, unavailable}]` (null in lists).
 
 #### Public routes (no authentication, rate limited per IP)
 
