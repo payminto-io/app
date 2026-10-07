@@ -8,7 +8,7 @@ Living document. Updated by the coordinator after every merge. Tickets and owner
 
 ## Wave 1: finish and merge what is built (in this order)
 
-Order matters because of migration numbers (03 switch, 04 custody, 06 links, 07 CRE, 08 Solana) and shared wiring.
+Migration numbers follow merge order (the runner requires a contiguous manifest prefix). Main has 01, 02, 03, 05; the next merges take 10, 11, 12 and up, renumbered by the coordinator at merge time.
 
 1. 05 switch core: fix round 4 (live ledger guard, connector calls bounded by the claim lease), final check, merge.
 2. 08 custody: re-review of round 3, merge.
@@ -24,7 +24,7 @@ Every merge: `go build`, `go vet`, unit tests, then `make test-integration` on m
 | Ticket | Needs | Notes |
 | --- | --- | --- |
 | 06 routing | 05 | Hyperswitch algorithms plus rail cost, finality and settlement preference |
-| 07 card connector | 05 | Stripe through hosted fields only |
+| 07 demo fiat connectors | 05 | Keypay and Payvang ported from Kuberopay; no Stripe (owner decision) |
 | 10 conversion at receipt | 01, 09 | Jupiter on Solana, executed rate as a ledger trade |
 | 17 public checkout projection | 03, 05, 09 | fields the checkout already renders when present |
 | 23 CRE solvency workflow | 21, 22 | in progress on branch `cre-solvency` |
