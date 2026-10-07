@@ -348,8 +348,14 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 		n, cursor, listed, err := s.pollAddress(ctx, acct, watch, acct.TokenAccount, acct.TokenAccountCursor, seen)
 		recorded += n
 		held, attempts := "", 0
+		// Any error other than a hold (transport, rate limit, timeout) says nothing about the held
+		// signature: it is carried unchanged and only a completed poll clears it (NEW2-C1).
+		failed := false
 		var hold *heldError
-		if errors.As(err, &hold) {
+		if err != nil && !errors.As(err, &hold) {
+			held, attempts, failed = acct.HeldSignature, acct.HeldAttempts, true
+		}
+		if hold != nil {
 			held, attempts = hold.signature, 1
 			if acct.HeldSignature == hold.signature {
 				attempts = acct.HeldAttempts + 1
@@ -370,6 +376,8 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 				held, attempts = "", 0
 				if errors.As(err, &hold2) {
 					held, attempts = hold2.signature, 1
+				} else if err != nil {
+					failed = true
 				}
 			}
 		}
@@ -382,8 +390,9 @@ func (s *SolanaDepositService) pollAccount(ctx context.Context, acct *models.Sol
 			pollErr = err
 		}
 		// Listed signatures or a transient hold explain the movement; nothing listed and no error
-		// means the node that reported the balance and the node that listed signatures disagree.
-		explained = explained || listed > 0 || held != ""
+		// means the node that reported the balance and the node that listed signatures disagree. A
+		// failed poll explains nothing, so a moved balance keeps the next poll alive under its budget.
+		explained = explained || (!failed && (listed > 0 || held != ""))
 	}
 	if explained {
 		updates["last_balance_raw"] = balance
