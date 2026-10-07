@@ -1,5 +1,7 @@
 # Payminto
 
+> **Hackathon submission:** see [tracks/](tracks/README.md) for the [Solana](tracks/solana/README.md), [Chainlink](tracks/chainlink/README.md) and [AWS](tracks/aws/README.md) tracks, and [DEMO.md](DEMO.md) for the demo.
+
 Self-hosted, non-custodial cryptocurrency payment gateway
 
 ## Quick Start
