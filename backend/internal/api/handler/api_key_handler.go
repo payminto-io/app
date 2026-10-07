@@ -26,7 +26,7 @@ func NewAPIKeyHandler(apiKeyRepo repository.APIKeyRepository) *APIKeyHandler {
 type apiKeyResponse struct {
 	ID                 uint    `json:"id"`
 	Name               string  `json:"name"`
-	Prefix             string  `json:"prefix"`             // first 8 chars e.g. "pm_abcd..."
+	Prefix             string  `json:"prefix"` // first 8 chars e.g. "pm_abcd..."
 	Active             bool    `json:"active"`
 	Status             string  `json:"status"`
 	ExternalPlatformID uint    `json:"externalPlatformID"`

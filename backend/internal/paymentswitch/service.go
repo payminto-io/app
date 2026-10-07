@@ -56,12 +56,13 @@ func New(db *gorm.DB, lookup connectors.Lookup, selector ConnectorSelector, ledg
 	return s
 }
 
-// Migrate creates the switch tables for development and test; production uses migration 2026100703.
+// Migrate creates the switch tables and constraints for development and test; production uses the
+// checksummed migration 2026100703_switch_intents_attempts.
 func Migrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(Models()...); err != nil {
 		return fmt.Errorf("paymentswitch: automigrate: %w", err)
 	}
-	return nil
+	return InstallConstraints(db)
 }
 
 // CreateCommand opens an intent. An empty IdempotencyKey gets a generated one, so every intent has a key.

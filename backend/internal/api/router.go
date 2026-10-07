@@ -6,6 +6,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/api/middleware"
 	"github.com/payminto/payminto/backend/internal/blockchain"
 	"github.com/payminto/payminto/backend/internal/constants"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/payminto/payminto/backend/internal/service"
@@ -76,6 +77,9 @@ type RouterConfig struct {
 	// AdapterReg gives handlers read access to chain adapters (e.g. hot-wallet
 	// balance lookups).
 	AdapterReg *blockchain.AdapterRegistry
+
+	// PaymentSwitch mounts /api/v2/payments and /api/v2/webhooks when wired.
+	PaymentSwitch *modules.PaymentSwitchModule
 }
 
 // NewRouter constructs and returns a configured Gin engine.
@@ -412,6 +416,11 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 				mdGrp.POST("/:id/resolve", mdH.Resolve)
 			}
 		}
+	}
+
+	// ---- v2: payment switch (intents, attempts, refunds, connector webhooks) ----
+	if cfg.PaymentSwitch != nil {
+		RegisterPaymentSwitchRoutes(r.Group("/api/v2"), cfg.PaymentSwitch, middleware.JWTOrAPIKey(cfg.AuthSvc))
 	}
 
 	return r

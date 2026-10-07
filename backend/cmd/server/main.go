@@ -12,7 +12,10 @@ import (
 
 	"github.com/payminto/payminto/backend/internal/api"
 	"github.com/payminto/payminto/backend/internal/config"
+	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
 	"github.com/payminto/payminto/backend/internal/database"
+	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/observability"
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/service"
@@ -172,7 +175,19 @@ func main() {
 	if checkoutHost == "" {
 		checkoutHost = fmt.Sprintf("http://localhost:%d", cfg.Server.Port)
 	}
+	paymentSwitch, err := modules.WirePaymentSwitch(modules.Deps{
+		DB:           db,
+		Config:       cfg,
+		Ledger:       ledger.New(db),
+		Environment:  cfg.Server.Environment,
+		ChainDeposit: chaindeposit.NewPaymintoBackend(reg.PaymentService(), reg.PaymentRepo(), reg.DepositRepo()),
+	})
+	if err != nil {
+		log.Fatalf("payment switch: %v", err)
+	}
+
 	router := api.NewRouter(api.RouterConfig{
+		PaymentSwitch:     paymentSwitch,
 		DB:                db,
 		AuthSvc:           reg.AuthService(),
 		JWTTokenSvc:       reg.JWTTokenService(),

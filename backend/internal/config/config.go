@@ -18,6 +18,14 @@ type Config struct {
 	Security   SecurityConfig
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
+	Switch     SwitchConfig
+}
+
+// SwitchConfig configures the payment switch (internal/paymentswitch) and which connectors every merchant
+// may use until routing (ticket 06) owns that per merchant. The mock connector is refused in deployment environments.
+type SwitchConfig struct {
+	Connectors        []string
+	MockWebhookSecret string
 }
 
 // EmailConfig holds SMTP delivery settings. When Host/From are empty, email
@@ -161,6 +169,10 @@ func Load() (*Config, error) {
 			MetricsEnabled: envBool("METRICS_ENABLED", true),
 			SentryDSN:      envStr("SENTRY_DSN", ""),
 		},
+		Switch: SwitchConfig{
+			Connectors:        envCSVDefault("SWITCH_CONNECTORS", []string{"mock", "chaindeposit"}),
+			MockWebhookSecret: envStr("SWITCH_MOCK_WEBHOOK_SECRET", "mock-webhook-secret"),
+		},
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -272,6 +284,14 @@ func envStr(key, fallback string) string {
 }
 
 // envCSV reads a comma-separated env var into a trimmed, non-empty slice.
+// envCSVDefault is envCSV with a fallback when the variable is unset; an explicit empty value means none.
+func envCSVDefault(key string, fallback []string) []string {
+	if _, set := os.LookupEnv(key); !set {
+		return fallback
+	}
+	return envCSV(key)
+}
+
 func envCSV(key string) []string {
 	v := os.Getenv(key)
 	if v == "" {

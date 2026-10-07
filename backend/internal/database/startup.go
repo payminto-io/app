@@ -7,6 +7,7 @@ import (
 
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/paymentswitch"
 	"gorm.io/gorm"
 )
 
@@ -157,7 +158,10 @@ func PrepareSchema(db *gorm.DB, environment, mode string) error {
 // MigrateExpandSchema creates the migration-managed tables that are deliberately outside the
 // manifest (so ApplyMigrations can still run on a database that predates them) for dev/test.
 func MigrateExpandSchema(db *gorm.DB) error {
-	return ledger.Migrate(db)
+	if err := ledger.Migrate(db); err != nil {
+		return err
+	}
+	return paymentswitch.Migrate(db)
 }
 
 func validateCurrentSchema(db *gorm.DB) error {
