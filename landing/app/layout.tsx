@@ -22,6 +22,9 @@ const DESCRIPTION =
   "Self-hostable payment gateway: payment providers and USDC/USDT on Solana as peer rails on one double-entry ledger, with optional Chainlink CRE solvency attestation.";
 
 export const metadata: Metadata = {
+  // Relative paths in the metadata below resolve against this; without it Next
+  // falls back to http://localhost:3000 and ships localhost URLs in the tags.
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://payminto.io"),
   title: TITLE,
   description: DESCRIPTION,
   openGraph: { title: TITLE, description: DESCRIPTION, type: "website" },

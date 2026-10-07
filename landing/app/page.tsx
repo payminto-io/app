@@ -23,6 +23,7 @@ function Navbar() {
             ["Solvency", "#solvency"],
             ["Solana", "#solana"],
             ["Self-host", "#self-host"],
+            ["Business model", "#business-model"],
           ].map(([label, href]) => (
             <a
               key={label}
@@ -34,9 +35,6 @@ function Navbar() {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <a href={LINKS.source} className="btn-pill btn-secondary !px-4 !py-2 !text-[14px]">
-            GitHub
-          </a>
           <a href={LINKS.app} className="btn-pill btn-primary !px-4 !py-2 !text-[14px]">
             Open the app
           </a>
@@ -259,7 +257,7 @@ function Status() {
   );
 }
 
-const CLONE = "git clone https://github.com/payminto-io/app.git payminto";
+const CLONE = "git clone <your-payminto-remote> payminto";
 
 function SelfHost() {
   return (
@@ -296,8 +294,73 @@ function SelfHost() {
           </pre>
         </div>
         <p className="mt-5 text-[14px] font-semibold text-foreground-muted">
-          Tests, the CRE simulation and the full repository map are in the{" "}
-          <a href={LINKS.source} className="link-inline">README</a>.
+          Tests, the CRE simulation and the full repository map are in the
+          repository README.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+// TOKEN2049 hackathon tracks. One line each, from each tracks/<name>/README.md.
+const TRACKS = [
+  ["Chainlink", "A CRE workflow attests what the ledger owes against reserves on chain, and the gateway re-verifies every report from its own RPC."],
+  ["Solana", "USDC and USDT accepted as separate assets on one ledger, with sweeps that survive crashes and racing workers."],
+  ["NOWNodes", "RPC treated as evidence: two distinct providers for every money decision."],
+  ["AWS", "Runs inside the merchant's own account, with isolated keys per environment."],
+] as const;
+
+function Tracks() {
+  return (
+    <section id="tracks" className="border-y border-border py-24 md:py-32">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <p className="eyebrow mb-4">Hackathon tracks</p>
+        <h2 className="font-display mb-14 max-w-3xl text-[44px] font-black text-foreground md:text-[64px]" data-reveal>
+          One product,
+          <br />
+          <span className="brand-underline">four tracks.</span>
+        </h2>
+        <ul data-reveal-stagger className="grid gap-5 sm:grid-cols-2">
+          {TRACKS.map(([name, desc]) => (
+            <li key={name} data-stagger-child className="card-ring hover-lift p-7">
+              <h3 className="mb-2 text-[21px] font-bold text-foreground">{name}</h3>
+              <p className="text-[15px] font-semibold leading-[1.5] text-foreground-soft">{desc}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+// Pitch deck, "Business model": open self-hosted core, paid enterprise operations.
+const REVENUE = [
+  ["Core", "Self-hosted", "Payment core, dashboard, API and MCP server, plus community connectors. The merchant runs it on their own infrastructure."],
+  ["Licence", "Enterprise", "Managed operations and monitoring, audit reporting and compliance support, priority connectors and an SLA."],
+  ["Services", "Connectors", "New acquirer and chain connectors, written from the provider's API docs and paid per integration."],
+] as const;
+
+function Revenue() {
+  return (
+    <section id="business-model" className="section-alt border-y border-border py-24 md:py-32">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <p className="eyebrow mb-4">Business model</p>
+        <h2 className="font-display mb-14 max-w-3xl text-[44px] font-black text-foreground md:text-[64px]" data-reveal>
+          Open core.
+          <br />
+          <span className="brand-underline">Paid operations.</span>
+        </h2>
+        <ul data-reveal-stagger className="grid gap-5 md:grid-cols-3">
+          {REVENUE.map(([tag, title, desc]) => (
+            <li key={title} data-stagger-child className="card-ring hover-lift p-7">
+              <div className="mb-5 font-mono text-[12px] font-bold uppercase tracking-[0.15em] text-brand-ink">{tag}</div>
+              <h3 className="mb-2 text-[21px] font-bold text-foreground">{title}</h3>
+              <p className="text-[15px] font-semibold leading-[1.5] text-foreground-soft">{desc}</p>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-8 text-[14px] font-semibold text-foreground-muted">
+          Proposed model. Pricing to be validated with pilot merchants.
         </p>
       </div>
     </section>
@@ -365,14 +428,14 @@ function CTA() {
           <span className="brand-underline">payment gateway.</span>
         </h2>
         <p className="mx-auto mb-10 max-w-xl text-[18px] font-semibold text-foreground-soft">
-          Read the code, then open the app and the hosted checkout.
+          Open the app and the hosted checkout.
         </p>
         <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <a href={LINKS.source} className="btn-pill btn-primary !px-7 !py-4 !text-[18px]">
-            View the source <span aria-hidden>→</span>
+          <a href={LINKS.app} className="btn-pill btn-primary !px-7 !py-4 !text-[18px]">
+            Open the app <span aria-hidden>→</span>
           </a>
-          <a href={LINKS.app} className="btn-pill btn-secondary !px-7 !py-4 !text-[18px]">
-            Open the app
+          <a href={LINKS.checkout} className="btn-pill btn-secondary !px-7 !py-4 !text-[18px]">
+            Open the checkout
           </a>
         </div>
       </div>
@@ -385,13 +448,6 @@ function Footer() {
     Product: [
       ["App", LINKS.app],
       ["Checkout", LINKS.checkout],
-      ["Demo walkthrough", LINKS.demo],
-    ],
-    Source: [
-      ["GitHub", LINKS.source],
-      ["Chainlink CRE", LINKS.chainlinkTrack],
-      ["Solana", LINKS.solanaTrack],
-      ["NOWNodes RPC", LINKS.nownodesTrack],
     ],
   };
   return (
@@ -444,6 +500,8 @@ export default function Home() {
       <Features />
       <Status />
       <SelfHost />
+      <Tracks />
+      <Revenue />
       <FAQ />
       <CTA />
       <Footer />

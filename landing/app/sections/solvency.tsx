@@ -3,7 +3,6 @@
 import { useRef } from "react";
 import { gsap } from "../motion/gsap";
 import { useMotion } from "../motion/use-motion";
-import { LINKS } from "./links";
 
 type Node = { id: string; x: number; y: number; w: number; h: number; title: string; value?: string; sub: string; tone?: "positive" };
 type Edge = { id: string; d: string; label?: string; lx?: number; ly?: number; anchor?: "start" | "middle" | "end" };
@@ -216,10 +215,7 @@ export function Solvency() {
             />
             <p className="mt-4 text-[13px] font-semibold text-foreground-muted">
               Figures are from the local end-to-end run (Anvil chain, Chainlink&apos;s Keystone mock
-              forwarder).{" "}
-              <a href={LINKS.chainlinkTrack} className="link-inline">
-                How it was run
-              </a>
+              forwarder).
             </p>
           </div>
         </div>

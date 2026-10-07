@@ -3,7 +3,6 @@
 import { useRef } from "react";
 import { gsap } from "../motion/gsap";
 import { useMotion } from "../motion/use-motion";
-import { LINKS } from "./links";
 
 type Box = { id: string; x: number; y: number; w: number; h: number; title: string; sub: string; tone?: "ok" | "bad" };
 
@@ -174,15 +173,8 @@ export function Solana() {
         </div>
 
         <p className="mt-6 text-[14px] font-semibold text-foreground-muted">
-          Full rules and tests in the{" "}
-          <a href={LINKS.solanaTrack} className="link-inline">
-            Solana write-up
-          </a>
-          . RPC is treated as evidence; see the{" "}
-          <a href={LINKS.nownodesTrack} className="link-inline">
-            NOWNodes write-up
-          </a>
-          .
+          Full rules and tests ship with the Solana track write-up. RPC is treated as
+          evidence: a deposit is credited only when two distinct providers agree.
         </p>
       </div>
     </section>

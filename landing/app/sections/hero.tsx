@@ -49,11 +49,11 @@ export function Hero() {
               CRE workflow when you want anyone to check that the gateway holds what it owes.
             </p>
             <div data-hero-in="copy" className="flex flex-wrap gap-3">
-              <a href={LINKS.source} className="btn btn-primary">
-                Deploy from GitHub
-              </a>
-              <a href={LINKS.app} className="btn btn-outline">
+              <a href={LINKS.app} className="btn btn-primary">
                 Open the app
+              </a>
+              <a href={LINKS.checkout} className="btn btn-outline">
+                See the checkout
               </a>
             </div>
           </div>
