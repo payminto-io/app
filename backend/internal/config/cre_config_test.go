@@ -194,3 +194,28 @@ func TestCRE_InvalidShapesIgnoredWhenDisabled(t *testing.T) {
 		t.Fatalf("disabled CRE validated its keys: %v", err)
 	}
 }
+
+func TestCRE_SlotFollowsTheResolvedProvider(t *testing.T) {
+	clearCRE(t)
+	t.Setenv("CRE_PROVIDER", "mock")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := cfg.Modules.Providers["cre"]; present {
+		t.Fatalf("disabled CRE registered a slot provider: %v", cfg.Modules.Providers)
+	}
+	t.Setenv("CRE_ENABLED", "true")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Modules.Providers["cre"] != CREProviderMock {
+		t.Fatalf("slot = %v, want mock", cfg.Modules.Providers)
+	}
+	// The slot carries the resolved provider: GATEWAY_ENVIRONMENT=live refuses it through the environment gate.
+	facts := cfg.BootFacts()
+	if facts.SlotProviders["cre"] != CREProviderMock {
+		t.Fatalf("boot facts slot = %v", facts.SlotProviders)
+	}
+}

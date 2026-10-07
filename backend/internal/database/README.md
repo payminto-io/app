@@ -6,10 +6,12 @@ Owns database connectivity and schema migration for the Payminto backend. Expose
 
 - `database.go` — `Connect` and `AutoMigrate` for runtime use.
 - `startup.go` — `PrepareSchema` and `MigrateExpandSchema` (migration-managed tables such as `internal/ledger`, kept out of the manifest). Boot also validates the ledger schema and, in live environments, that the connected role cannot rewrite it.
+- `testdb.go` (integration tag) — `NewTestDB`, `NewEmptyTestDB` and `NewTestDBConfig` (a container's connection config, for tests that boot a whole process against it).
 - `testdb.go` — `NewTestDB` testcontainer helper, gated by `//go:build integration`.
 
 ## See also
 
 - `internal/config` — `DatabaseConfig` consumed by `Connect`
 - `internal/models` — list of models migrated here
+- `migrations/` — hand-written SQL migrations run outside GORM; `2026100705_environment_isolation` adds `environment` to `api_keys` and `ledger_accounts` (columns stay out of the manifest so `ApplyMigrations` can run on a database that predates them)
 - `migrations/` — hand-written SQL migrations run outside GORM. After `2026100701` the ledger tables and trigger functions belong to `ledger_owner`; a later migration that alters them must `SET ROLE ledger_owner` first.

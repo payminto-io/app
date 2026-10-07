@@ -13,7 +13,7 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USERNAME:-payminto}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payminto-development-db}
-      POSTGRES_DB: ${POSTGRES_DATABASE:-payminto}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-payminto_test}
     ports:
       - "5432:5432"
     volumes:
@@ -39,9 +39,11 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # Test money only: a test process refuses a remote database not named *_test (ticket 13).
+      GATEWAY_ENVIRONMENT: test
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DATABASE: ${POSTGRES_DATABASE:-payminto}
+      POSTGRES_DATABASE: ${POSTGRES_DATABASE:-payminto_test}
       POSTGRES_USERNAME: ${POSTGRES_USERNAME:-payminto}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payminto-development-db}
       POSTGRES_SSL_MODE: disable

@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -66,6 +67,7 @@ func newWithdrawalHandler(db *gorm.DB) *WithdrawalHandler {
 	otpRepo := repository.NewOTPRepository(db)
 	eeRepo := repository.NewEEEventRepository(db)
 	otpSvc := service.NewOTPService(otpRepo)
+	otpSvc.SetEnvironment(environment.Test)
 	emitter := service.NewEventEmitterService(eeRepo)
 	withdrawalSvc := service.NewWithdrawalService(withdrawalRepo, bcCcyRepo, otpSvc, emitter)
 	return NewWithdrawalHandler(withdrawalSvc)

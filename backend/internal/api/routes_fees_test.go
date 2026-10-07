@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -265,6 +266,7 @@ func newRBACFixture(t *testing.T) rbacFixture {
 	db.Create(&ownerRole)
 	db.Create(&memberRole)
 	f := rbacFixture{mep: mep, auth: service.NewAuthService(nil, nil, strings.Repeat("s", 40))}
+	f.auth.SetEnvironment(environment.Test)
 	f.admin = models.Member{Name: "Admin", MemberType: "merchant", State: "active"}
 	f.merchant = models.Member{Name: "Merchant", MemberType: "merchant", State: "active"}
 	db.Create(&f.admin)
@@ -297,9 +299,10 @@ func TestNewRouterEnforcesSessionPermissionAndOperatorOnFeeRules(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	f := newRBACFixture(t)
 	r := NewRouter(RouterConfig{
-		AuthSvc:    f.auth,
-		MEPRoleSvc: f.mep,
-		Fees:       &modules.FeesModule{Port: &fakeFees{}, AdminEnabled: true, OperatorPlatformID: f.operator},
+		Environment: &modules.EnvironmentModule{Environment: environment.Test},
+		AuthSvc:     f.auth,
+		MEPRoleSvc:  f.mep,
+		Fees:        &modules.FeesModule{Port: &fakeFees{}, AdminEnabled: true, OperatorPlatformID: f.operator},
 	})
 	cases := []struct {
 		name   string

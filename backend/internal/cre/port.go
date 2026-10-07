@@ -278,18 +278,6 @@ type ConversionSource interface {
 	ConversionExists(ctx context.Context, conversionID string) (bool, error)
 }
 
-// Environment is live or test; ticket 13 replaces the config-backed default.
-type Environment string
-
-const (
-	EnvironmentLive Environment = "live"
-	EnvironmentTest Environment = "test"
-)
-
-type EnvironmentSource interface {
-	Environment(ctx context.Context) Environment
-}
-
 // --- Settlement gate: ticket 21b implements the attestation-aware gate; this ticket ships the no-op. ---
 
 // SettlementSubject is what settlement asks about.

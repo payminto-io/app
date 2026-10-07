@@ -1,13 +1,39 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/service"
 )
+
+// CodeAPIKeyEnvironmentMismatch is the error code for a key from the other environment (ticket 13).
+const CodeAPIKeyEnvironmentMismatch = "api_key_environment_mismatch"
+
+// CodeSessionEnvironmentMismatch is the error code for a session token minted by the other environment.
+const CodeSessionEnvironmentMismatch = "session_environment_mismatch"
+
+// rejectSession writes the 401 for a failed token validation, naming the environment when that is the reason.
+func rejectSession(c *gin.Context, err error) {
+	if errors.Is(err, environment.ErrMismatch) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error(), "code": CodeSessionEnvironmentMismatch})
+		return
+	}
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+}
+
+// rejectAPIKey writes the 401 for a failed key validation, with a code when the environment is the reason.
+func rejectAPIKey(c *gin.Context, err error) {
+	if errors.Is(err, environment.ErrMismatch) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error(), "code": CodeAPIKeyEnvironmentMismatch})
+		return
+	}
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+}
 
 // APIKeyAuth returns a Gin middleware that authenticates requests via either
 // the X-API-Key header or an "Authorization: Bearer <key>" header. On success
@@ -28,7 +54,7 @@ func APIKeyAuth(authSvc *service.AuthService) gin.HandlerFunc {
 
 		apiKey, err := authSvc.ValidateAPIKey(key)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			rejectAPIKey(c, err)
 			return
 		}
 
@@ -58,7 +84,7 @@ func JWTOrAPIKey(authSvc *service.AuthService) gin.HandlerFunc {
 		if key := c.GetHeader("X-API-Key"); key != "" {
 			apiKey, err := authSvc.ValidateAPIKey(key)
 			if err != nil {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+				rejectAPIKey(c, err)
 				return
 			}
 			if !setAPIKeyIdentity(c, apiKey) {
@@ -75,7 +101,8 @@ func JWTOrAPIKey(authSvc *service.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		if claims, err := authSvc.ValidateJWT(tokenStr); err == nil {
+		claims, jwtErr := authSvc.ValidateJWT(tokenStr)
+		if jwtErr == nil {
 			c.Set("memberID", claims.MemberID)
 			c.Set("email", claims.Email)
 			c.Set("memberType", claims.MemberType)
@@ -83,13 +110,22 @@ func JWTOrAPIKey(authSvc *service.AuthService) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		if errors.Is(jwtErr, environment.ErrMismatch) {
+			rejectSession(c, jwtErr)
+			return
+		}
 
 		// Legacy: some integrations sent the API key via the Bearer header.
-		if apiKey, err := authSvc.ValidateAPIKey(tokenStr); err == nil {
+		apiKey, err := authSvc.ValidateAPIKey(tokenStr)
+		if err == nil {
 			if !setAPIKeyIdentity(c, apiKey) {
 				return
 			}
 			c.Next()
+			return
+		}
+		if errors.Is(err, environment.ErrMismatch) {
+			rejectAPIKey(c, err)
 			return
 		}
 
@@ -122,7 +158,7 @@ func JWTAuth(authSvc *service.AuthService) gin.HandlerFunc {
 
 		claims, err := authSvc.ValidateJWT(tokenStr)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			rejectSession(c, err)
 			return
 		}
 

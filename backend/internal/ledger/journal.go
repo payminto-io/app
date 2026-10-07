@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/shopspring/decimal"
 )
 
@@ -85,14 +86,19 @@ var (
 )
 
 // AccountKey identifies a ledger account; accounts are created on first use.
+// Environment may be left empty: it then resolves to the context's environment, then the service default.
 type AccountKey struct {
-	OwnerType OwnerType
-	OwnerID   string
-	Asset     string
-	Kind      AccountKind
+	OwnerType   OwnerType
+	OwnerID     string
+	Asset       string
+	Kind        AccountKind
+	Environment environment.Environment
 }
 
 func (k AccountKey) validate() error {
+	if k.Environment != "" && !k.Environment.Valid() {
+		return fmt.Errorf("%w: environment %q", ErrInvalid, k.Environment)
+	}
 	if !slices.Contains(ownerTypes, k.OwnerType) {
 		return fmt.Errorf("%w: owner type %q", ErrInvalid, k.OwnerType)
 	}
@@ -155,6 +161,9 @@ func (j Journal) Validate() error {
 	if len(j.Lines) == 0 {
 		return ErrEmptyJournal
 	}
+	if _, err := j.explicitEnvironment(); err != nil {
+		return err
+	}
 	sums := map[string]decimal.Decimal{}
 	for i, l := range j.Lines {
 		if err := l.Account.validate(); err != nil {
@@ -179,12 +188,30 @@ func (j Journal) Validate() error {
 	return nil
 }
 
+// explicitEnvironment is the one environment the lines name, or "" when none does; mixing is invalid.
+func (j Journal) explicitEnvironment() (environment.Environment, error) {
+	var env environment.Environment
+	for i, l := range j.Lines {
+		if l.Account.Environment == "" {
+			continue
+		}
+		if env == "" {
+			env = l.Account.Environment
+		} else if l.Account.Environment != env {
+			return "", fmt.Errorf("%w: line %d is %s but line 0 is %s", ErrInvalid, i, l.Account.Environment, env)
+		}
+	}
+	return env, nil
+}
+
+// canonicalLine omits an empty environment so hashes stored before the column existed still match.
 type canonicalLine struct {
-	OwnerType OwnerType   `json:"owner_type"`
-	OwnerID   string      `json:"owner_id"`
-	Asset     string      `json:"asset"`
-	Kind      AccountKind `json:"kind"`
-	Amount    string      `json:"amount"`
+	OwnerType   OwnerType               `json:"owner_type"`
+	OwnerID     string                  `json:"owner_id"`
+	Asset       string                  `json:"asset"`
+	Kind        AccountKind             `json:"kind"`
+	Environment environment.Environment `json:"environment,omitempty"`
+	Amount      string                  `json:"amount"`
 }
 
 type canonicalJournal struct {
@@ -195,22 +222,34 @@ type canonicalJournal struct {
 	Lines     []canonicalLine `json:"lines"`
 }
 
-// requestHash is the payload fingerprint stored with the journal so a replayed key can be checked against its original.
-func (j Journal) requestHash() string {
+// requestHashFor is the payload fingerprint stored with the journal: every line carries the resolved
+// environment, so the same key and lines posted in the other environment never read as a replay.
+func (j Journal) requestHashFor(env environment.Environment) string {
+	return j.hash(func(explicit environment.Environment) environment.Environment { return env })
+}
+
+// legacyRequestHash is the fingerprint journals carried before environments existed (lines name none);
+// replays of those rows are still accepted against it.
+func (j Journal) legacyRequestHash() string {
+	return j.hash(func(explicit environment.Environment) environment.Environment { return explicit })
+}
+
+func (j Journal) hash(envOf func(environment.Environment) environment.Environment) string {
 	lines := make([]canonicalLine, 0, len(j.Lines))
 	for _, l := range j.Lines {
 		lines = append(lines, canonicalLine{
-			OwnerType: l.Account.OwnerType,
-			OwnerID:   l.Account.OwnerID,
-			Asset:     l.Account.Asset,
-			Kind:      l.Account.Kind,
-			Amount:    l.Amount.String(),
+			OwnerType:   l.Account.OwnerType,
+			OwnerID:     l.Account.OwnerID,
+			Asset:       l.Account.Asset,
+			Kind:        l.Account.Kind,
+			Environment: envOf(l.Account.Environment),
+			Amount:      l.Amount.String(),
 		})
 	}
 	slices.SortFunc(lines, func(a, b canonicalLine) int {
 		return strings.Compare(
-			fmt.Sprint(a.OwnerType, "|", a.OwnerID, "|", a.Asset, "|", a.Kind, "|", a.Amount),
-			fmt.Sprint(b.OwnerType, "|", b.OwnerID, "|", b.Asset, "|", b.Kind, "|", b.Amount),
+			fmt.Sprint(a.OwnerType, "|", a.OwnerID, "|", a.Asset, "|", a.Kind, "|", a.Environment, "|", a.Amount),
+			fmt.Sprint(b.OwnerType, "|", b.OwnerID, "|", b.Asset, "|", b.Kind, "|", b.Environment, "|", b.Amount),
 		)
 	})
 	postedAt := ""

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/observability"
 )
 
@@ -53,7 +54,7 @@ type Service struct {
 	reserves    ReserveSource
 	deposits    DepositSource
 	conversions ConversionSource
-	env         EnvironmentSource
+	guard       environment.Guard
 	events      EventSink
 	decimals    Decimals
 	tokens      map[Kind][32]byte
@@ -67,9 +68,9 @@ func WithLiabilities(s LiabilitySource) Option  { return func(x *Service) { x.li
 func WithReserves(s ReserveSource) Option       { return func(x *Service) { x.reserves = s } }
 func WithDeposits(s DepositSource) Option       { return func(x *Service) { x.deposits = s } }
 func WithConversions(s ConversionSource) Option { return func(x *Service) { x.conversions = s } }
-func WithEnvironment(s EnvironmentSource) Option {
-	return func(x *Service) { x.env = s }
-}
+
+// WithGuard supplies the process environment (ticket 13); the status report names it.
+func WithGuard(g environment.Guard) Option  { return func(x *Service) { x.guard = g } }
 func WithEvents(s EventSink) Option         { return func(x *Service) { x.events = s } }
 func WithDecimals(d Decimals) Option        { return func(x *Service) { x.decimals = d } }
 func WithClock(now func() time.Time) Option { return func(x *Service) { x.now = now } }
@@ -79,7 +80,7 @@ func NewService(cfg Config, attester Attester, store Store, verifier *Verifier, 
 	s := &Service{
 		cfg: cfg, attester: attester, store: store, verifier: verifier,
 		liabilities: NoLiabilities{}, reserves: NoReserves{}, deposits: NoDeposits{}, conversions: NoConversions{},
-		env: StaticEnvironment(EnvironmentTest), events: NoopEvents{}, decimals: defaultDecimals, tokens: map[Kind][32]byte{},
+		events: NoopEvents{}, decimals: defaultDecimals, tokens: map[Kind][32]byte{},
 		now: func() time.Time { return time.Now().UTC() },
 	}
 	for _, o := range opts {
@@ -440,7 +441,7 @@ type StatusReport struct {
 	Provider             string
 	DegradedFrom         string
 	MissingKeys          []string
-	Environment          Environment
+	Environment          environment.Environment
 	Chain                string
 	ConsumerAddress      string
 	ForwarderAddress     string
@@ -457,8 +458,11 @@ type StatusReport struct {
 func (s *Service) Status(ctx context.Context) (StatusReport, error) {
 	rep := StatusReport{
 		Enabled: s.Enabled(), Provider: s.cfg.Provider, DegradedFrom: s.cfg.DegradedFrom, MissingKeys: s.cfg.MissingKeys,
-		Environment: s.env.Environment(ctx), Chain: s.cfg.Chain, TriggerSigner: s.cfg.TriggerSigner, PublicBaseURL: s.cfg.PublicBaseURL,
+		Chain: s.cfg.Chain, TriggerSigner: s.cfg.TriggerSigner, PublicBaseURL: s.cfg.PublicBaseURL,
 		PublicVerifyEnabled: s.cfg.PublicVerifyEnabled, Health: Health{Status: HealthOff},
+	}
+	if s.guard != nil {
+		rep.Environment = s.guard.Current()
 	}
 	if !rep.Enabled {
 		return rep, nil
@@ -566,8 +570,3 @@ func (NoConversions) Conversions(context.Context, time.Time, int) ([]Conversion,
 	return nil, nil
 }
 func (NoConversions) ConversionExists(context.Context, string) (bool, error) { return false, nil }
-
-// StaticEnvironment answers from configuration until ticket 13 supplies the real source.
-type StaticEnvironment Environment
-
-func (e StaticEnvironment) Environment(context.Context) Environment { return Environment(e) }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/shopspring/decimal"
 )
 
@@ -43,19 +44,21 @@ func (m *Metadata) Scan(src any) error {
 }
 
 // AccountRow is ledger_accounts. Primary keys follow the repo's uint convention (PaymintoModel).
+// Environment is part of the uniqueness key so test and live never share an account (ticket 13).
 type AccountRow struct {
-	ID        AccountID   `gorm:"primarykey"`
-	OwnerType OwnerType   `gorm:"type:varchar(16);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:1"`
-	OwnerID   string      `gorm:"type:varchar(128);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:2"`
-	Asset     string      `gorm:"type:varchar(32);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:3"`
-	Kind      AccountKind `gorm:"type:varchar(16);not null;uniqueIndex:ledger_accounts_owner_asset_kind_key,priority:4"`
-	CreatedAt time.Time   `gorm:"not null"`
+	ID          AccountID               `gorm:"primarykey"`
+	Environment environment.Environment `gorm:"type:varchar(8);not null;default:'test';uniqueIndex:ledger_accounts_env_owner_asset_kind_key,priority:1"`
+	OwnerType   OwnerType               `gorm:"type:varchar(16);not null;uniqueIndex:ledger_accounts_env_owner_asset_kind_key,priority:2"`
+	OwnerID     string                  `gorm:"type:varchar(128);not null;uniqueIndex:ledger_accounts_env_owner_asset_kind_key,priority:3"`
+	Asset       string                  `gorm:"type:varchar(32);not null;uniqueIndex:ledger_accounts_env_owner_asset_kind_key,priority:4"`
+	Kind        AccountKind             `gorm:"type:varchar(16);not null;uniqueIndex:ledger_accounts_env_owner_asset_kind_key,priority:5"`
+	CreatedAt   time.Time               `gorm:"not null"`
 }
 
 func (AccountRow) TableName() string { return "ledger_accounts" }
 
 func (a AccountRow) Key() AccountKey {
-	return AccountKey{OwnerType: a.OwnerType, OwnerID: a.OwnerID, Asset: a.Asset, Kind: a.Kind}
+	return AccountKey{OwnerType: a.OwnerType, OwnerID: a.OwnerID, Asset: a.Asset, Kind: a.Kind, Environment: a.Environment}
 }
 
 // JournalRow is ledger_journals. RequestHash lets a replayed key be checked against its original payload.
@@ -65,9 +68,11 @@ type JournalRow struct {
 	ReferenceType  string      `gorm:"type:varchar(128);not null;index:ledger_journals_reference_idx,priority:1"`
 	ReferenceID    string      `gorm:"type:varchar(128);not null;index:ledger_journals_reference_idx,priority:2"`
 	IdempotencyKey string      `gorm:"type:varchar(128);not null;uniqueIndex:ledger_journals_idempotency_key_key"`
-	RequestHash    string      `gorm:"type:char(64);not null"`
-	PostedAt       time.Time   `gorm:"not null;index"`
-	Metadata       Metadata    `gorm:"type:jsonb;not null"`
+	// Environment scopes the idempotency key: a key reused across environments is a conflict, never a replay.
+	Environment environment.Environment `gorm:"type:varchar(8);not null;default:'test';index:ledger_journals_environment_idx"`
+	RequestHash string                  `gorm:"type:char(64);not null"`
+	PostedAt    time.Time               `gorm:"not null;index"`
+	Metadata    Metadata                `gorm:"type:jsonb;not null"`
 	// PostingTxID and PostingStartedAt are stamped by a Postgres trigger; lines may only join a journal
 	// from the same transaction (both must match, so a restored cluster reusing xids cannot unseal).
 	PostingTxID      int64     `gorm:"type:bigint;not null;default:0"`
