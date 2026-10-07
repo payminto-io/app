@@ -141,6 +141,16 @@ func main() {
 		))
 	}
 
+	// Attestations (ticket 21): the worker exists only when CRE is on; off leaves the worker set unchanged.
+	if creModule := reg.CREModule(); creModule.Enabled() {
+		if w := creModule.Service.Worker(); w != nil {
+			mgr.Register(w)
+		}
+		log.Printf("[server] attestations enabled (CRE_PROVIDER=%s)", creModule.Provider)
+	} else {
+		log.Printf("[server] attestations off (CRE_ENABLED=false)")
+	}
+
 	// Deposit confirmation processor: promotes CONFIRMING deposits to CONFIRMED
 	// and flips their payment to FILLED, publishing a real-time event.
 	mgr.Register(worker.NewDepositProcessor(db, broker))
@@ -237,6 +247,7 @@ func main() {
 		APIKeyRepo:           reg.APIKeyRepo(),
 		Environment:          reg.EnvironmentModule(),
 		Fees:                 reg.FeesModule(),
+		CRE:                  reg.CREModule(),
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)

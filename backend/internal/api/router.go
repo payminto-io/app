@@ -84,6 +84,9 @@ type RouterConfig struct {
 
 	// Fees is the fee rules module (internal/fees); nil leaves its routes unmounted.
 	Fees *modules.FeesModule
+
+	// CRE is the attestation module (internal/cre); nil or disabled mounts nothing (docs/cre/SPEC.md).
+	CRE *modules.CREModule
 }
 
 // processEnvironment is the environment every request is tagged with; there is no default.
@@ -442,6 +445,18 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 			auth.Admin = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
 		}
 		RegisterFeesRoutes(v1, cfg.Fees, auth)
+	}
+
+	// ---- Attestations: workflow pulls and pushes, dashboard status, public verification ----
+	if cfg.CRE != nil {
+		auth := CREAuth{}
+		if cfg.AuthSvc != nil {
+			auth.Session = middleware.JWTAuth(cfg.AuthSvc)
+			if cfg.MEPRoleSvc != nil {
+				auth.Owner = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
+			}
+		}
+		RegisterCRERoutes(v1, cfg.CRE, auth)
 	}
 
 	return r

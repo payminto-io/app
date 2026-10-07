@@ -62,6 +62,11 @@ func (s *EventEmitterService) EmitNotification(payload NotificationPayload) erro
 	return s.emit(models.EventTypeNotificationSend, payload)
 }
 
+// EmitNamed publishes a module event (for example cre.attestation.recorded.v1) through the same queue.
+func (s *EventEmitterService) EmitNamed(eventType string, payload map[string]any) error {
+	return s.emit(eventType, payload)
+}
+
 // emit serialises the payload and creates an EEEvent row.
 func (s *EventEmitterService) emit(eventType string, payload any) error {
 	data, err := json.Marshal(payload)

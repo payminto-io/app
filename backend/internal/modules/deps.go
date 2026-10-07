@@ -15,4 +15,8 @@ type Deps struct {
 	Ledger *ledger.Service
 	// LedgerAsset is the ledger's asset for a blockchain_currencies row (service.LedgerAssetResolver).
 	LedgerAsset func(tx *gorm.DB, blockchainCurrencyID uint) (string, error)
+	// Environment is the process environment module; slot modules ask its guard before resolving a provider.
+	Environment *EnvironmentModule
+	// EmitEvent publishes a named, versioned event through the gateway's emitter (MODULES.md rule 9).
+	EmitEvent func(eventType string, payload map[string]any) error
 }
