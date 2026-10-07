@@ -19,7 +19,7 @@ func TestDepositAddressService_SolanaAssignsOwnerATAAndRecordsOwner(t *testing.T
 
 	poolSvc := NewAddressPoolService(repository.NewAddressPoolRepository(f.db), repository.NewWalletRepository(f.db), repository.NewBlockchainFamilyRepository(f.db), nil)
 	svc := NewDepositAddressService(repository.NewDepositAddressRepository(f.db), repository.NewWalletRepository(f.db), repository.NewBlockchainCurrencyRepository(f.db), nil, poolSvc).
-		WithSolanaDepositAccounts(f.accounts)
+		WithSolanaDepositAccounts(f.accounts, f.db, 0)
 
 	pr := &models.PaymentRequest{ReferenceID: "ref-ata", AmountInUSD: decimal.RequireFromString("5"), State: models.PaymentStateOpen, MemberID: f.member.ID, ExternalPlatformID: f.platform.ID}
 	must(t, f.db.Create(pr).Error)

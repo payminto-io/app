@@ -92,7 +92,7 @@ func TestSolanaEndToEnd(t *testing.T) {
 	bcRepo := repository.NewBlockchainCurrencyRepository(db)
 	missed := repository.NewMissedDepositRepository(db)
 	poolSvc := NewAddressPoolService(repository.NewAddressPoolRepository(db), repository.NewWalletRepository(db), repository.NewBlockchainFamilyRepository(db), nil)
-	addrSvc := NewDepositAddressService(repository.NewDepositAddressRepository(db), repository.NewWalletRepository(db), bcRepo, nil, poolSvc).WithSolanaDepositAccounts(accounts)
+	addrSvc := NewDepositAddressService(repository.NewDepositAddressRepository(db), repository.NewWalletRepository(db), bcRepo, nil, poolSvc).WithSolanaDepositAccounts(accounts, db, 0)
 	depositSvc := NewDepositService(depositRepo, repository.NewDepositAddressRepository(db), repository.NewPaymentRepository(db), bcRepo, repository.NewBlockchainRepository(db))
 	journal := ledger.New(db)
 	ledgerSvc := NewLedgerService(repository.NewAccountRepository(db), WithJournal(journal, blockchainCurrencyAssetResolver()))

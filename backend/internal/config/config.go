@@ -141,6 +141,14 @@ type SolanaConfig struct {
 	CloseDepositAccounts     bool
 	PollIntervalSeconds      int
 	SweepIntervalSeconds     int
+	// LateWindowDays keeps a deposit account watched after payment expiry (late money).
+	LateWindowDays int
+	// RequestsPerSecond is the per-RPC-node budget; the public endpoints allow about 10.
+	RequestsPerSecond int
+	// PostDepositJournals posts the deposit's payment journal from the watcher at finalization.
+	// The switch posts payment journals on attempt success; set false once it is wired (see
+	// .superpowers/solana-fix-1-report.md).
+	PostDepositJournals bool
 }
 
 // SecurityConfig controls authentication and the optional custody capability.
@@ -221,6 +229,9 @@ func Load() (*Config, error) {
 			CloseDepositAccounts:     envBool("SOLANA_CLOSE_DEPOSIT_ACCOUNTS", true),
 			PollIntervalSeconds:      envInt("SOLANA_POLL_INTERVAL_SECONDS", 5),
 			SweepIntervalSeconds:     envInt("SOLANA_SWEEP_INTERVAL_SECONDS", 30),
+			LateWindowDays:           envInt("SOLANA_LATE_WINDOW_DAYS", 7),
+			RequestsPerSecond:        envInt("SOLANA_RPC_REQUESTS_PER_SECOND", 10),
+			PostDepositJournals:      envBool("SOLANA_POST_DEPOSIT_JOURNALS", true),
 		},
 		Security: SecurityConfig{
 			AESKey:          envStr("AES_KEY", ""),

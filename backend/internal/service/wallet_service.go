@@ -338,7 +338,7 @@ func hdPathForFamily(familyCode string) string {
 	case "trx", "TRX":
 		return "m/44'/195'/0'"
 	case "sol", "SOL", "SOL_Family":
-		return "m/44'/501'"
+		return "m/44'/501'/{index}'/0'"
 	default:
 		return "m/44'/60'/0'"
 	}

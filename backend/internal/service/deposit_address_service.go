@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
@@ -33,7 +34,9 @@ type DepositAddressService struct {
 	walletService      *WalletService
 	addressPoolService *AddressPoolService
 	// solanaAccounts is set by WithSolanaDepositAccounts; SOLANA tokens deposit into an ATA, not the owner.
-	solanaAccounts repository.SolanaDepositAccountRepository
+	solanaAccounts   repository.SolanaDepositAccountRepository
+	solanaDB         *gorm.DB
+	solanaLateWindow time.Duration
 }
 
 func NewDepositAddressService(
@@ -107,7 +110,7 @@ func (s *DepositAddressService) AssignForPayment(
 	// Step 5: create the DepositAddress row
 	paymentID := payment.ID
 	if isSolanaToken(bc) {
-		da, err := s.createSolanaDepositAddress(bc, pool.Address, payment.MemberID, &paymentID)
+		da, err := s.createSolanaDepositAddress(bc, pool, payment)
 		if err != nil {
 			return nil, err
 		}
