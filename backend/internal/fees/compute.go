@@ -1,38 +1,10 @@
 package fees
 
 import (
-	"regexp"
+	"fmt"
 
 	"github.com/shopspring/decimal"
 )
-
-// assetMinorUnits lists non-fiat assets; their precision is the token's on-chain decimals.
-var assetMinorUnits = map[string]int32{
-	"USDC": 6, "USDT": 6, "PYUSD": 6, "EURC": 6, "DAI": 18,
-	"BTC": 8, "ETH": 18, "SOL": 9, "TRX": 6, "POL": 18, "MATIC": 18, "BNB": 18,
-}
-
-// fiatMinorUnits lists ISO 4217 codes whose minor unit is not 2.
-var fiatMinorUnits = map[string]int32{
-	"JPY": 0, "KRW": 0, "VND": 0, "CLP": 0, "ISK": 0, "UGX": 0, "XAF": 0, "XOF": 0,
-	"BHD": 3, "KWD": 3, "OMR": 3, "JOD": 3, "TND": 3, "IQD": 3, "LYD": 3,
-}
-
-var fiatCode = regexp.MustCompile(`^[A-Z]{3}$`)
-
-// MinorUnits is the number of decimal places a currency settles in; see README "Rounding".
-func MinorUnits(currency string) (int32, bool) {
-	if n, ok := assetMinorUnits[currency]; ok {
-		return n, true
-	}
-	if n, ok := fiatMinorUnits[currency]; ok {
-		return n, true
-	}
-	if fiatCode.MatchString(currency) {
-		return 2, true
-	}
-	return 0, false
-}
 
 // roundHalfUp relies on decimal.Round rounding half away from zero, which is half-up for the non-negative values here.
 func roundHalfUp(v decimal.Decimal, places int32) decimal.Decimal {
@@ -50,9 +22,9 @@ func slabFor(slabs []Slab, amount decimal.Decimal) Slab {
 
 // Compute applies r to amount: percent of the amount plus flat (or the slab's pair), clamped to
 // [min, max], rounded half-up to the currency's minor unit, then tax on the rounded fee.
-// r must have passed validation; the currency is therefore known.
+// Rounding uses r.MinorUnits, fixed when the rule was written.
 func Compute(r Rule, amount decimal.Decimal) Breakdown {
-	places, _ := MinorUnits(r.Currency)
+	places := r.MinorUnits
 	percent, flat := r.Percent, r.Flat
 	if len(r.Slabs) > 0 {
 		s := slabFor(r.Slabs, amount)
@@ -87,4 +59,13 @@ func Compute(r Rule, amount decimal.Decimal) Breakdown {
 		b.MerchantNet = amount.Sub(fee).Sub(tax)
 	}
 	return b
+}
+
+// computeChecked refuses a fee plus tax above the amount rather than reporting a negative net.
+func computeChecked(r Rule, amount decimal.Decimal) (Breakdown, error) {
+	b := Compute(r, amount)
+	if b.Fee.Add(b.Tax).GreaterThan(amount) {
+		return Breakdown{}, fmt.Errorf("%w: fee %s plus tax %s on %s %s", ErrFeeExceedsAmount, b.Fee, b.Tax, amount, r.Currency)
+	}
+	return b, nil
 }

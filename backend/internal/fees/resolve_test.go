@@ -18,6 +18,7 @@ func rule(id uint, connector *string, card *CardType, region *string) Rule {
 		ID:            id,
 		Version:       1,
 		Scope:         Scope{Method: MethodCard, Connector: connector, CardType: card, Region: region, Currency: "USD"},
+		MinorUnits:    2,
 		FeeBearer:     BearerMerchant,
 		EffectiveFrom: t0.Add(-time.Hour),
 	}

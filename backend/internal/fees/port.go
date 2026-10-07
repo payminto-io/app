@@ -106,6 +106,8 @@ type Rule struct {
 	LineageID string
 	Version   int
 	Scope
+	// MinorUnits is the currency precision fixed when the version was written; Compute rounds to it.
+	MinorUnits    int32
 	Percent       decimal.Decimal
 	Flat          decimal.Decimal
 	Slabs         []Slab
@@ -125,13 +127,15 @@ func (r Rule) ActiveAt(at time.Time) bool {
 	return !at.Before(r.EffectiveFrom) && (r.EffectiveTo == nil || at.Before(*r.EffectiveTo))
 }
 
-// Query describes a payment to price. At defaults to now.
+// Query describes a payment to price. At defaults to now. Chain names the network of an on-chain
+// asset and is required by Snapshot for method crypto (it picks the ledger asset, e.g. USDC.BASE).
 type Query struct {
 	Method    Method
 	Connector string
 	CardType  CardType
 	Region    string
 	Currency  string
+	Chain     string
 	At        time.Time
 }
 
@@ -160,14 +164,27 @@ type RuleFilter struct {
 	LineageID string
 }
 
-// PaymentFee is what the payment path hands over to snapshot the rule and post the fee journal.
-type PaymentFee struct {
+// AttemptRef names one payment attempt; a retry on another connector is a new attempt.
+type AttemptRef struct {
 	PaymentRequestID uint
-	MerchantID       string
-	Breakdown        Breakdown
+	AttemptID        string
 }
 
-// Port is what other modules and the HTTP layer depend on.
+// Snapshot is the rule version an attempt is priced under, with the merchant and ledger asset read from stored rows.
+type Snapshot struct {
+	ID               uint
+	AttemptID        string
+	PaymentRequestID uint
+	MerchantID       uint
+	RuleID           uint
+	RuleVersion      int
+	Currency         string
+	LedgerAsset      string
+	FeeBearer        FeeBearer
+	CreatedAt        time.Time
+}
+
+// Port is what other modules and the HTTP layer depend on. Call points: README "Payment path".
 type Port interface {
 	Resolve(ctx context.Context, q Query) (Rule, error)
 	Preview(ctx context.Context, req PreviewRequest) (Breakdown, error)
@@ -175,8 +192,10 @@ type Port interface {
 	NewVersion(ctx context.Context, ruleID uint, p Pricing, actor string) (Rule, error)
 	GetRule(ctx context.Context, id uint) (Rule, error)
 	ListRules(ctx context.Context, f RuleFilter) ([]Rule, error)
-	// ApplyToPayment runs in the caller's transaction so the snapshot, the fee journal and the payment commit together.
-	ApplyToPayment(ctx context.Context, tx *gorm.DB, pf PaymentFee) error
+	// Snapshot resolves the rule for q and records it against the attempt, in the caller's transaction, at attempt creation.
+	Snapshot(ctx context.Context, tx *gorm.DB, ref AttemptRef, q Query) (Snapshot, error)
+	// PostFee recomputes the fee from the attempt's snapshot on the captured amount and posts it, in the caller's transaction.
+	PostFee(ctx context.Context, tx *gorm.DB, ref AttemptRef, captured decimal.Decimal) (Breakdown, error)
 }
 
 var (
@@ -184,8 +203,10 @@ var (
 	ErrNotFound           = errors.New("fees: fee rule not found")
 	ErrStaleVersion       = errors.New("fees: rule is not the latest version of its lineage")
 	ErrSurchargeForbidden = errors.New("fees: method does not allow a customer surcharge")
-	ErrSnapshotConflict   = errors.New("fees: payment already carries a different fee rule snapshot")
+	ErrSnapshotConflict   = errors.New("fees: attempt is already snapshotted for another payment")
 	ErrPaymentNotFound    = errors.New("fees: payment request not found")
+	ErrSnapshotNotFound   = errors.New("fees: no fee snapshot for this attempt")
+	ErrFeeExceedsAmount   = errors.New("fees: fee and tax exceed the amount")
 )
 
 // ValidationError names the offending field so the API can point at it.
@@ -214,4 +235,17 @@ func (e *AmbiguousRuleError) Error() string {
 		ids[i] = fmt.Sprint(id)
 	}
 	return fmt.Sprintf("fees: ambiguous configuration, rules %s tie at specificity %d", strings.Join(ids, ","), e.Specificity)
+}
+
+// OverlapError is a write refused because another active rule already covers the same scope in that window.
+type OverlapError struct {
+	RuleIDs []uint
+}
+
+func (e *OverlapError) Error() string {
+	ids := make([]string, len(e.RuleIDs))
+	for i, id := range e.RuleIDs {
+		ids[i] = fmt.Sprint(id)
+	}
+	return fmt.Sprintf("fees: overlaps active rule(s) %s for the same scope", strings.Join(ids, ","))
 }

@@ -10,23 +10,29 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Policy is configuration that constrains rules and previews (FEES_* keys, README "Configuration").
+// Policy is configuration that constrains rules and previews (config.FeesConfig, README "Configuration").
 type Policy struct {
 	SurchargeForbidden map[Method]bool
+	Precision          Precision
 }
 
 // DefaultPolicy forbids surcharging UPI, which NPCI does not permit.
 func DefaultPolicy() Policy {
-	return Policy{SurchargeForbidden: map[Method]bool{MethodUPI: true}}
+	return Policy{SurchargeForbidden: map[Method]bool{MethodUPI: true}, Precision: DefaultPrecision()}
 }
 
-// ParsePolicy reads FEES_SURCHARGE_FORBIDDEN_METHODS: a comma list of methods, "none", or empty for the default.
-func ParsePolicy(forbidden string) (Policy, error) {
+// ParsePolicy reads FEES_SURCHARGE_FORBIDDEN_METHODS (a comma list, "none", or empty for the default) and FEES_ASSET_PRECISION.
+func ParsePolicy(forbidden, precision string) (Policy, error) {
+	p := DefaultPolicy()
+	var err error
+	if p.Precision, err = ParsePrecision(precision); err != nil {
+		return Policy{}, err
+	}
 	forbidden = strings.TrimSpace(forbidden)
 	if forbidden == "" {
-		return DefaultPolicy(), nil
+		return p, nil
 	}
-	p := Policy{SurchargeForbidden: map[Method]bool{}}
+	p.SurchargeForbidden = map[Method]bool{}
 	if forbidden == "none" {
 		return p, nil
 	}
@@ -47,11 +53,59 @@ func (p Policy) checkBearer(m Method, b FeeBearer) error {
 	return nil
 }
 
+const (
+	// percentPlaces matches numeric(9,6) on percent, tax_percent and slab percent.
+	percentPlaces = 6
+	// maxExponent bounds a decimal's exponent before any arithmetic; numeric(38,18) never needs more.
+	maxExponent = 40
+	maxDigits   = 40
+)
+
 var (
 	connectorPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 	regionPattern    = regexp.MustCompile(`^[A-Z]{2,8}$`)
 	hundred          = decimal.NewFromInt(100)
+	// maxMagnitude is the numeric(38,18) integer range.
+	maxMagnitude = decimal.New(1, 20)
 )
+
+// checkDecimal rejects values outside numeric(38,18) or finer than places; the cheap exponent test runs first
+// because rescaling a value like 1e100000000 costs seconds and gigabytes.
+func checkDecimal(field string, v decimal.Decimal, places int32) error {
+	if exp := v.Exponent(); exp < -maxExponent || exp > maxExponent {
+		return invalid(field, "out of range")
+	}
+	if v.NumDigits() > maxDigits {
+		return invalid(field, "out of range")
+	}
+	if v.Abs().GreaterThanOrEqual(maxMagnitude) {
+		return invalid(field, "must be below 1e20")
+	}
+	if !v.Equal(v.Truncate(places)) {
+		return invalid(field, "has more than %d decimal places", places)
+	}
+	return nil
+}
+
+func checkPercent(field string, v decimal.Decimal) error {
+	if err := checkDecimal(field, v, percentPlaces); err != nil {
+		return err
+	}
+	if v.IsNegative() || v.GreaterThan(hundred) {
+		return invalid(field, "must be between 0 and 100")
+	}
+	return nil
+}
+
+func checkMoney(field string, v decimal.Decimal, places int32) error {
+	if err := checkDecimal(field, v, places); err != nil {
+		return err
+	}
+	if v.IsNegative() {
+		return invalid(field, "must not be negative")
+	}
+	return nil
+}
 
 func normalized(s *string, f func(string) string) *string {
 	if s == nil {
@@ -67,10 +121,26 @@ func (q Query) normalize() Query {
 	q.CardType = CardType(strings.ToLower(strings.TrimSpace(string(q.CardType))))
 	q.Region = strings.ToUpper(strings.TrimSpace(q.Region))
 	q.Currency = strings.ToUpper(strings.TrimSpace(q.Currency))
+	q.Chain = strings.ToUpper(strings.TrimSpace(q.Chain))
 	return q
 }
 
-func validateScope(s Scope) (Scope, error) {
+// checkCurrency returns the minor units and refuses a currency whose class does not fit the method.
+func checkCurrency(p Precision, m Method, currency string) (int32, error) {
+	places, ok := p.MinorUnits(currency)
+	if !ok {
+		return 0, invalid("currency", "unknown currency %q (ISO 4217, or an asset in FEES_ASSET_PRECISION)", currency)
+	}
+	if fiat := p.IsFiat(currency); (m == MethodCrypto) == fiat {
+		if fiat {
+			return 0, invalid("currency", "method crypto needs an on-chain asset, not %s", currency)
+		}
+		return 0, invalid("currency", "method %s needs a fiat currency, not %s", m, currency)
+	}
+	return places, nil
+}
+
+func validateScope(s Scope, p Precision) (Scope, int32, error) {
 	s.Method = Method(strings.ToLower(strings.TrimSpace(string(s.Method))))
 	s.Currency = strings.ToUpper(strings.TrimSpace(s.Currency))
 	s.Connector = normalized(s.Connector, strings.ToLower)
@@ -80,49 +150,43 @@ func validateScope(s Scope) (Scope, error) {
 		s.CardType = &c
 	}
 	if !slices.Contains(Methods, s.Method) {
-		return s, invalid("method", "must be one of %v", Methods)
+		return s, 0, invalid("method", "must be one of %v", Methods)
 	}
-	if _, ok := MinorUnits(s.Currency); !ok {
-		return s, invalid("currency", "unknown currency %q", s.Currency)
+	places, err := checkCurrency(p, s.Method, s.Currency)
+	if err != nil {
+		return s, 0, err
 	}
 	if s.Connector != nil && !connectorPattern.MatchString(*s.Connector) {
-		return s, invalid("connector", "must match %s", connectorPattern)
+		return s, 0, invalid("connector", "must match %s", connectorPattern)
 	}
 	if s.CardType != nil {
 		switch {
 		case s.Connector == nil:
-			return s, invalid("card_type", "requires connector")
+			return s, 0, invalid("card_type", "requires connector")
 		case s.Method != MethodCard:
-			return s, invalid("card_type", "only applies to method card")
+			return s, 0, invalid("card_type", "only applies to method card")
 		case !slices.Contains(CardTypes, *s.CardType):
-			return s, invalid("card_type", "must be one of %v", CardTypes)
+			return s, 0, invalid("card_type", "must be one of %v", CardTypes)
 		}
 	}
 	if s.Region != nil {
 		if s.CardType == nil {
-			return s, invalid("region", "requires connector and card_type")
+			return s, 0, invalid("region", "requires connector and card_type")
 		}
 		if !regionPattern.MatchString(*s.Region) {
-			return s, invalid("region", "must match %s", regionPattern)
+			return s, 0, invalid("region", "must match %s", regionPattern)
 		}
 	}
-	return s, nil
+	return s, places, nil
 }
 
-func checkPercent(field string, v decimal.Decimal) error {
-	if v.IsNegative() || v.GreaterThan(hundred) {
-		return invalid(field, "must be between 0 and 100")
-	}
-	return nil
-}
-
-func validateSlabs(slabs []Slab) error {
+func validateSlabs(slabs []Slab, places int32) error {
 	for i, s := range slabs {
 		if err := checkPercent("slabs", s.Percent); err != nil {
-			return invalid("slabs", "slab %d percent must be between 0 and 100", i)
+			return invalid("slabs", "slab %d percent: %s", i, err.(*ValidationError).Reason)
 		}
-		if s.Flat.IsNegative() {
-			return invalid("slabs", "slab %d flat must not be negative", i)
+		if err := checkMoney("slabs", s.Flat, places); err != nil {
+			return invalid("slabs", "slab %d flat: %s", i, err.(*ValidationError).Reason)
 		}
 		last := i == len(slabs)-1
 		if s.UpTo == nil {
@@ -130,6 +194,9 @@ func validateSlabs(slabs []Slab) error {
 				return invalid("slabs", "only the last slab may be open-ended")
 			}
 			continue
+		}
+		if err := checkMoney("slabs", *s.UpTo, places); err != nil {
+			return invalid("slabs", "slab %d up_to: %s", i, err.(*ValidationError).Reason)
 		}
 		if last {
 			return invalid("slabs", "the last slab must be open-ended (up_to null)")
@@ -144,45 +211,42 @@ func validateSlabs(slabs []Slab) error {
 	return nil
 }
 
-// validatePricing checks p for scope s and defaults EffectiveFrom to now; backdating is refused.
-func validatePricing(p Pricing, s Scope, policy Policy, now time.Time) (Pricing, error) {
-	places, _ := MinorUnits(s.Currency)
+// validatePricing checks p for scope s at the scope's minor units and defaults EffectiveFrom to now; backdating is refused.
+func validatePricing(p Pricing, s Scope, places int32, policy Policy, now time.Time) (Pricing, error) {
 	if err := checkPercent("percent", p.Percent); err != nil {
 		return p, err
 	}
-	if p.Flat.IsNegative() {
-		return p, invalid("flat", "must not be negative")
+	if err := checkMoney("flat", p.Flat, places); err != nil {
+		return p, err
 	}
 	if len(p.Slabs) > 0 {
 		if !p.Percent.IsZero() || !p.Flat.IsZero() {
 			return p, invalid("slabs", "percent and flat must be zero when slabs are set")
 		}
-		if err := validateSlabs(p.Slabs); err != nil {
+		if err := validateSlabs(p.Slabs, places); err != nil {
 			return p, err
 		}
 	}
-	for _, f := range []struct {
-		name string
-		v    *decimal.Decimal
-	}{{"min_fee", p.MinFee}, {"max_fee", p.MaxFee}} {
-		if f.v == nil {
-			continue
+	if p.MinFee != nil {
+		if err := checkMoney("min_fee", *p.MinFee, places); err != nil {
+			return p, err
 		}
-		if f.v.IsNegative() {
-			return p, invalid(f.name, "must not be negative")
-		}
-		if !f.v.Equal(f.v.Round(places)) {
-			return p, invalid(f.name, "has more than %d decimal places for %s", places, s.Currency)
+	}
+	if p.MaxFee != nil {
+		if err := checkMoney("max_fee", *p.MaxFee, places); err != nil {
+			return p, err
 		}
 	}
 	if p.MinFee != nil && p.MaxFee != nil && p.MinFee.GreaterThan(*p.MaxFee) {
 		return p, invalid("min_fee", "must not exceed max_fee")
 	}
-	if p.Taxable {
-		if !p.TaxPercent.IsPositive() || p.TaxPercent.GreaterThan(hundred) {
-			return p, invalid("tax_percent", "must be above 0 and at most 100 when taxable")
-		}
-	} else if !p.TaxPercent.IsZero() {
+	if err := checkPercent("tax_percent", p.TaxPercent); err != nil {
+		return p, err
+	}
+	if p.Taxable && !p.TaxPercent.IsPositive() {
+		return p, invalid("tax_percent", "must be above 0 when taxable")
+	}
+	if !p.Taxable && !p.TaxPercent.IsZero() {
 		return p, invalid("tax_percent", "must be 0 when not taxable")
 	}
 	if p.FeeBearer != BearerMerchant && p.FeeBearer != BearerCustomer {
@@ -211,16 +275,33 @@ func validatePricing(p Pricing, s Scope, policy Policy, now time.Time) (Pricing,
 	return p, nil
 }
 
-func validateInput(in RuleInput, policy Policy, now time.Time) (RuleInput, error) {
-	scope, err := validateScope(in.Scope)
+// validated is a rule input that passed validation, with the precision it will be stored at.
+type validated struct {
+	RuleInput
+	minorUnits int32
+}
+
+func validateInput(in RuleInput, policy Policy, now time.Time) (validated, error) {
+	scope, places, err := validateScope(in.Scope, policy.Precision)
 	if err != nil {
-		return in, err
+		return validated{}, err
 	}
-	pricing, err := validatePricing(in.Pricing, scope, policy, now)
+	pricing, err := validatePricing(in.Pricing, scope, places, policy, now)
 	if err != nil {
-		return in, err
+		return validated{}, err
 	}
-	return RuleInput{Scope: scope, Pricing: pricing}, nil
+	return validated{RuleInput: RuleInput{Scope: scope, Pricing: pricing}, minorUnits: places}, nil
+}
+
+// checkAmount bounds an amount before any arithmetic, then requires it positive and on the currency's grid.
+func checkAmount(v decimal.Decimal, places int32, currency string) error {
+	if err := checkDecimal("amount", v, places); err != nil {
+		return invalid("amount", "%s for %s", err.(*ValidationError).Reason, currency)
+	}
+	if !v.IsPositive() {
+		return invalid("amount", "must be positive")
+	}
+	return nil
 }
 
 // preview validates req, resolves among candidates and computes; the bearer override is policy-checked.
@@ -232,15 +313,12 @@ func preview(candidates []Rule, req PreviewRequest, policy Policy) (Breakdown, e
 	if req.CardType != "" && !slices.Contains(CardTypes, req.CardType) {
 		return Breakdown{}, invalid("card_type", "must be one of %v", CardTypes)
 	}
-	places, ok := MinorUnits(req.Currency)
-	if !ok {
-		return Breakdown{}, invalid("currency", "unknown currency %q", req.Currency)
+	places, err := checkCurrency(policy.Precision, req.Method, req.Currency)
+	if err != nil {
+		return Breakdown{}, err
 	}
-	if !req.Amount.IsPositive() {
-		return Breakdown{}, invalid("amount", "must be positive")
-	}
-	if !req.Amount.Equal(req.Amount.Round(places)) {
-		return Breakdown{}, invalid("amount", "has more than %d decimal places for %s", places, req.Currency)
+	if err := checkAmount(req.Amount, places, req.Currency); err != nil {
+		return Breakdown{}, err
 	}
 	if req.FeeBearer != nil && *req.FeeBearer != BearerMerchant && *req.FeeBearer != BearerCustomer {
 		return Breakdown{}, invalid("fee_bearer", "must be merchant or customer")
@@ -255,5 +333,5 @@ func preview(candidates []Rule, req PreviewRequest, policy Policy) (Breakdown, e
 	if err := policy.checkBearer(r.Method, r.FeeBearer); err != nil {
 		return Breakdown{}, err
 	}
-	return Compute(r, req.Amount), nil
+	return computeChecked(r, req.Amount)
 }

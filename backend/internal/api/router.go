@@ -418,13 +418,13 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 		}
 	}
 
-	// ---- Fee rules: preview for merchants, management behind system.admin ----
+	// ---- Fee rules: preview for merchants; management needs a dashboard session and system.admin ----
 	if cfg.Fees != nil && cfg.AuthSvc != nil {
-		var adminGuard gin.HandlerFunc
+		auth := FeesAuth{Merchant: middleware.JWTOrAPIKey(cfg.AuthSvc), Session: middleware.JWTAuth(cfg.AuthSvc)}
 		if cfg.MEPRoleSvc != nil {
-			adminGuard = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
+			auth.Admin = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
 		}
-		RegisterFeesRoutes(v1.Group("", middleware.JWTOrAPIKey(cfg.AuthSvc)), cfg.Fees, adminGuard)
+		RegisterFeesRoutes(v1, cfg.Fees, auth)
 	}
 
 	return r

@@ -17,15 +17,26 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// RegisterFeesRoutes mounts fee routes on rg, which must already authenticate the caller.
-// adminGuard is the permission check for /admin/fee-rules; nil leaves those routes unmounted.
-func RegisterFeesRoutes(rg *gin.RouterGroup, m *modules.FeesModule, adminGuard gin.HandlerFunc) {
+// FeesAuth carries the guards fee routes need; modules cannot hold the auth services (import cycle).
+type FeesAuth struct {
+	// Merchant authenticates the preview caller (session or API key).
+	Merchant gin.HandlerFunc
+	// Session authenticates rule management; dashboard sessions only, never API keys.
+	Session gin.HandlerFunc
+	// Admin is the permission check for rule management.
+	Admin gin.HandlerFunc
+}
+
+// RegisterFeesRoutes mounts fee routes on rg; admin routes are mounted only with both Session and Admin guards.
+func RegisterFeesRoutes(rg *gin.RouterGroup, m *modules.FeesModule, auth FeesAuth) {
 	h := &feesHandler{port: m.Port}
-	rg.POST("/fees/preview", h.preview)
-	if adminGuard == nil {
+	if auth.Merchant != nil {
+		rg.POST("/fees/preview", auth.Merchant, h.preview)
+	}
+	if auth.Session == nil || auth.Admin == nil {
 		return
 	}
-	admin := rg.Group("/admin/fee-rules", adminGuard, feesOperatorOnly(m))
+	admin := rg.Group("/admin/fee-rules", auth.Session, auth.Admin, feesOperatorOnly(m))
 	admin.GET("", h.list)
 	admin.POST("", h.create)
 	admin.GET("/:id", h.get)
@@ -158,11 +169,16 @@ func feesAbort(c *gin.Context, status int, code, message string, extra gin.H) {
 func feesError(c *gin.Context, err error) {
 	var ve *fees.ValidationError
 	var amb *fees.AmbiguousRuleError
+	var overlap *fees.OverlapError
 	switch {
 	case errors.As(err, &ve):
 		feesAbort(c, http.StatusBadRequest, "invalid_request", ve.Error(), gin.H{"field": ve.Field})
 	case errors.As(err, &amb):
 		feesAbort(c, http.StatusConflict, "ambiguous_fee_rule", amb.Error(), gin.H{"rule_ids": amb.RuleIDs})
+	case errors.As(err, &overlap):
+		feesAbort(c, http.StatusConflict, "overlapping_fee_rule", overlap.Error(), gin.H{"rule_ids": overlap.RuleIDs})
+	case errors.Is(err, fees.ErrFeeExceedsAmount):
+		feesAbort(c, http.StatusUnprocessableEntity, "fee_exceeds_amount", err.Error(), nil)
 	case errors.Is(err, fees.ErrSurchargeForbidden):
 		feesAbort(c, http.StatusUnprocessableEntity, "surcharge_forbidden", err.Error(), nil)
 	case errors.Is(err, fees.ErrNoRule):
@@ -176,11 +192,18 @@ func feesError(c *gin.Context, err error) {
 	}
 }
 
+// feesMaxBody bounds request bodies; fee bodies are a few hundred bytes.
+const feesMaxBody = 16 << 10
+
 // decodeStrict rejects unknown fields so a version body cannot silently carry scope changes.
 func decodeStrict(c *gin.Context, dst any) bool {
-	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, feesMaxBody+1))
 	if err != nil {
 		feesAbort(c, http.StatusBadRequest, "invalid_json", "could not read body", nil)
+		return false
+	}
+	if len(raw) > feesMaxBody {
+		feesAbort(c, http.StatusBadRequest, "invalid_json", "body larger than 16 KiB", nil)
 		return false
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))

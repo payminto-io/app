@@ -64,7 +64,8 @@ type ruleRow struct {
 	Connector     *string
 	CardType      *string
 	Region        *string
-	Currency      string              `gorm:"not null"`
+	Currency      string `gorm:"not null"`
+	MinorUnits    int32
 	Percent       decimal.Decimal     `gorm:"type:numeric(9,6)"`
 	Flat          decimal.Decimal     `gorm:"type:numeric(38,18)"`
 	Slabs         slabsJSON           `gorm:"type:jsonb"`
@@ -95,7 +96,7 @@ func decPtr(v decimal.NullDecimal) *decimal.Decimal {
 	return &v.Decimal
 }
 
-func newRuleRow(lineage string, version int, s Scope, p Pricing, actor string) ruleRow {
+func newRuleRow(lineage string, version int, s Scope, minorUnits int32, p Pricing, actor string) ruleRow {
 	var card *string
 	if s.CardType != nil {
 		c := string(*s.CardType)
@@ -109,6 +110,7 @@ func newRuleRow(lineage string, version int, s Scope, p Pricing, actor string) r
 		CardType:      card,
 		Region:        s.Region,
 		Currency:      s.Currency,
+		MinorUnits:    minorUnits,
 		Percent:       p.Percent,
 		Flat:          p.Flat,
 		Slabs:         slabsJSON(p.Slabs),
@@ -145,6 +147,7 @@ func (r ruleRow) rule() Rule {
 			Region:    r.Region,
 			Currency:  r.Currency,
 		},
+		MinorUnits:    r.MinorUnits,
 		Percent:       r.Percent,
 		Flat:          r.Flat,
 		Slabs:         []Slab(r.Slabs),
@@ -157,5 +160,28 @@ func (r ruleRow) rule() Rule {
 		EffectiveTo:   to,
 		CreatedBy:     r.CreatedBy,
 		CreatedAt:     r.CreatedAt.UTC(),
+	}
+}
+
+type snapshotRow struct {
+	ID               uint `gorm:"primarykey"`
+	AttemptID        string
+	PaymentRequestID uint
+	MerchantID       uint
+	FeeRuleID        uint
+	FeeRuleVersion   int
+	Currency         string
+	LedgerAsset      string
+	FeeBearer        string
+	CreatedAt        time.Time
+}
+
+func (snapshotRow) TableName() string { return "fee_snapshots" }
+
+func (r snapshotRow) snapshot() Snapshot {
+	return Snapshot{
+		ID: r.ID, AttemptID: r.AttemptID, PaymentRequestID: r.PaymentRequestID, MerchantID: r.MerchantID,
+		RuleID: r.FeeRuleID, RuleVersion: r.FeeRuleVersion, Currency: r.Currency, LedgerAsset: r.LedgerAsset,
+		FeeBearer: FeeBearer(r.FeeBearer), CreatedAt: r.CreatedAt.UTC(),
 	}
 }

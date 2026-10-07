@@ -107,17 +107,30 @@ func TestValidateInputForbidsSurchargeWhereMethodDisallows(t *testing.T) {
 }
 
 func TestParsePolicy(t *testing.T) {
-	p, err := ParsePolicy("card, upi")
+	p, err := ParsePolicy("card, upi", "")
 	if err != nil || !p.SurchargeForbidden[MethodCard] || !p.SurchargeForbidden[MethodUPI] || p.SurchargeForbidden[MethodBank] {
 		t.Fatalf("policy = %+v err %v", p, err)
 	}
-	if _, err := ParsePolicy("card,cash"); err == nil {
+	if _, err := ParsePolicy("card,cash", ""); err == nil {
 		t.Fatal("unknown method accepted")
 	}
-	if p, err := ParsePolicy(""); err != nil || !p.SurchargeForbidden[MethodUPI] {
+	if p, err := ParsePolicy("", ""); err != nil || !p.SurchargeForbidden[MethodUPI] {
 		t.Fatalf("empty value should give the default policy: %+v %v", p, err)
 	}
-	if p, err := ParsePolicy("none"); err != nil || len(p.SurchargeForbidden) != 0 {
+	if p, err := ParsePolicy("none", ""); err != nil || len(p.SurchargeForbidden) != 0 {
 		t.Fatalf("none should allow every surcharge: %+v %v", p, err)
+	}
+}
+
+func TestParsePolicyReadsPrecision(t *testing.T) {
+	p, err := ParsePolicy("", "XRP:6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := p.Precision.MinorUnits("XRP"); !ok || n != 6 {
+		t.Fatalf("XRP = %d,%v", n, ok)
+	}
+	if _, err := ParsePolicy("", "USD:3"); err == nil {
+		t.Fatal("fiat override accepted")
 	}
 }

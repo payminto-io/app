@@ -11,7 +11,7 @@ func d(s string) decimal.Decimal { return decimal.RequireFromString(s) }
 func dp(s string) *decimal.Decimal { v := d(s); return &v }
 
 func usdRule() Rule {
-	return Rule{ID: 7, Version: 3, Scope: Scope{Method: MethodCard, Currency: "USD"}, FeeBearer: BearerMerchant}
+	return Rule{ID: 7, Version: 3, Scope: Scope{Method: MethodCard, Currency: "USD"}, MinorUnits: 2, FeeBearer: BearerMerchant}
 }
 
 func assertDec(t *testing.T, name string, got decimal.Decimal, want string) {
@@ -111,21 +111,7 @@ func TestComputeRoundingHalfUpPerCurrency(t *testing.T) {
 	for _, tc := range cases {
 		r := usdRule()
 		r.Currency, r.Percent = tc.currency, d(tc.percent)
+		r.MinorUnits, _ = DefaultPrecision().MinorUnits(tc.currency)
 		assertDec(t, tc.currency+" "+tc.amount, Compute(r, d(tc.amount)).Fee, tc.fee)
-	}
-}
-
-func TestMinorUnits(t *testing.T) {
-	cases := map[string]int32{"USD": 2, "EUR": 2, "INR": 2, "JPY": 0, "KWD": 3, "USDC": 6, "USDT": 6, "BTC": 8, "ETH": 18, "SOL": 9}
-	for code, want := range cases {
-		got, ok := MinorUnits(code)
-		if !ok || got != want {
-			t.Errorf("MinorUnits(%s) = %d,%v want %d", code, got, ok, want)
-		}
-	}
-	for _, code := range []string{"", "usd", "DOGECOIN", "US"} {
-		if _, ok := MinorUnits(code); ok {
-			t.Errorf("MinorUnits(%q) accepted an unknown code", code)
-		}
 	}
 }
