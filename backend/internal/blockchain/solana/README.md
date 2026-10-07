@@ -16,7 +16,7 @@ Design and acceptance: `.scratch/payments-v1/issues/09-solana-usdc.md`. Report: 
 - `keypair.go` - fee payer key in base58, CLI JSON array, or file path.
 - `scripted_caller.go` - fixture transport for tests in this and other packages; fixtures under `testdata/tx`.
 
-Service side: `internal/service/solana_deposit_service.go` (watcher), `solana_sweep_service.go` (sweeper), `solana_deposit_address.go` (owner to ATA at assignment), `solana_wiring.go` (registry). Workers: `internal/worker/solana_deposit_watcher.go`, `solana_sweep_worker.go`. Table: `solana_deposit_accounts` (migration `2026100702`).
+Module: `internal/modules/solana.go` (`WireSolana`: chain row, RPC pool with per-node rate limit and 429 backoff, live refuses the public endpoint and non-mainnet clusters, fee payer parsed without echo, seeded mints validated against the chain). Service side: `internal/service/solana_deposit_service.go` (watcher), `solana_sweep_service.go` (sweeper), `solana_deposit_address.go` (owner to ATA at assignment, one transaction), `solana_wiring.go` (registry glue). Workers: `internal/worker/solana_deposit_watcher.go`, `solana_sweep_worker.go`. Tables: `solana_deposit_accounts`, `solana_sweep_attempts`, `solana_sweep_deposits` (migration `2026100708`).
 
 ## Address model
 
@@ -26,17 +26,21 @@ Checkout instruction: show the owner address with the token named ("send USDC on
 
 ## Detection
 
-`SolanaDepositService.PollOnce` calls `getSignaturesForAddress` for the ATA and for the owner, newest first down to the stored cursor, paging with `before` when a page is full, then `getTransaction` (jsonParsed, commitment confirmed) per signature. Credits of the exact mint into the ATA become a `deposits` row through `DepositService.RecordDeposit` (pending, required confirmations from `blockchains.min_confirmations`). Anything else that reached the payment's accounts becomes a `missed_deposits` row with the reason prefixed by the anomaly kind, never a credit.
+`SolanaDepositService.PollOnce` first expires accounts past `watch_until` (payment expiry plus `SOLANA_LATE_WINDOW_DAYS`), then reads every due token account in `getMultipleAccounts` batches of 100. Only an account whose balance moved, or that holds a held or unresolved signature, pays for `getSignaturesForAddress` on the ATA; the owner address is polled on `OwnerCadence` (one minute) because owner traffic is only anomalies. After payment expiry both drop to `LateCadence` (ten minutes). Signatures are read newest first down to the stored cursor, paging with `before`, and fetched with `getTransaction` (jsonParsed, confirmed) from up to two pool nodes.
 
-`ConfirmOnce` uses `getSignatureStatuses`: `confirmed` is seen (status `confirming`, the cluster's confirmation count, capped below required), `finalized` is credited (status `confirmed`, confirmations = required, ledger journal posted in the same transaction, then `FinalizePayment` decides filled, partial or over). An error, or a signature the cluster no longer knows after the drop grace, marks the deposit `failed`; nothing was credited, so nothing is reversed in the ledger.
+A listed signature no node returns holds the cursor below it (`held_signature`, one attempt per tick); after `MaxHeldAttempts` (12) it is recorded as a `solana_unresolved_signature` anomaly, moved to `unresolved_signatures` and retried on its own, so later signatures proceed and nothing is skipped. The credit is the ATA's balance delta for that transaction; a difference from the parsed instructions is a `withheld_amount` or `unparsed_credit` anomaly. Tokens sent to `ATA(ATA, mint)` (a wallet treating the deposit address as an owner) are `stranded_in_pda_ata`. Anomaly rows are capped per destination per day.
+
+`ConfirmOnce` orders by least recently checked and uses `getSignatureStatuses` with `searchTransactionHistory` only for signatures the status cache does not know. `confirmed` is seen (status `confirming`), `finalized` is credited (status `confirmed`, journal in the same transaction when `SOLANA_POST_DEPOSIT_JOURNALS` is on, then `FinalizePayment`). A deposit is failed only with evidence: past the drop grace, the finalized slot beyond the deposit's slot, and the signature absent at finalized on more than one node. A failed deposit seen again within `ReviveWindow` (7 days) is revived and credited once.
 
 Token-2022 mints are refused unless the `blockchain_currencies.standard` is `SPL-2022`; the ATA is derived under that program and transfers from the other program are anomalies.
 
 ## Sweeps
 
-`SolanaSweepService.SweepConfirmed` groups confirmed deposits by mint and token account, claims them (`ClaimForSweep`, at most once), reads each ATA's balance, and builds one transaction per batch of up to five accounts: compute budget, idempotent hot-wallet ATA creation, then `transferChecked` and `closeAccount` per account. The fee payer (`SOLANA_FEE_PAYER_KEY`) signs and pays; each owner signs through `KeyResolver` (family `SOL_Family`). Broadcast waits for `confirmed`; `TrackConfirmations` completes the sweep on `finalized`, booking the token move and the SOL fee through `LedgerService.RecordSweepIn` (gas in `SOL.SOLANA`, never in the token) and rent as a separate `solana_rent` adjustment (closed accounts are income, a newly funded hot ATA is an asset). A signature the cluster never saw past the grace period fails the sweep and returns its deposits to `confirmed`.
+`SolanaSweepService.SweepConfirmed` groups confirmed deposits by mint and token account, claims them (`ClaimForSweep`, at most once), reads each ATA's balance, builds one transaction per batch of up to five accounts (compute budget, idempotent hot-wallet ATA creation, `transferChecked` and `closeAccount` per account), broadcasts once and returns. The rows written together: `sweeps`, one `sweep_transactions` per account, `solana_sweep_deposits` (the deposits this sweep claimed) and a `solana_sweep_attempts` row for the signature. An account that holds nothing is never marked swept: if one of our attempt signatures explains it the tracker books it, otherwise it is a `solana_unexplained_drain` anomaly and the account is set aside.
 
-Durable nonces are not used; a recent blockhash with a rebuild on expiry covers the retry case, and the fee payer never signs two live versions of the same batch because the first must have expired first.
+`TrackConfirmations` checks every attempt a sweep ever broadcast. The first finalized attempt is booked exactly once (sweep transactions confirmed with their fee share, `RecordSweepIn` for the token move and SOL gas, `solana_rent` for reclaimed and funded rent, deposits swept, accounts closed), and the hot ATA's balance delta is reconciled against the booked total (`solana_sweep_mismatch` anomaly on any difference). Attempts are rebuilt only with evidence: every attempt unknown, the finalized block height past the latest attempt's `lastValidBlockHeight`, the signature absent at finalized on more than one node, and every account still holding its balance. After `MaxAttempts` (3) the sweep fails and releases exactly its own deposits.
+
+Durable nonces are deferred for V1 (ticket comments): tracking every attempt and rebuilding only on finalized evidence closes the double-version window a nonce account would close, without a nonce account to fund and advance.
 
 ## Configuration
 
@@ -51,9 +55,12 @@ Durable nonces are not used; a recent blockhash with a rebuild on expiry covers 
 | `SOLANA_SWEEP_BATCH_SIZE` | 1 to 5, default 5 (packet limit) |
 | `SOLANA_CLOSE_DEPOSIT_ACCOUNTS` | default true |
 | `SOLANA_POLL_INTERVAL_SECONDS`, `SOLANA_SWEEP_INTERVAL_SECONDS` | defaults 5 and 30 |
+| `SOLANA_LATE_WINDOW_DAYS` | how long after payment expiry an account stays watched, default 7 |
+| `SOLANA_RPC_REQUESTS_PER_SECOND` | per-node budget, default 10 (the public endpoint's) |
+| `SOLANA_POST_DEPOSIT_JOURNALS` | default true; set false once the switch posts payment journals |
 
 RPC endpoints are `rpc_nodes` rows for the `SOLANA` chain (seeded: public mainnet and devnet endpoints; add a paid provider for production). Mints are `blockchain_currencies.address` in `migrations/seeds`.
 
 ## Tests
 
-Unit: `go test ./internal/blockchain/solana/ ./internal/service/ -run 'Solana'` (fixtures in `testdata/tx`, SQLite). End to end: `go test -tags=integration ./internal/service/ -run TestSolanaEndToEnd` starts `solana-test-validator`, creates two mints and runs assignment, four payment shapes, finalization, ledger and sweeps; it skips with a message when the binary is missing.
+Unit: `go test ./internal/blockchain/solana/ ./internal/service/ -run 'Solana'` (fixtures in `testdata/tx`, SQLite). End to end: `go test -tags=integration ./internal/service/ -run TestSolanaEndToEnd` starts `solana-test-validator`, creates two mints and runs assignment, four payment shapes, finalization, ledger and sweeps; it skips with a message when the binary is missing. `solana_devnet_integration_test.go` runs the same shapes against devnet with `SOLANA_DEVNET_PAYER_KEY` and `SOLANA_DEVNET_USDT_MINT` (skips when absent).

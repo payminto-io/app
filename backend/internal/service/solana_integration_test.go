@@ -158,6 +158,16 @@ func TestSolanaEndToEnd(t *testing.T) {
 	if len(anomalies) != 1 || anomalies[0].ToAddress != wrongATA.String() || anomalies[0].BlockchainCurrencyID == nil || *anomalies[0].BlockchainCurrencyID != rows["USDT"].ID {
 		t.Fatalf("anomalies = %+v", anomalies)
 	}
+	// M6: polling again after finalization neither duplicates deposits nor anomalies.
+	must(t, db.Model(&models.SolanaDepositAccount{}).Where("1 = 1").Updates(map[string]any{"token_account_cursor": "", "owner_cursor": "", "last_balance_raw": "", "owner_poll_after": nil}).Error)
+	if n, err := watcher.PollOnce(ctx); err != nil || n != 0 {
+		t.Fatalf("re-poll recorded %d (%v)", n, err)
+	}
+	var depositCount int64
+	db.Model(&models.Deposit{}).Count(&depositCount)
+	if again, _ := missed.ListUnresolved(); depositCount != 4 || len(again) != 1 {
+		t.Fatalf("re-poll changed rows: deposits=%d anomalies=%d", depositCount, len(again))
+	}
 	assertJournalAsset(t, db, "deposit", "USDC.SOLANA", 3)
 	assertJournalAsset(t, db, "deposit", "USDT.SOLANA", 1)
 
