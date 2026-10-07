@@ -64,6 +64,42 @@ func Resolve(ctx context.Context, env, fallback Environment) Environment {
 // MockProvider is the provider name every slot module ships for keyless development.
 const MockProvider = "mock"
 
+// KnownSlots are the slot modules of docs/architecture/MODULES.md, each configured as <SLOT>_PROVIDER.
+var KnownSlots = []string{"custody", "connectors", "conversion", "payout", "kyc", "fraud", "bridge"}
+
+// ResolveProvider applies the module contract's default: an unset slot is the mock in test and
+// nothing in live. Wire<Slot> functions resolve through this and then call RequireProvider.
+func ResolveProvider(env Environment, configured string) string {
+	configured = strings.ToLower(strings.TrimSpace(configured))
+	if configured == "" && env == Test {
+		return MockProvider
+	}
+	return configured
+}
+
+// ErrProvider is wrapped by every provider refusal.
+var ErrProvider = errors.New("environment: provider not allowed")
+
+// RequireRealProvider refuses, in live, a slot that resolved to the mock or to nothing at all.
+// It judges the resolved provider, not the configured string, so defaults cannot slip past it.
+func RequireRealProvider(env Environment, slot, resolved string) error {
+	if env != Live {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(resolved)) {
+	case "":
+		return fmt.Errorf("%w: slot %s has no provider configured; live needs a real %s provider (%s_PROVIDER)", ErrProvider, slot, slot, strings.ToUpper(slot))
+	case MockProvider:
+		return fmt.Errorf("%w: slot %s resolved to the mock provider in live", ErrProvider, slot)
+	}
+	return nil
+}
+
+// RequireProvider is RequireRealProvider for the process environment; every Wire<Slot> calls it.
+func (g *ProcessGuard) RequireProvider(slot, resolved string) error {
+	return RequireRealProvider(g.env, slot, resolved)
+}
+
 // BootFacts is everything the boot policy needs, gathered by the wiring layer so this
 // package never reads configuration itself.
 type BootFacts struct {
@@ -129,9 +165,11 @@ func CheckBoot(facts BootFacts) error {
 		if facts.VaultDevMode {
 			refuse("secrets vault is in development mode")
 		}
+		// Early, cheap refusal on what the slots resolve to after defaults; each Wire<Slot> repeats
+		// the check at resolution time, which is what catches a provider whose own config is missing.
 		for _, slot := range sortedSlots(facts.SlotProviders) {
-			if strings.EqualFold(strings.TrimSpace(facts.SlotProviders[slot]), MockProvider) {
-				refuse("slot %s is configured with the mock provider", slot)
+			if err := RequireRealProvider(Live, slot, ResolveProvider(Live, facts.SlotProviders[slot])); err != nil {
+				refuse("%v", err)
 			}
 		}
 		if !facts.DeploymentHardened {

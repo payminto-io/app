@@ -158,7 +158,7 @@ func TestIntegration_LiveProcessBootsAndRefusesTestKeys(t *testing.T) {
 	if _, err := database.ApplyMigrations(context.Background(), live); err != nil {
 		t.Fatal(err)
 	}
-	const appRole, appPassword = "payminto_app_live", "payminto_app_live_password_x"
+	const appRole, appPassword = "payminto_app_live", "payminto_app_live_credential_x1"
 	for _, stmt := range []string{
 		`CREATE ROLE ` + appRole + ` LOGIN PASSWORD '` + appPassword + `'`,
 		`GRANT USAGE ON SCHEMA public TO ` + appRole,

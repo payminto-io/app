@@ -79,14 +79,14 @@ type RouterConfig struct {
 	// balance lookups).
 	AdapterReg *blockchain.AdapterRegistry
 
-	// Environment is the process environment module; nil means test (ticket 13).
+	// Environment is the process environment module; NewRouter refuses to build without one (ticket 13).
 	Environment *modules.EnvironmentModule
 }
 
-// processEnvironment is the environment every request is tagged with.
+// processEnvironment is the environment every request is tagged with; there is no default.
 func (cfg RouterConfig) processEnvironment() environment.Environment {
-	if cfg.Environment == nil {
-		return environment.Test
+	if cfg.Environment == nil || !cfg.Environment.Environment.Valid() {
+		panic("api: RouterConfig.Environment is not wired; the router never assumes an environment")
 	}
 	return cfg.Environment.Environment
 }
@@ -114,11 +114,9 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 	v1 := r.Group("/api/v1")
 
 	// ---- v2: environment indicator (session or API key) ----
-	if cfg.Environment != nil {
-		v2 := r.Group("/v2")
-		v2.Use(middleware.JWTOrAPIKey(cfg.AuthSvc))
-		RegisterEnvironmentRoutes(v2, cfg.Environment)
-	}
+	v2 := r.Group("/v2")
+	v2.Use(middleware.JWTOrAPIKey(cfg.AuthSvc))
+	RegisterEnvironmentRoutes(v2, cfg.Environment)
 
 	// ---- Public auth routes ----
 	authH := handler.NewAuthHandler(cfg.AuthSvc, cfg.JWTTokenSvc)

@@ -18,10 +18,10 @@ type APIKeyHandler struct {
 	environment environment.Environment
 }
 
-// NewAPIKeyHandler wires the handler; env is the environment new keys are issued in.
+// NewAPIKeyHandler wires the handler; env is the environment new keys are issued in and has no default.
 func NewAPIKeyHandler(apiKeyRepo repository.APIKeyRepository, env environment.Environment) *APIKeyHandler {
-	if env == "" {
-		env = environment.Test
+	if !env.Valid() {
+		panic("api: NewAPIKeyHandler needs the process environment; keys are never issued by assumption")
 	}
 	return &APIKeyHandler{apiKeyRepo: apiKeyRepo, environment: env}
 }
@@ -53,10 +53,8 @@ func toAPIKeyResponse(k *models.APIKey, rawKey string) apiKeyResponse {
 	case rawKey != "" && len(rawKey) >= 10:
 		prefix = rawKey[:10] + "..."
 	}
+	// Rows older than the column default to test at the database; nothing here guesses.
 	env := k.Environment
-	if env == "" {
-		env = environment.Test
-	}
 	name := "API Key"
 	if k.Description != nil && *k.Description != "" {
 		name = *k.Description

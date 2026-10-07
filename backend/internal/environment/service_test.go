@@ -83,7 +83,7 @@ func TestCheckBoot_LiveRefusals(t *testing.T) {
 	}{
 		"dev keystore":           {func(f *BootFacts) { f.DevKeystore = true }, "development keystore"},
 		"vault dev mode":         {func(f *BootFacts) { f.VaultDevMode = true }, "development mode"},
-		"mock provider":          {func(f *BootFacts) { f.SlotProviders["connectors"] = "Mock" }, "slot connectors is configured with the mock provider"},
+		"mock provider":          {func(f *BootFacts) { f.SlotProviders["connectors"] = "Mock" }, "slot connectors resolved to the mock provider in live"},
 		"test database by name":  {func(f *BootFacts) { f.DatabaseName = "gateway_test" }, "is the test database"},
 		"test suffix":            {func(f *BootFacts) { f.DatabaseName, f.TestDatabaseName = "other_test", "x" }, "ends in _test"},
 		"not hardened":           {func(f *BootFacts) { f.DeploymentHardened = false }, "SERVER must be staging or production"},
@@ -141,5 +141,33 @@ func TestCheckBoot_Test(t *testing.T) {
 	}
 	if err := CheckBoot(BootFacts{Environment: "prod"}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("invalid environment = %v", err)
+	}
+}
+
+func TestProviders_ResolveAndRequire(t *testing.T) {
+	if got := ResolveProvider(Test, ""); got != MockProvider {
+		t.Errorf("test default = %q, want mock", got)
+	}
+	if got := ResolveProvider(Live, ""); got != "" {
+		t.Errorf("live default = %q, want nothing", got)
+	}
+	if got := ResolveProvider(Live, " BitGo "); got != "bitgo" {
+		t.Errorf("normalised = %q", got)
+	}
+	guard, _ := NewGuard(Live)
+	for _, slot := range KnownSlots {
+		if err := guard.RequireProvider(slot, ResolveProvider(Live, "")); !errors.Is(err, ErrProvider) {
+			t.Errorf("live %s with no config = %v, want ErrProvider", slot, err)
+		}
+		if err := guard.RequireProvider(slot, ResolveProvider(Live, "mock")); !errors.Is(err, ErrProvider) {
+			t.Errorf("live %s mock = %v, want ErrProvider", slot, err)
+		}
+		if err := guard.RequireProvider(slot, ResolveProvider(Live, "bitgo")); err != nil {
+			t.Errorf("live %s real provider refused: %v", slot, err)
+		}
+	}
+	testGuard, _ := NewGuard(Test)
+	if err := testGuard.RequireProvider("custody", ResolveProvider(Test, "")); err != nil {
+		t.Errorf("test mock refused: %v", err)
 	}
 }

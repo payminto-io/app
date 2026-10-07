@@ -85,7 +85,7 @@ func TestBoot_LiveWithLocalVaultMasterKeyExitsNonZero(t *testing.T) {
 func TestBoot_LiveWithMockProviderExitsNonZero(t *testing.T) {
 	env := liveEnv()
 	env["CUSTODY_PROVIDER"] = "mock"
-	requireRefusal(t, env, "slot custody is configured with the mock provider")
+	requireRefusal(t, env, "slot custody resolved to the mock provider in live")
 }
 
 func TestBoot_LiveAgainstTestDatabaseExitsNonZero(t *testing.T) {

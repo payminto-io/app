@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -36,6 +37,16 @@ func TestWireEnvironment_LiveRefusesDevKeystoreAndMock(t *testing.T) {
 	cfg.Modules.Providers = map[string]string{"custody": "mock"}
 	if _, err := WireEnvironment(Deps{Config: cfg}); !environment.IsBootRefusal(err) {
 		t.Fatalf("mock provider in live = %v, want boot refusal", err)
+	}
+	// Whatever a slot resolves to is what the guard judges, so a wired slot with no config cannot run the mock in live.
+	m, err := WireEnvironment(Deps{Config: liveConfig()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, slot := range environment.KnownSlots {
+		if err := m.Guard.RequireProvider(slot, environment.ResolveProvider(m.Environment, cfg.Modules.Providers[slot])); !errors.Is(err, environment.ErrProvider) {
+			t.Fatalf("live %s without config = %v, want ErrProvider", slot, err)
+		}
 	}
 }
 

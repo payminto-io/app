@@ -257,8 +257,8 @@ func (s *ExternalPlatformService) enableAllBlockchainCurrencies(platformID uint)
 // the plaintext value to the caller. Internal helper.
 func (s *ExternalPlatformService) issueAPIKey(platformID uint) (string, error) {
 	env := s.environment
-	if env == "" {
-		env = environment.Test
+	if !env.Valid() {
+		return "", environment.ErrUnconfigured
 	}
 	plain, err := GenerateAPIKeyFor(env)
 	if err != nil {

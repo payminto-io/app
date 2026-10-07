@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"github.com/payminto/payminto/backend/internal/environment"
 	"strings"
 	"testing"
@@ -144,5 +145,13 @@ func TestExternalPlatformService_Delete(t *testing.T) {
 
 	if _, err := svc.GetByID(platform.ID); err == nil {
 		t.Error("expected error after delete")
+	}
+}
+
+func TestExternalPlatformService_RefusesToIssueKeysWithoutAnEnvironment(t *testing.T) {
+	db := setupExternalPlatformDB(t)
+	svc := NewExternalPlatformService(repository.NewExternalPlatformRepository(db), repository.NewAPIKeyRepository(db))
+	if _, _, err := svc.Create(ExternalPlatformInput{Name: "x"}); !errors.Is(err, environment.ErrUnconfigured) {
+		t.Fatalf("Create without an environment = %v, want ErrUnconfigured", err)
 	}
 }

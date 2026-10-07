@@ -325,6 +325,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 	r.authService.SetEnvironment(r.environmentModule.Environment)
 	r.paymentService = NewPaymentService(r.paymentRepo)
 	r.webhookService = NewWebhookService(r.webhookRepo, r.webhookDeliveryLogRepo)
+	r.webhookService.SetEnvironment(r.environmentModule.Environment)
 	r.onrampService = NewOnrampService("", "")
 	r.secretsVaultService = NewSecretsVaultService(r.secretsVaultRepo, r.secretsVaultActivityRepo)
 

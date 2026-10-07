@@ -57,7 +57,11 @@ func TestIntegration_AdoptLiveRelabelsAPopulatedTestDatabaseOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := prod.Create(&models.APIKey{Key: "sha256-of-pm_legacy_key", Status: "active", ExternalPlatformID: 1}).Error; err != nil {
+	platform := models.ExternalPlatform{Name: "merchant"}
+	if err := prod.Create(&platform).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := prod.Create(&models.APIKey{Key: "sha256-of-pm_legacy_key", Status: "active", ExternalPlatformID: platform.ID}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := prod.Create(&environment.StampRow{ID: environment.StampID, Environment: environment.Test, StampedAt: time.Now()}).Error; err != nil {
