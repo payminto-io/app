@@ -72,3 +72,10 @@ Fix round 1 (same day), after review:
 - `cmd/migrate adopt-live` is the only path that relabels rows, through a `SECURITY DEFINER` function owned by `ledger_owner` that only the migrator may execute.
 - Live judges the provider each slot resolves to, not the configured string; wiring fails closed without an environment; webhook payloads carry a signed `environment`.
 
+Fix round 2 (same day), after re-review:
+
+- A process stamps only an empty database, and only as the last boot step after the network-mode check; an unstamped database holding ledger accounts, API keys or payments refuses to boot and names `cmd/migrate adopt-live` / `adopt-test`. `adopt-live` accepts an unstamped populated database (the canonical remote production case) and writes the live stamp in the relabel transaction; it refuses early when `ledger_adopt_environment` is missing or not owned by the ledger owner.
+- DSN values are escaped per libpq (backslash doubled, quote backslashed) and `database.Connect` parses the DSN back with pgx, refusing when any field or a runtime parameter differs from the configuration.
+- `ledger_adopt_environment` pins `search_path = pg_catalog, pg_temp` and schema-qualifies every reference.
+- `GATEWAY_TEST_DATABASE_NAME` admits one remote test database without a `_test` suffix, matched against `current_database()`.
+

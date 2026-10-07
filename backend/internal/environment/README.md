@@ -19,12 +19,12 @@ One environment per process, `GATEWAY_ENVIRONMENT=test|live` (default `test`), o
 ## Boot refusals
 
 Live refuses: the test database (by name, `_test` suffix, or stamp), a development keystore or local vault master key (`AES_KEY`, `DEV_KEYSTORE`), a vault in dev mode, any slot that resolves to `mock`, `SERVER` outside staging/production, `POSTGRES_SSL_MODE` other than `verify-full` (except the explicit loopback opt-out the config already models), a non-mainnet network, and a `JWT_SECRET` that is a shipped development default or shorter than 32 bytes.
-Test refuses a database that is neither `*_test` nor on a loopback host, a loopback database stamped live, and a mainnet network.
+Test refuses a database that is neither `*_test`, nor on a loopback host, nor named by `GATEWAY_TEST_DATABASE_NAME`; a database stamped live; and a mainnet network.
 After schema preparation `VerifySchema` refuses missing `environment` columns and any key row whose visible prefix belongs to the other environment.
 
 ## Adoption
 
-A pre-ticket database is stamped test on its first upgraded boot. `cmd/migrate adopt-live --confirm-adopt-live=<name>` relabels it once (docs/OPERATIONS.md, Environments).
+A process stamps only an empty database, as its last boot step. A pre-ticket database (data, no stamp) refuses every boot until `cmd/migrate adopt-live --confirm-adopt-live=<name>` or `adopt-test --confirm-adopt-test=<name>` decides what it is (docs/OPERATIONS.md, Environments).
 
 ## Tables
 
@@ -32,7 +32,7 @@ A pre-ticket database is stamped test on its first upgraded boot. `cmd/migrate a
 
 ## Config keys
 
-`GATEWAY_ENVIRONMENT`, `POSTGRES_TEST_DATABASE` (default `payminto_test`), `DEV_KEYSTORE`, and the slot providers `CUSTODY_PROVIDER`, `CONNECTORS_PROVIDER`, `CONVERSION_PROVIDER`, `PAYOUT_PROVIDER`, `KYC_PROVIDER`, `FRAUD_PROVIDER`, `BRIDGE_PROVIDER`.
+`GATEWAY_ENVIRONMENT`, `GATEWAY_TEST_DATABASE_NAME`, `POSTGRES_TEST_DATABASE` (default `payminto_test`), `DEV_KEYSTORE`, and the slot providers (`KnownSlots` is the one list) `CUSTODY_PROVIDER`, `CONNECTORS_PROVIDER`, `CONVERSION_PROVIDER`, `PAYOUT_PROVIDER`, `KYC_PROVIDER`, `FRAUD_PROVIDER`, `BRIDGE_PROVIDER`.
 
 ## Wiring
 

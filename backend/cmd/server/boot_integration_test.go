@@ -18,6 +18,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/environment"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/models"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/service"
 )
 
@@ -158,6 +159,20 @@ func TestIntegration_LiveProcessBootsAndRefusesTestKeys(t *testing.T) {
 	if _, err := database.ApplyMigrations(context.Background(), live); err != nil {
 		t.Fatal(err)
 	}
+	// The first live boot of an empty database stamps it; only then does it hold keys.
+	liveModule, err := modules.WireEnvironment(modules.Deps{Config: &config.Config{
+		Server:     config.ServerConfig{Environment: config.EnvironmentProduction},
+		Database:   config.DatabaseConfig{Host: liveCfg.Host, Database: liveCfg.Database, TestDatabase: "payminto_test", SSLMode: "disable", AllowInsecureLocal: true},
+		Blockchain: config.BlockchainConfig{NetworkType: "mainnet"},
+		Security:   config.SecurityConfig{JWTSecret: "a-strong-jwt-secret-value-with-32-plus-chars"},
+		Gateway:    config.GatewayConfig{Environment: "live"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := liveModule.Stamp(context.Background(), live); err != nil {
+		t.Fatalf("first boot of an empty live database must stamp it: %v", err)
+	}
 	const appRole, appPassword = "payminto_app_live", "payminto_app_live_credential_x1"
 	for _, stmt := range []string{
 		`CREATE ROLE ` + appRole + ` LOGIN PASSWORD '` + appPassword + `'`,
@@ -289,5 +304,82 @@ func TestIntegration_FirstBootStampsTheDatabase(t *testing.T) {
 	var row environment.StampRow
 	if err := db.First(&row, environment.StampID).Error; err != nil || row.Environment != environment.Test {
 		t.Fatalf("stamp after first boot = %+v, %v", row, err)
+	}
+}
+
+func TestIntegration_LiveBootRefusesUnstampedDataUntilAdopted(t *testing.T) {
+	dbCfg, stop := database.NewTestDBConfig(t)
+	defer stop()
+	admin, err := database.Connect(dbCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec(`CREATE DATABASE payminto_prod`).Error; err != nil {
+		t.Fatal(err)
+	}
+	prodCfg := dbCfg
+	prodCfg.Database = "payminto_prod"
+	prod, err := database.Connect(prodCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A pre-ticket deployment after the upgrade's migration ran: data, no stamp.
+	if err := database.AutoMigrate(prod); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateExpandSchema(prod); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ApplyMigrations(context.Background(), prod); err != nil {
+		t.Fatal(err)
+	}
+	member := models.Member{Name: "m", MemberType: "root", State: "active"}
+	if err := prod.Create(&member).Error; err != nil {
+		t.Fatal(err)
+	}
+	platform := models.ExternalPlatform{Name: "p"}
+	if err := prod.Create(&platform).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacy := "pm_legacy_key_issued_before_environments"
+	if err := prod.Create(&models.APIKey{Key: service.HashAPIKey(legacy), Status: "active", MemberID: &member.ID, ExternalPlatformID: platform.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	const appRole, appPassword = "payminto_app_adopt", "payminto_app_adopt_credential_x1"
+	for _, stmt := range []string{
+		`CREATE ROLE ` + appRole + ` LOGIN PASSWORD '` + appPassword + `'`,
+		`GRANT USAGE ON SCHEMA public TO ` + appRole,
+		`GRANT ALL ON ALL TABLES IN SCHEMA public TO ` + appRole,
+		`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ` + appRole,
+	} {
+		if err := prod.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ledger.GrantAppRole(prod, appRole); err != nil {
+		t.Fatal(err)
+	}
+	appCfg := prodCfg
+	appCfg.Username, appCfg.Password = appRole, appPassword
+	requireRefusal(t, liveProcessEnv(appCfg), "adopt-live --confirm-adopt-live=payminto_prod")
+
+	cfgForModule := config.Config{
+		Server:     config.ServerConfig{Environment: config.EnvironmentProduction},
+		Database:   config.DatabaseConfig{Host: prodCfg.Host, Database: prodCfg.Database, TestDatabase: "payminto_test", SSLMode: "disable", AllowInsecureLocal: true},
+		Blockchain: config.BlockchainConfig{NetworkType: "mainnet"},
+		Security:   config.SecurityConfig{JWTSecret: "a-strong-jwt-secret-value-with-32-plus-chars"},
+		Gateway:    config.GatewayConfig{Environment: "live"},
+	}
+	m, err := modules.WireEnvironment(modules.Deps{Config: &cfgForModule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.AdoptLive(context.Background(), prod, "payminto_prod"); err != nil {
+		t.Fatalf("adopt-live: %v", err)
+	}
+	base, _ := runServer(t, liveProcessEnv(appCfg))
+	code, body := getEnvironment(t, base, legacy)
+	if code != http.StatusOK || body["environment"] != "live" {
+		t.Fatalf("adopted legacy key on the live process = %d %v", code, body)
 	}
 }
