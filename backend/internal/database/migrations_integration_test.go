@@ -94,8 +94,8 @@ func TestApplyMigrationsAppliesPaymentLifecycleFoundationOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first ApplyMigrations() error = %v", err)
 	}
-	if len(first) != 6 || first[0].Version != 2026082701 || first[1].Version != 2026100701 || first[2].Version != 2026100702 || first[3].Version != 2026100703 || first[4].Version != 2026100705 || first[5].Version != 2026100708 {
-		t.Fatalf("first result = %#v, want migrations 2026082701, 2026100701, 2026100702, 2026100703, 2026100705 and 2026100708", first)
+	if len(first) != 7 || first[0].Version != 2026082701 || first[1].Version != 2026100701 || first[2].Version != 2026100702 || first[3].Version != 2026100703 || first[4].Version != 2026100705 || first[5].Version != 2026100708 || first[6].Version != 2026100710 {
+		t.Fatalf("first result = %#v, want migrations 2026082701, 2026100701, 2026100702, 2026100703, 2026100705, 2026100708 and 2026100710", first)
 	}
 
 	second, err := ApplyMigrations(context.Background(), db)
@@ -115,6 +115,11 @@ func TestApplyMigrationsAppliesPaymentLifecycleFoundationOnce(t *testing.T) {
 		"payment_lifecycle_address_assignments",
 		"payment_lifecycle_history",
 		"payment_lifecycle_outbox_events",
+		"payment_links",
+		"payment_link_line_items",
+		"payment_link_questions",
+		"payment_link_payments",
+		"payment_link_answers",
 	} {
 		if !db.Migrator().HasTable(table) {
 			t.Errorf("required expand table %q is missing", table)

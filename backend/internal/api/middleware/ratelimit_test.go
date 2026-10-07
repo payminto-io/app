@@ -25,3 +25,22 @@ func TestRateLimit_NilRedis_Passes(t *testing.T) {
 		t.Errorf("expected 200 with nil redis, got %d", w.Code)
 	}
 }
+
+func TestRateLimitScoped_NilRedis_PassesAndKeysAreScoped(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/test", RateLimitScoped(nil, "links:pay", 1, time.Minute), func(c *gin.Context) { c.Status(http.StatusOK) })
+	for range 3 {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/test", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("nil redis limited a request: %d", w.Code)
+		}
+	}
+	if got := rateLimitKey("", "1.2.3.4"); got != "ratelimit:1.2.3.4" {
+		t.Fatalf("unscoped key changed: %s", got)
+	}
+	if a, b := rateLimitKey("links:pay", "1.2.3.4"), rateLimitKey("links:read", "1.2.3.4"); a == b || a != "ratelimit:links:pay:1.2.3.4" {
+		t.Fatalf("scoped keys %s %s", a, b)
+	}
+}

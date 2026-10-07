@@ -29,6 +29,8 @@ interface ApiFetchInit extends Omit<RequestInit, "body"> {
   body?: unknown;
   /** Skip the 401 auto-refresh retry (used by the refresh call itself). */
   skipRefresh?: boolean;
+  /** Base URL override, e.g. API_V2_BASE_URL; defaults to the v1 base. */
+  baseUrl?: string;
 }
 
 /**
@@ -56,10 +58,11 @@ export async function apiFetch<T>(
       ? init.body
       : JSON.stringify(init.body);
 
+  const { baseUrl = BASE_URL, skipRefresh, ...requestInit } = init;
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
-      ...init,
+    response = await fetch(`${baseUrl}${path}`, {
+      ...requestInit,
       body,
       headers,
     });
@@ -74,7 +77,7 @@ export async function apiFetch<T>(
     );
   }
 
-  if (response.status === 401 && !init.skipRefresh) {
+  if (response.status === 401 && !skipRefresh) {
     const refreshed = await tryRefresh();
     if (refreshed) {
       return apiFetch<T>(path, { ...init, skipRefresh: true });

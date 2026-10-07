@@ -5,7 +5,9 @@ package modules
 import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
+	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/links"
 	"github.com/payminto/payminto/backend/internal/paymentswitch"
 	"gorm.io/gorm"
 )
@@ -17,6 +19,10 @@ type Deps struct {
 	Ledger *ledger.Service
 	// LedgerAsset is the ledger's asset for a blockchain_currencies row (service.LedgerAssetResolver).
 	LedgerAsset func(tx *gorm.DB, blockchainCurrencyID uint) (string, error)
+	// FeePort is the wired fee port, for modules that quote fees (links).
+	FeePort fees.Port
+	// LinkPayments turns a paid link into a payment (service.LinkPaymentCreator until the switch).
+	LinkPayments links.PaymentCreator
 
 	// Payment switch (WirePaymentSwitch). ChainDeposit is the Payminto deposit flow the chaindeposit connector
 	// drives, nil disables that connector; Events receives domain events, nil drops them; Fees prices every attempt,

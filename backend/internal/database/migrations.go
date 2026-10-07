@@ -44,6 +44,7 @@ var migrationManifest = []struct {
 	{2026100703, "switch_intents_attempts", "migrations/2026100703_switch_intents_attempts.up.sql"},
 	{2026100705, "environment_isolation", "migrations/2026100705_environment_isolation.up.sql"},
 	{2026100708, "solana_deposit_accounts", "migrations/2026100708_solana_deposit_accounts.up.sql"},
+	{2026100710, "links_payment_links", "migrations/2026100710_links_payment_links.up.sql"},
 }
 
 // ApplyMigrations is the production schema-evolution seam. It accepts only a

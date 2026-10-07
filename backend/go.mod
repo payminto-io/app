@@ -4,6 +4,7 @@ go 1.25.4
 
 require (
 	filippo.io/edwards25519 v1.2.0
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc
 	github.com/btcsuite/btcd v0.25.0
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/ethereum/go-ethereum v1.17.2
