@@ -32,6 +32,7 @@ export const STATUS_MAP: Record<string, StatusMeta> = {
   errored: { label: "Error", tone: "bad", glyph: "x" },
   // settlement and withdrawals
   pending_approval: { label: "Awaiting approval", tone: "wait", glyph: "clock" },
+  pending_otp: { label: "Awaiting code", tone: "wait", glyph: "clock" },
   approved: { label: "Approved", tone: "note", glyph: "circle" },
   sent: { label: "Sent", tone: "wait", glyph: "clock" },
   processed: { label: "Settled", tone: "ok", glyph: "check" },

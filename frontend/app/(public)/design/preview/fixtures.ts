@@ -70,9 +70,25 @@ const coldWallets = [
   { blockchainCode: "BTC", address: "bc1qsampl3xk7w9r2n8v3m5p0l9h4c6a2z8e1y7d5f", name: "Sample BTC vault" },
 ];
 
+const WD_STATES = ["processed", "pending-approval", "sent", "pending-otp", "failed", "processed", "cancelled"];
+const withdrawals = WD_STATES.map((state, i) => ({
+  id: 4100 + i,
+  externalPlatformID: 1,
+  memberID: 1,
+  toAddress: i % 3 === 1 ? "TJsampleRcpt7wR2nB8vK3mD5pL9hF4cA6zE" : `0x7e${hex(i * 313)}c3b1a9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3`,
+  blockchainCode: i % 3 === 1 ? "TRON" : "ETH",
+  currencyCode: i % 3 === 1 ? "USDT" : i % 2 ? "ETH" : "USDC",
+  amount: ["2500", "180.5", "0.75", "1200", "40", "999.99", "15"][i],
+  state,
+  ...(state === "processed" || state === "sent" ? { transactionHash: `0x${hex(i * 911)}ab12cd34ef56ab78cd90ef12ab34cd56ef78ab90cd12ef34ab56cd78ef${hex(i)}` } : {}),
+  createdAt: iso(-i * DAY * 1.5),
+  updatedAt: iso(-i * DAY),
+}));
+
 type Route = { method: string; pattern: RegExp; body: (m: RegExpMatchArray, q: URLSearchParams) => unknown; empty?: unknown };
 
 const ROUTES: Route[] = [
+  { method: "GET", pattern: /^\/withdrawal\/merchant$/, body: () => ({ withdrawals }), empty: { withdrawals: [] } },
   { method: "GET", pattern: /^\/wallets$/, body: () => ({ wallets }), empty: { wallets: [] } },
   {
     method: "GET",
