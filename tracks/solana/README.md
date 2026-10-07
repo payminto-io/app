@@ -90,6 +90,58 @@ sequenceDiagram
   G->>G: sweep booked, deposit marked swept
 ```
 
+## Screenshots
+
+Hosted checkout for a USDC payment on Solana, from choosing the method to paid:
+
+| Choose | Send | Confirming | Paid |
+| --- | --- | --- | --- |
+| ![choose](../../docs/design/screens/checkout/choose-390-light.png) | ![awaiting](../../docs/design/screens/checkout/awaiting-390-light.png) | ![confirming](../../docs/design/screens/checkout/confirming-390-light.png) | ![paid](../../docs/design/screens/checkout/paid-390-light.png) |
+
+Under and over payment are explicit states, never a silent credit:
+
+| Under paid | Over paid |
+| --- | --- |
+| ![underpaid](../../docs/design/screens/checkout/underpaid-390-light.png) | ![overpaid](../../docs/design/screens/checkout/overpaid-390-light.png) |
+
+## The code
+
+### Every sweep transition is a compare-and-set: `backend/internal/service/solana_sweep_service.go`
+
+A worker that decided from a stale read changes nothing, so two workers or a slow signer cannot send twice:
+
+```go
+func casSweep(tx *gorm.DB, sw *models.Sweep, to string) error {
+    res := tx.Model(&models.Sweep{}).Where("id = ? AND status = ? AND version = ?", sw.ID, sw.Status, sw.Version).
+        Updates(map[string]any{"status": to, "version": gorm.Expr("version + 1")})
+    if res.Error != nil {
+        return res.Error
+    }
+    if res.RowsAffected != 1 {
+        return fmt.Errorf("sweep %d %s@%d: %w", sw.ID, sw.Status, sw.Version, errStale)
+    }
+    return nil
+}
+```
+
+### Live refuses a single RPC node: `backend/internal/modules/solana.go`
+
+A single node cannot prove a deposit was dropped, so live will not boot with one:
+
+```go
+return fmt.Errorf("%w: solana rpc_nodes hold %d distinct endpoint; live needs at least two for drop and expiry evidence (add an rpc_nodes row)", environment.ErrBoot, len(distinct))
+```
+
+### Invariants, from `backend/internal/service/SOLANA_SWEEPS.md`
+
+1. The claim is the rows: the sweep, its transactions, links and locks are written in one transaction before anything is signed.
+2. Every signature is persisted with its blockhash and last valid block height before it is sent.
+3. Only a JSON-RPC error that proves the node refused the transaction marks it failed; anything else is a transport error and the attempt stays tracked.
+4. One sweep in flight per token account, enforced by a unique lock row.
+5. Deposits become `swept` only when a finalized attempt is booked.
+6. No attempt is ever written with a last valid block height of 0.
+7. Every transition is a compare-and-set on the status and version it was decided from.
+
 ## Where the code is
 
 | Path | What |
