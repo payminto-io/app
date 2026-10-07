@@ -56,3 +56,44 @@ func (s *Service) FeePreview(ctx context.Context, l Link) []MethodPreview {
 	}
 	return out
 }
+
+// DroppedMethod is a method the checkout would leave out, with the refusal that removed it.
+type DroppedMethod struct {
+	Method  fees.Method `json:"method"`
+	Chain   *string     `json:"chain"`
+	Asset   *string     `json:"asset"`
+	Code    Code        `json:"code"`
+	Message string      `json:"message"`
+}
+
+// PreviewResult is the checkout's render model for an unsaved form, plus the methods it dropped and why.
+type PreviewResult struct {
+	Model   RenderModel     `json:"model"`
+	Dropped []DroppedMethod `json:"dropped_methods"`
+}
+
+// Preview renders in exactly as the public endpoint would once published, without storing anything.
+// With linkID it takes status, uses and short code from that link, so a paused or exhausted link previews as such.
+func (s *Service) Preview(ctx context.Context, platformID uint, in Input, linkID string) (PreviewResult, error) {
+	in, total, err := s.prepare(ctx, platformID, in)
+	if err != nil {
+		return PreviewResult{}, err
+	}
+	l := Link{Status: StatusDraft, Environment: s.env, ExternalPlatformID: platformID}
+	if linkID != "" {
+		if l, err = s.Get(ctx, platformID, linkID); err != nil {
+			return PreviewResult{}, err
+		}
+	}
+	l.Input, l.Total = in, total
+	m, dropped, err := s.render(ctx, l)
+	if err != nil {
+		return PreviewResult{}, err
+	}
+	return PreviewResult{Model: m, Dropped: dropped}, nil
+}
+
+// MerchantName is the platform's display name, as checkout shows it.
+func (s *Service) MerchantName(ctx context.Context, platformID uint) (string, error) {
+	return s.store.MerchantName(ctx, platformID)
+}

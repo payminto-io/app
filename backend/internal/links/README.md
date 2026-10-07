@@ -8,7 +8,7 @@ Design source: ticket `.scratch/payments-v1/issues/03-payment-link-model.md` and
 `port.go` is the only surface other modules may import.
 
 - `Create`, `Get`, `List`, `Update`, `Delete` (drafts only), `Publish`, `Pause`, `Archive`, `Duplicate` for merchants, scoped by external platform.
-- `Render(short_code)` returns the `RenderModel` for checkout; `Pay(short_code, PayRequest)` creates the payment.
+- `Render(short_code)` returns the `RenderModel` for checkout; `Preview(form, link_id?)` returns the same model for an unsaved form plus the methods it drops and why (one builder, `render`); `Options()` lists publishable methods and currencies from an optional `Catalog` on the payment creator; `Pay(short_code, PayRequest)` creates the payment.
 - Ports this module depends on:
   - `FeeQuoter` (`Resolve`, `Preview`), satisfied by `fees.Port`. Links never snapshot or post fees; the switch does that per attempt (fees README, "Payment path").
   - `PaymentCreator` turns one reserved use into a payment. `Connectors` says which connectors take a method in an environment; `CreatePayment` creates it and must be idempotent on `LinkPaymentID`; `FindPayment` looks a payment up by it. Only an error wrapping `ErrNotCreated`, or a `*links.Error`, promises nothing was created. The default is `service.LinkPaymentCreator` (Payminto's payment service, reference `pl_<LinkPaymentID>`); the switch (ticket 05) provides another.

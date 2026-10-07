@@ -298,6 +298,11 @@ type Port interface {
 	// FeePreview prices every method of the link for the merchant: connector, rule and breakdown.
 	FeePreview(ctx context.Context, l Link) []MethodPreview
 	Render(ctx context.Context, shortCode string) (RenderModel, error)
+	// Preview renders an unsaved form exactly as the public endpoint would, without storing it.
+	Preview(ctx context.Context, platformID uint, in Input, linkID string) (PreviewResult, error)
+	// Options lists the methods and currencies the form may offer in the process environment.
+	Options(ctx context.Context) (Options, error)
+	MerchantName(ctx context.Context, platformID uint) (string, error)
 	Pay(ctx context.Context, shortCode string, req PayRequest) (PayResult, error)
 	URL(shortCode string) string
 }
