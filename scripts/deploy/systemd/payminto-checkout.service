@@ -1,0 +1,23 @@
+[Unit]
+Description=Payminto hosted checkout (checkout.payminto.io)
+After=network-online.target payminto-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/payminto/checkout
+Environment=NODE_ENV=production
+Environment=PORT=3002
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/npx next start -p 3002 -H 127.0.0.1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=append:/var/log/payminto/checkout.log
+StandardError=append:/var/log/payminto/checkout.log
+
+[Install]
+WantedBy=multi-user.target

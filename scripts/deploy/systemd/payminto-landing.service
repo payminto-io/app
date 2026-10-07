@@ -1,0 +1,23 @@
+[Unit]
+Description=Payminto marketing site (payminto.io)
+After=network-online.target payminto-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/payminto/landing
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/npx next start -p 3001 -H 127.0.0.1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=append:/var/log/payminto/landing.log
+StandardError=append:/var/log/payminto/landing.log
+
+[Install]
+WantedBy=multi-user.target

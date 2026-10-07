@@ -1,0 +1,23 @@
+[Unit]
+Description=Payminto merchant dashboard (app.payminto.io)
+After=network-online.target payminto-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/payminto/frontend
+Environment=NODE_ENV=production
+Environment=PORT=3003
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/npx next start -p 3003 -H 127.0.0.1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=append:/var/log/payminto/app.log
+StandardError=append:/var/log/payminto/app.log
+
+[Install]
+WantedBy=multi-user.target
