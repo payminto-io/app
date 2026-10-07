@@ -69,6 +69,9 @@ func main() {
 		log.Fatalf("environment: %v", err)
 	}
 
+	// RBAC role names come from the catalog seeds, not from member_type.
+	const adminRole = "owner"
+
 	adminPassword := randomSecret("Adm-")
 	merchantPassword := randomSecret("Mer-")
 	adminKey, err := service.GenerateAPIKey()
@@ -90,10 +93,13 @@ func main() {
 		if err != nil {
 			return err
 		}
-		if err := assignRole(tx, admin.ID, adminPlatform.ID, "root"); err != nil {
+		// "root" above is the member_type; the RBAC role is a separate namespace and
+		// migrations/seeds/*/9005_seed_rbac.sql seeds no role by that name. The widest
+		// seeded role is "owner" (every permission), which is what a platform root holds.
+		if err := assignRole(tx, admin.ID, adminPlatform.ID, adminRole); err != nil {
 			return err
 		}
-		if err := replaceDevKey(tx, admin.ID, adminPlatform.ID, "root", "Local development admin key", adminKey); err != nil {
+		if err := replaceDevKey(tx, admin.ID, adminPlatform.ID, adminRole, "Local development admin key", adminKey); err != nil {
 			return err
 		}
 
