@@ -102,10 +102,16 @@ is fetched from a third party:
 /var/www/payminto-media/payminto-demo-poster.jpg
 ```
 
-The `location /media/` block on the payminto.io vhost aliases that directory. The
-landing page references `/media/payminto-demo.mp4`, so a `git pull` and rebuild
-never touches the file — but a fresh host must repopulate it, from the project's
-own release asset or the Google Drive copy, before the demo section will play.
+The `location /media/` block on the payminto.io vhost aliases that directory. A
+`git pull` and rebuild never touch the file, but a fresh host must repopulate it
+from the project's release asset or the Drive copy.
+
+The demo **section** plays the YouTube upload (`2BUyh3VFF74`) behind a
+click-to-play facade, so the page requests nothing from YouTube until a viewer
+clicks; the mp4 above is the direct-download fallback. The poster deliberately
+lives in `landing/public/demo/` and **not** in `/media/`: `next/image` optimises
+local paths by fetching them from the Next server, which does not serve the nginx
+alias, so a `/media/` poster would 404 through the optimiser.
 
 ## TLS
 

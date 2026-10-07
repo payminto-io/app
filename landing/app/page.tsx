@@ -6,6 +6,7 @@ import { Solana } from "./sections/solana";
 import { CopyButton } from "./sections/copy-button";
 import { LINKS } from "./sections/links";
 import { ThemeImage } from "./sections/theme-image";
+import { DemoVideo } from "./sections/demo-video";
 
 // Section order: hero, market, flow (pinned), solvency (pinned), solana, screens,
 // features, status, self-host, FAQ, CTA, footer. Motion rules: docs/MOTION.md.
@@ -306,9 +307,12 @@ function SelfHost() {
   );
 }
 
-// Demo video is served from this origin (nginx /media/), not a third party.
-const DEMO_VIDEO = "/media/payminto-demo.mp4";
-const DEMO_POSTER = "/media/payminto-demo-poster.jpg";
+// The poster ships in public/ so next/image can optimise it: the optimiser
+// fetches local paths from the Next server, which does not serve nginx's
+// /media/ alias. The 1080p mp4 stays at /media/ as a direct-download fallback.
+// The player itself loads from YouTube only after a click.
+const DEMO_VIDEO_ID = "2BUyh3VFF74";
+const DEMO_POSTER = "/demo/payminto-demo-poster.jpg";
 
 function Demo() {
   return (
@@ -329,18 +333,7 @@ function Demo() {
           </p>
         </div>
         <figure className="card-ring-lg overflow-hidden" data-reveal>
-          <video
-            controls
-            preload="none"
-            playsInline
-            poster={DEMO_POSTER}
-            className="block h-auto w-full bg-black"
-            width={1920}
-            height={1080}
-          >
-            <source src={DEMO_VIDEO} type="video/mp4" />
-            Your browser cannot play embedded video.
-          </video>
+          <DemoVideo videoId={DEMO_VIDEO_ID} poster={DEMO_POSTER} title="Payminto demo" />
         </figure>
       </div>
     </section>
