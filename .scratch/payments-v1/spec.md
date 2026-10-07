@@ -84,7 +84,7 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 06 | Routing engine | Principal | 05 |
 | 07 | Card connector through hosted fields | Backend | 05 |
 | 08 | Custody provider interface, mock and direct-to-wallet | Blockchain | 01 |
-| 09 | Solana adapter and USDC deposits | Solana | 08 |
+| 09 | Solana adapter, USDC and USDT side by side | Solana | 08 |
 | 10 | Conversion at receipt | Blockchain | 01, 09 |
 | 11 | Settlement policy, destinations, approvals, runs | Blockchain | 08, 10 |
 | 12 | BitGo custody adapter and conformance suite | Blockchain | 08, 11 |
@@ -94,6 +94,7 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 16 | QA: money-path tests, security review, demo script | QA | 11, 14, 15 |
 | 17 | Public checkout projection fields | Backend | 03, 05, 09 |
 | 18 | Dashboard per-asset totals and mobile tables | Frontend | 01 |
+| 19 | Chainlink CRE research, market fit and module spec | Chainlink | - |
 
 ## Distribution: open core, self-hosted by default, white-label in the paid tier
 
