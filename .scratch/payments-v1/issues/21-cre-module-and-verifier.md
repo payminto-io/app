@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 Owner: Chainlink engineer (Fable)
-Blocked by: 01, 11, 20
+Blocked by: 01, 20
 
 ## Goal
 `backend/internal/cre/` per `docs/cre/SPEC.md` sections 3, 4, 6, 7 and 9.
@@ -19,3 +19,8 @@ Blocked by: 01, 11, 20
 
 ## Acceptance
 Unit tests for the verifier reject: wrong emitter, wrong forwarder path (contract), wrong owner, wrong workflow id, wrong gateway id, unknown checkpoint, mismatched deposit amount, insufficient confirmations. Integration test: a settlement above threshold waits, proceeds on verdict 1, freezes on verdict 3; with provider `none` the policy line fails validation and nothing waits. The API process has no CRE signing key material (test: config holds only a key reference). `make test-integration` green.
+
+
+## Comments
+
+Ruling 2026-10-07 (coordinator): unblocked from 11 by moving the settlement gate (`require_attestation_above` enforcement inside settlement) to ticket 21b, blocked by 11. This ticket ships the module, providers none/mock/chainlink, verifier, storage, routes and a `SettlementGate` port with a no-op default.

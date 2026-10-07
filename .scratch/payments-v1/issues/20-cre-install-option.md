@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 Owner: DevOps (Opus) with Frontend engineer (Opus)
-Blocked by: 15, 19
+Blocked by: 19
 
 ## Goal
 Make CRE an install-time choice that changes nothing unless chosen. Spec: `docs/cre/SPEC.md` sections 2 and 12.
@@ -14,3 +14,8 @@ Make CRE an install-time choice that changes nothing unless chosen. Spec: `docs/
 
 ## Acceptance
 Config tests for every rule above. Boot with no `CRE_*` set is byte-identical in routes and migrations applied (test compares the route table). `docker compose up` unchanged; `docker compose --profile cre up` starts the extra service. Screenshots of the settings page at 390 and 1440, light and dark, in `none` and `mock`.
+
+
+## Comments
+
+Ruling 2026-10-07 (coordinator): unblocked from 15. Add the `cre` profile to the existing compose files now; ticket 15 folds it into the new compose and CI.
