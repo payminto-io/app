@@ -12,8 +12,7 @@ interface DashboardMetricsProps {
 
 /**
  * All-time account counts from /analytics/summary. `TotalVolume` sums every
- * asset into one unitless number and `TotalSweeps` is instance-wide, so
- * neither is shown; money is per asset in `PaidByAsset`.
+ * asset into one unitless number, so it is not shown; money is per asset in `PaidByAsset`.
  */
 export function DashboardMetrics({ data, isLoading }: DashboardMetricsProps) {
   if (isLoading || !data) {

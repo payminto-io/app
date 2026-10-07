@@ -300,10 +300,10 @@ const ROUTES: Route[] = [
     method: "GET",
     pattern: /^\/analytics\/summary$/,
     body: () => ({
-      summary: { TotalPayments: 134, FilledPayments: 97, TotalVolume: "18210.75", TotalSweeps: 12, TotalWithdrawals: 8, ActiveWebhooks: 2 },
+      summary: { TotalPayments: 134, FilledPayments: 97, TotalVolume: "18210.75", TotalWithdrawals: 8, ActiveWebhooks: 2 },
     }),
     empty: {
-      summary: { TotalPayments: 0, FilledPayments: 0, TotalVolume: "0", TotalSweeps: 0, TotalWithdrawals: 0, ActiveWebhooks: 0 },
+      summary: { TotalPayments: 0, FilledPayments: 0, TotalVolume: "0", TotalWithdrawals: 0, ActiveWebhooks: 0 },
     },
   },
   {

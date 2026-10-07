@@ -6,7 +6,6 @@
  *   GET /analytics/volume           → { volume: VolumeBucket[] }
  *   GET /analytics/revenue          → { revenue: RevenueBreakdown[] }
  *   GET /analytics/customers/top    → { customers: CustomerSummary[] }
- *   GET /analytics/sweeps           → { sweeps: SweepStats }
  *   GET /analytics/withdrawals      → { withdrawals: WithdrawalStats }
  */
 import { apiFetch } from "./client";
@@ -18,7 +17,6 @@ export interface BackendDashboardSummary {
   TotalPayments: number;
   FilledPayments: number;
   TotalVolume: string;
-  TotalSweeps: number;
   TotalWithdrawals: number;
   ActiveWebhooks: number;
 }
@@ -28,7 +26,6 @@ export interface AnalyticsSummary {
   totalVolume: string;
   totalPayments: number;
   filledPayments: number;
-  totalSweeps: number;
   totalWithdrawals: number;
   activeWebhooks: number;
 }
@@ -50,12 +47,6 @@ export interface RevenueBreakdown {
   Count: number;
 }
 
-export interface SweepStats {
-  TotalSweeps: number;
-  TotalSwept: string;
-  TotalGas: string;
-}
-
 /* ---------- API functions ---------- */
 
 export const analyticsApi = {
@@ -69,7 +60,6 @@ export const analyticsApi = {
       totalVolume: s.TotalVolume,
       totalPayments: s.TotalPayments,
       filledPayments: s.FilledPayments,
-      totalSweeps: s.TotalSweeps,
       totalWithdrawals: s.TotalWithdrawals,
       activeWebhooks: s.ActiveWebhooks,
     };
@@ -99,10 +89,4 @@ export const analyticsApi = {
       `/analytics/revenue${qs ? `?${qs}` : ""}`
     ).then((r) => r.revenue ?? []);
   },
-
-  /** Sweep stats. Instance-wide and summed across assets; not for merchant display. */
-  sweeps: (): Promise<SweepStats> =>
-    apiFetch<{ sweeps: SweepStats }>("/analytics/sweeps").then(
-      (r) => r.sweeps
-    ),
 };
