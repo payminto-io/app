@@ -84,7 +84,11 @@ type PaymentStatus struct {
 	ExpiresAt    *time.Time
 }
 
-var ErrBackendNotFound = errors.New("chaindeposit: payment request not found")
+var (
+	ErrBackendNotFound = errors.New("chaindeposit: payment request not found")
+	// ErrNotCancellable means the request left OPEN/PARTIALLY_FILLED before the cancel could take it.
+	ErrNotCancellable = errors.New("chaindeposit: payment request is no longer cancellable")
+)
 
 type Connector struct {
 	backend Backend
@@ -96,10 +100,11 @@ func (c *Connector) Code() connectors.Code { return Code }
 
 func (c *Connector) Capabilities() connectors.Capabilities {
 	return connectors.Capabilities{
-		Methods:     []connectors.Method{connectors.MethodChain},
-		Void:        true,
-		Sync:        true,
-		RawStatuses: RawStatuses,
+		Methods:              []connectors.Method{connectors.MethodChain},
+		Void:                 true,
+		Sync:                 true,
+		WatchesAfterTerminal: true,
+		RawStatuses:          RawStatuses,
 	}
 }
 
@@ -161,8 +166,9 @@ func (c *Connector) Capture(context.Context, connectors.CaptureRequest) (connect
 	return connectors.CaptureResponse{}, fmt.Errorf("%w: deposits settle on confirmation", connectors.ErrUnsupported)
 }
 
-// Void cancels an open or partially filled request so later deposits are not claimed for it; funds already
-// confirmed stay on the books and the raw status says so.
+// Void cancels an open or partially filled request so later deposits are not claimed for it, then re-reads: the
+// cancel is conditional, so a fill that won the race is reported as filled, not cancelled. Funds already confirmed
+// stay on the books and the raw status says so.
 func (c *Connector) Void(ctx context.Context, req connectors.VoidRequest) (connectors.VoidResponse, error) {
 	st, err := c.backend.PaymentStatus(ctx, req.ConnectorTransactionID)
 	if err != nil {
@@ -173,13 +179,30 @@ func (c *Connector) Void(ctx context.Context, req connectors.VoidRequest) (conne
 	default:
 		return connectors.VoidResponse{}, fmt.Errorf("%w: cannot cancel a payment request in state %s", connectors.ErrInvalidRequest, st.State)
 	}
-	if err := c.backend.CancelPayment(ctx, req.ConnectorTransactionID); err != nil {
+	if err := c.backend.CancelPayment(ctx, req.ConnectorTransactionID); err != nil && !errors.Is(err, ErrNotCancellable) {
 		return connectors.VoidResponse{}, mapBackendErr(err)
 	}
-	if st.Received.IsPositive() {
-		return connectors.VoidResponse{RawStatus: StatusCancelledUnderpaid}, nil
+	after, err := c.backend.PaymentStatus(ctx, req.ConnectorTransactionID)
+	if err != nil {
+		return connectors.VoidResponse{}, mapBackendErr(err)
 	}
-	return connectors.VoidResponse{RawStatus: StatusCancelled}, nil
+	resp := connectors.VoidResponse{RawStatus: statusOf(after)}
+	if after.Received.IsPositive() {
+		received := after.Received
+		resp.AmountReceived = &received
+		resp.ReceivedAsset = ReceivedAsset(after.CurrencyCode, after.ChainCode)
+	}
+	return resp, nil
+}
+
+// statusOf is Payminto's state as a raw status; a cancelled request that received less than its amount is
+// cancelled_underpaid, one that received its amount or more is simply cancelled with the money reported alongside.
+func statusOf(st PaymentStatus) connectors.RawStatus {
+	status := raw(st.State)
+	if status == StatusCancelled && st.Received.IsPositive() && st.Received.LessThan(st.AmountInUSD) {
+		return StatusCancelledUnderpaid
+	}
+	return status
 }
 
 func (c *Connector) Refund(context.Context, connectors.RefundRequest) (connectors.RefundResponse, error) {
@@ -202,10 +225,7 @@ func (c *Connector) Sync(ctx context.Context, req connectors.SyncRequest) (conne
 	if err != nil {
 		return connectors.SyncResponse{}, mapBackendErr(err)
 	}
-	status := raw(st.State)
-	if status == StatusCancelled && st.Received.IsPositive() {
-		status = StatusCancelledUnderpaid
-	}
+	status := statusOf(st)
 	resp := connectors.SyncResponse{ConnectorTransactionID: st.Reference, RawStatus: status}
 	if st.Received.IsPositive() {
 		received := st.Received

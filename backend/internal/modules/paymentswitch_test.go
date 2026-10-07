@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -8,10 +9,21 @@ import (
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/paymentswitch"
+	"github.com/shopspring/decimal"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+type stubFees struct{}
+
+func (stubFees) Snapshot(context.Context, *gorm.DB, paymentswitch.FeeRef, paymentswitch.FeeQuery) error {
+	return nil
+}
+func (stubFees) PostFee(context.Context, *gorm.DB, paymentswitch.FeeRef, decimal.Decimal) error {
+	return nil
+}
 
 func deps(t *testing.T, env string, conns ...string) Deps {
 	t.Helper()
@@ -21,10 +33,10 @@ func deps(t *testing.T, env string, conns ...string) Deps {
 	}
 	return Deps{
 		DB:           db,
-		Config:       &config.Config{Switch: config.SwitchConfig{Connectors: conns, MockWebhookSecret: "s"}},
+		Config:       &config.Config{Server: config.ServerConfig{Environment: env}, Switch: config.SwitchConfig{Connectors: conns, MockWebhookSecret: "s"}},
 		Ledger:       ledger.New(db),
-		Environment:  env,
 		ChainDeposit: chaindeposit.NewMemoryBackend(),
+		Fees:         stubFees{},
 	}
 }
 
@@ -58,5 +70,10 @@ func TestWirePaymentSwitch_RefusesMockInDeploymentAndUnknownCodes(t *testing.T) 
 	}
 	if m, err := WirePaymentSwitch(deps(t, config.EnvironmentProduction, "chaindeposit")); err != nil || len(m.Enabled) != 1 {
 		t.Fatalf("production with only chaindeposit = %+v, %v", m, err)
+	}
+	noFees := deps(t, config.EnvironmentProduction, "chaindeposit")
+	noFees.Fees = nil
+	if _, err := WirePaymentSwitch(noFees); err == nil {
+		t.Fatal("production without the fees module must not wire")
 	}
 }

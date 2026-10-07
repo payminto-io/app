@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
-	"github.com/payminto/payminto/backend/internal/service"
 	"github.com/shopspring/decimal"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -23,18 +23,18 @@ type dbOpener struct {
 	seq int
 }
 
-func (o *dbOpener) CreatePayment(in service.CreatePaymentInput, memberID, platformID uint) (*service.CreatePaymentResult, error) {
+func (o *dbOpener) open(amount decimal.Decimal, invoiceID, _, _ string, memberID, platformID uint) (chaindeposit.Opened, error) {
 	o.seq++
 	expires := time.Now().Add(30 * time.Minute)
-	p := &models.PaymentRequest{ReferenceID: service.GenerateReferenceID(), AmountInUSD: in.AmountInUSD, State: models.PaymentStateOpen, InvoiceID: in.InvoiceID, ExpiresAt: &expires, MemberID: memberID, ExternalPlatformID: platformID}
+	p := &models.PaymentRequest{ReferenceID: uuid.NewString(), AmountInUSD: amount, State: models.PaymentStateOpen, InvoiceID: &invoiceID, ExpiresAt: &expires, MemberID: memberID, ExternalPlatformID: platformID}
 	if err := o.db.Create(p).Error; err != nil {
-		return nil, err
+		return chaindeposit.Opened{}, err
 	}
 	addr := &models.DepositAddress{Address: "0xaddr" + p.ReferenceID[:6], BlockchainCurrencyID: 1, MemberID: memberID, PaymentRequestID: &p.ID}
 	if err := o.db.Create(addr).Error; err != nil {
-		return nil, err
+		return chaindeposit.Opened{}, err
 	}
-	return &service.CreatePaymentResult{Payment: p, DepositAddress: addr}, nil
+	return chaindeposit.Opened{Reference: p.ReferenceID, Address: addr.Address, ExpiresAt: p.ExpiresAt}, nil
 }
 
 func paymintoFixture(t *testing.T) (*gorm.DB, *chaindeposit.PaymintoBackend) {
@@ -49,7 +49,7 @@ func paymintoFixture(t *testing.T) (*gorm.DB, *chaindeposit.PaymintoBackend) {
 	if err := db.Create(&models.BlockchainCurrency{CurrencyCode: "USDC", BlockchainCode: "ETH"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	return db, chaindeposit.NewPaymintoBackend(&dbOpener{db: db}, repository.NewPaymentRepository(db), repository.NewDepositRepository(db), db)
+	return db, chaindeposit.NewPaymintoBackend((&dbOpener{db: db}).open, repository.NewPaymentRepository(db), repository.NewDepositRepository(db), db)
 }
 
 // confirmDeposit books a confirmed deposit and runs Payminto's own finalizer, exactly as the block processor path does.
@@ -108,7 +108,9 @@ func TestPaymintoBackend_StatusSumsOnlyConfirmedDeposits(t *testing.T) {
 
 func TestPaymintoBackend_OpenRequiresADepositAddressAndTheConnectorUsesIt(t *testing.T) {
 	_, b := paymintoFixture(t)
-	noAddr := chaindeposit.NewPaymintoBackend(stubOpener{}, nil, nil, nil)
+	noAddr := chaindeposit.NewPaymintoBackend(func(decimal.Decimal, string, string, string, uint, uint) (chaindeposit.Opened, error) {
+		return chaindeposit.Opened{Reference: "ref-2"}, nil
+	}, nil, nil, nil)
 	if _, err := noAddr.OpenPayment(context.Background(), chaindeposit.OpenRequest{AttemptID: "pa"}); err == nil {
 		t.Fatal("a payment without a deposit address cannot be paid")
 	}
@@ -121,10 +123,4 @@ func TestPaymintoBackend_OpenRequiresADepositAddressAndTheConnectorUsesIt(t *tes
 	if err != nil || sync.ConnectorTransactionID != resp.ConnectorTransactionID {
 		t.Fatalf("sync by attempt through payminto = %+v, %v", sync, err)
 	}
-}
-
-type stubOpener struct{}
-
-func (stubOpener) CreatePayment(service.CreatePaymentInput, uint, uint) (*service.CreatePaymentResult, error) {
-	return &service.CreatePaymentResult{Payment: &models.PaymentRequest{ReferenceID: "ref-2"}}, nil
 }

@@ -16,8 +16,8 @@ var intentTransitions = map[IntentStatus][]IntentStatus{
 	IntentPartiallyCaptured:     {},
 	IntentPartiallyPaid:         {},
 	IntentSucceeded:             {},
-	// A failed intent may be retried with a new attempt (Hyperswitch: "can be retried manually").
-	IntentFailed:    {IntentRequiresPaymentMethod, IntentProcessing},
+	// A failed intent may be retried with a new attempt (Hyperswitch: "can be retried manually") or closed.
+	IntentFailed:    {IntentRequiresPaymentMethod, IntentProcessing, IntentCancelled},
 	IntentCancelled: {},
 }
 
@@ -87,8 +87,18 @@ func (s RefundStatus) Valid() bool { return slices.Contains(AllRefundStatuses, s
 func (s RefundStatus) IsTerminal() bool { return len(refundTransitions[s]) == 0 }
 
 // InFlight reports whether a connector operation was claimed on this attempt and its outcome is still unknown.
+// started is the authorize claim before any answer, pending an authorize that got no definitive answer.
 func (s AttemptStatus) InFlight() bool {
-	return s == AttemptPending || s == AttemptCaptureInitiated || s == AttemptVoidInitiated
+	return s == AttemptStarted || s == AttemptPending || s == AttemptCaptureInitiated || s == AttemptVoidInitiated
+}
+
+// InFlightStatuses is the reconciler's set.
+var InFlightStatuses = []AttemptStatus{AttemptStarted, AttemptPending, AttemptCaptureInitiated, AttemptVoidInitiated}
+
+// IsRollback reports an edge that only means "the claimed operation never landed"; such evidence is applied only
+// by the reconciler after the claim lease expired, never while the call may still be in flight (R1).
+func IsRollback(from, to AttemptStatus) bool {
+	return (from == AttemptCaptureInitiated || from == AttemptVoidInitiated) && to == AttemptAuthorized
 }
 
 func transitionIntent(from, to IntentStatus) error {

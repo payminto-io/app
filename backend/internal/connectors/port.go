@@ -73,6 +73,9 @@ type Capabilities struct {
 	Webhooks       bool
 	Sync           bool
 	RefundSync     bool
+	// WatchesAfterTerminal says the provider keeps reporting funds that arrive after a terminal state (a chain
+	// address stays live); the switch keeps syncing such attempts for a retention window.
+	WatchesAfterTerminal bool
 	// RawStatuses is every status this provider can report for payments; RawRefundStatuses for refunds.
 	RawStatuses       []RawStatus
 	RawRefundStatuses []RawStatus
@@ -146,9 +149,12 @@ type VoidRequest struct {
 }
 
 type VoidResponse struct {
-	RawStatus    RawStatus
-	ErrorCode    string
-	ErrorMessage string
+	RawStatus RawStatus
+	// AmountReceived with ReceivedAsset reports funds that arrived before the void took effect (chain deposits).
+	AmountReceived *decimal.Decimal
+	ReceivedAsset  string
+	ErrorCode      string
+	ErrorMessage   string
 }
 
 type RefundRequest struct {

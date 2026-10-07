@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/payminto/payminto/backend/internal/config"
+	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/paymentswitch"
 	"gorm.io/gorm"
@@ -181,6 +182,9 @@ func validateLedger(db *gorm.DB, environment, mode string) error {
 // manifest (so ApplyMigrations can still run on a database that predates them) for dev/test.
 func MigrateExpandSchema(db *gorm.DB) error {
 	if err := ledger.Migrate(db); err != nil {
+		return err
+	}
+	if err := fees.Migrate(db); err != nil {
 		return err
 	}
 	return paymentswitch.Migrate(db)

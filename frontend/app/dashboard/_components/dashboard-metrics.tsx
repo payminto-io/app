@@ -1,7 +1,7 @@
 "use client";
 
+import Link from "next/link";
 import { MetricCard } from "@/components/metric-card";
-import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AnalyticsSummary } from "@/lib/api/analytics";
 
@@ -10,100 +10,40 @@ interface DashboardMetricsProps {
   isLoading: boolean;
 }
 
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
-  return n.toFixed(2);
-}
-
+/**
+ * All-time account counts from /analytics/summary. `TotalVolume` sums every
+ * asset into one unitless number, so it is not shown; money is per asset in `PaidByAsset`.
+ */
 export function DashboardMetrics({ data, isLoading }: DashboardMetricsProps) {
+  if (isLoading || !data) {
+    return (
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-[108px] rounded-md" />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {isLoading ? (
-          <Skeleton className="h-36 rounded-xl sm:col-span-2" />
-        ) : data ? (
-          <div className="sm:col-span-2">
-            <MetricCard
-              variant="primary"
-              label="Total Volume"
-              value={`$${formatCompact(parseFloat(data.totalVolume || "0"))}`}
-              sublabel={`${data.totalPayments.toLocaleString()} total payments`}
-              className="h-full"
-            />
-          </div>
-        ) : null}
-
-        {isLoading ? (
-          <Skeleton className="h-36 rounded-xl" />
-        ) : data ? (
-          <MetricCard
-            variant="lime"
-            label="Filled Payments"
-            value={data.filledPayments.toLocaleString()}
-            sublabel="Confirmed"
-          />
-        ) : null}
-
-        {isLoading ? (
-          <Skeleton className="h-36 rounded-xl" />
-        ) : data ? (
-          <MetricCard
-            variant="dark"
-            label="Total Payments"
-            value={data.totalPayments.toLocaleString()}
-            sublabel="All time"
-          />
-        ) : null}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <SecondaryMetric
-          label="Sweeps"
-          value={data ? String(data.totalSweeps) : "\u2014"}
-          loading={isLoading}
-        />
-        <SecondaryMetric
-          label="Withdrawals"
-          value={data ? String(data.totalWithdrawals) : "\u2014"}
-          loading={isLoading}
-        />
-        <SecondaryMetric
-          label="Active Webhooks"
-          value={data ? String(data.activeWebhooks) : "\u2014"}
-          loading={isLoading}
-        />
-      </div>
-    </>
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <MetricCard label="Paid payments" value={data.filledPayments.toLocaleString("en-US")} sublabel="All time" />
+      <MetricCard label="All payments" value={data.totalPayments.toLocaleString("en-US")} sublabel="All time" />
+      <LinkMetric label="Withdrawals" value={data.totalWithdrawals} href="/dashboard/withdrawals" />
+      <LinkMetric label="Active webhooks" value={data.activeWebhooks} href="/dashboard/webhooks" />
+    </div>
   );
 }
 
-function SecondaryMetric({
-  label,
-  value,
-  sublabel,
-  loading,
-}: {
-  label: string;
-  value: string;
-  sublabel?: string;
-  loading: boolean;
-}) {
+function LinkMetric({ label, value, href }: { label: string; value: number; href: string }) {
   return (
-    <Card className="border-border shadow-none">
-      <CardContent className="p-5">
-        <div className="pm-label">{label}</div>
-        {loading ? (
-          <Skeleton className="h-8 w-24 mt-3" />
-        ) : (
-          <div className="mt-3 text-[28px] font-bold tracking-tight tabular-nums">
-            {value}
-          </div>
-        )}
-        {sublabel && (
-          <p className="mt-1 text-[12px] text-muted-foreground">{sublabel}</p>
-        )}
-      </CardContent>
-    </Card>
+    <Link
+      href={href}
+      className="flex min-w-0 flex-col gap-2 rounded-md border border-line bg-surface p-5 transition-colors duration-120 hover:bg-surface-sunken/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tide max-sm:p-4"
+    >
+      <span className="truncate text-label font-medium text-ink-soft">{label}</span>
+      <span className="num text-h1 font-semibold text-ink">{value.toLocaleString("en-US")}</span>
+      <span className="text-caption text-ink-soft">All time</span>
+    </Link>
   );
 }

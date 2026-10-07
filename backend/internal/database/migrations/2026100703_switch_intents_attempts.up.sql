@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS switch_payment_intents (
     last_error_code varchar(64) NOT NULL DEFAULT '',
     last_error_message text NOT NULL DEFAULT '',
     confirm_requested boolean NOT NULL DEFAULT false,
+    payment_record_id bigint NOT NULL DEFAULT 0,
     version bigint NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
@@ -55,6 +56,8 @@ CREATE TABLE IF NOT EXISTS switch_payment_attempts (
     sync_count integer NOT NULL DEFAULT 0,
     next_sync_at timestamptz,
     last_synced_at timestamptz,
+    claimed_until timestamptz,
+    status_changed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     version bigint NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
@@ -85,6 +88,8 @@ CREATE TABLE IF NOT EXISTS switch_refunds (
     sync_count integer NOT NULL DEFAULT 0,
     next_sync_at timestamptz,
     last_synced_at timestamptz,
+    claimed_until timestamptz,
+    status_changed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     version bigint NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()

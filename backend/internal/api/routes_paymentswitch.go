@@ -471,6 +471,10 @@ func classifySwitchError(err error) (int, string, string) {
 		return http.StatusConflict, "concurrent_update", "another request changed this payment first; retry"
 	case errors.Is(err, paymentswitch.ErrAmountExceeds):
 		return http.StatusUnprocessableEntity, "amount_exceeds", err.Error()
+	case errors.Is(err, paymentswitch.ErrFeeRuleMissing):
+		return http.StatusUnprocessableEntity, "no_fee_rule", "no fee rule prices this payment; configure one before accepting it"
+	case errors.Is(err, paymentswitch.ErrPaymentRecord):
+		return http.StatusUnprocessableEntity, "payment_record", "this payment cannot be priced: " + err.Error()
 	case errors.Is(err, paymentswitch.ErrNoConnector):
 		return http.StatusUnprocessableEntity, "no_connector", "no connector is enabled for this payment method"
 	case errors.Is(err, paymentswitch.ErrInvalid), errors.Is(err, connectors.ErrInvalidRequest):

@@ -62,6 +62,7 @@ type IntentRow struct {
 	LastErrorCode     string                   `gorm:"type:varchar(64);not null;default:''"`
 	LastErrorMessage  string                   `gorm:"type:text;not null;default:''"`
 	ConfirmRequested  bool                     `gorm:"not null;default:false"`
+	PaymentRecordID   uint                     `gorm:"not null;default:0"`
 	Version           int64                    `gorm:"not null;default:0"`
 	CreatedAt         time.Time                `gorm:"not null"`
 	UpdatedAt         time.Time                `gorm:"not null"`
@@ -90,9 +91,13 @@ type AttemptRow struct {
 	SyncCount              int                  `gorm:"not null;default:0"`
 	NextSyncAt             *time.Time           `gorm:"index"`
 	LastSyncedAt           *time.Time
-	Version                int64     `gorm:"not null;default:0"`
-	CreatedAt              time.Time `gorm:"not null"`
-	UpdatedAt              time.Time `gorm:"not null"`
+	// ClaimedUntil is the lease on an in-flight operation; no rollback edge is applied before it expires.
+	ClaimedUntil *time.Time
+	// StatusChangedAt is when the status last moved; stale age is measured from here, not from creation.
+	StatusChangedAt time.Time `gorm:"not null"`
+	Version         int64     `gorm:"not null;default:0"`
+	CreatedAt       time.Time `gorm:"not null"`
+	UpdatedAt       time.Time `gorm:"not null"`
 }
 
 func (AttemptRow) TableName() string { return "switch_payment_attempts" }
@@ -116,6 +121,8 @@ type RefundRow struct {
 	SyncCount         int                  `gorm:"not null;default:0"`
 	NextSyncAt        *time.Time           `gorm:"index"`
 	LastSyncedAt      *time.Time
+	ClaimedUntil      *time.Time
+	StatusChangedAt   time.Time `gorm:"not null"`
 	Version           int64     `gorm:"not null;default:0"`
 	CreatedAt         time.Time `gorm:"not null"`
 	UpdatedAt         time.Time `gorm:"not null"`
@@ -207,6 +214,8 @@ func (r AttemptRow) toAttempt() Attempt {
 		ErrorCode:       r.ErrorCode,
 		ErrorMessage:    r.ErrorMessage,
 		NextAction:      nextActionFrom(r.NextAction),
+		ClaimedUntil:    r.ClaimedUntil,
+		StatusChangedAt: r.StatusChangedAt,
 		CreatedAt:       r.CreatedAt,
 		UpdatedAt:       r.UpdatedAt,
 	}

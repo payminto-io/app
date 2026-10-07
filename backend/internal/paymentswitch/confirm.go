@@ -47,6 +47,8 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 		return Intent{}, fmt.Errorf("%w: connector %s cannot authorize without capturing", ErrInvalid, sel.Code)
 	}
 
+	now := s.now()
+	lease := now.Add(s.lease)
 	attempt := AttemptRow{
 		ID:              s.newID("pa"),
 		IntentID:        intent.ID,
@@ -56,8 +58,11 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 		Amount:          intent.Amount,
 		Asset:           intent.Asset,
 		SelectionReason: sel.Reason,
-		CreatedAt:       s.now(),
-		UpdatedAt:       s.now(),
+		ClaimedUntil:    &lease,
+		NextSyncAt:      &lease,
+		StatusChangedAt: now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	if intent.CaptureMethod == connectors.CaptureAutomatic {
 		attempt.AmountToCapture = intent.Amount
@@ -84,6 +89,9 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 		}
 		if err := tx.Create(&attempt).Error; err != nil {
 			return fmt.Errorf("paymentswitch: insert attempt: %w", err)
+		}
+		if err := s.snapshotFee(ctx, tx, intent, attempt, pm); err != nil {
+			return err
 		}
 		if err := s.recordTransition(tx, "attempt", attempt.ID, "", string(AttemptStarted), "confirm"); err != nil {
 			return err
@@ -113,6 +121,31 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 	}
 	out, _, err := s.applyToActiveAttempt(ctx, merchantID, intentID, attempt.ID, update)
 	return out, err
+}
+
+// snapshotFee pins the fee rule version to the attempt in its creating transaction (fees README "Payment path").
+func (s *Service) snapshotFee(ctx context.Context, tx *gorm.DB, intent IntentRow, attempt AttemptRow, pm connectors.PaymentMethod) error {
+	if s.fees == nil {
+		return nil
+	}
+	if intent.PaymentRecordID == 0 {
+		return fmt.Errorf("%w: intent %s has no payment record", ErrPaymentRecord, intent.ID)
+	}
+	q := FeeQuery{Method: feeMethod(pm.Type), Connector: string(attempt.ConnectorCode), Currency: intent.Asset}
+	if pm.Type == connectors.MethodChain {
+		q.Chain, q.Currency = pm.Details["chain"], pm.Details["asset"]
+	}
+	return s.fees.Snapshot(ctx, tx, FeeRef{PaymentRecordID: intent.PaymentRecordID, AttemptID: attempt.ID}, q)
+}
+
+// feeMethod maps the connector method family onto the fees vocabulary.
+func feeMethod(m connectors.Method) string {
+	switch m {
+	case connectors.MethodChain:
+		return "crypto"
+	default:
+		return string(m)
+	}
 }
 
 // confirmable lists where a confirm may start; processing is excluded even though processing -> processing is a no-op.

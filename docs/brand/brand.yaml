@@ -1,0 +1,126 @@
+# Machine-readable prompt kit and asset list. Human copy: BRAND.md section 11.
+# Read by scripts/brand/generate.mjs, which parses only the YAML subset used here:
+# nested maps by indentation, "key: value", "key: |" block text, "- " lists of
+# scalars or maps, "[a, b]" flow lists of scalars, double-quoted strings, "#" comments.
+
+version: 1
+name: Payminto
+
+model:
+  prefer: [gpt-image-2, gpt-image-1.5, gpt-image-1]
+  endpoint: https://api.openai.com/v1/images/generations
+
+limits:
+  candidates_per_asset: 3
+  images_per_budget: 30
+
+style_preamble: |
+  Product render for a payments infrastructure brand. One small physical object, machined from matte anodised graphite aluminium in near-black (#15181D), lightly bead-blasted, with exactly one element in matte teal (#3FB8CC). Studio lighting: one large softbox upper-left, weak fill from the right, a soft contact shadow directly beneath, nothing else. Camera: three-quarter view from about 30 degrees above, long lens, verticals nearly parallel, object centred with generous empty margin. Surfaces plain and precise, edges with a small even radius like a machined part. Quiet, premium, restrained.
+
+negative_block: |
+  No text, no letters, no numbers, no logos, no currency symbols, no people, no faces, no hands, no phones, no coins with symbols, no cubes, no chains of cubes, no globes, no rockets, no padlocks, no shields, no glow, no neon, no gradients, no glass, no transparency effects, no particles, no bokeh, no lens flare, no environment, no second colour.
+
+templates:
+  empty_state:
+    size: 1536x1024
+    quality: medium
+    background: transparent
+    deliver: 720x480
+    body: |
+      The object: {subject}. It is small in a wide frame, filling about 40 percent of the width, resting on nothing. The scene says "{meaning}" without words.
+  rail_icon:
+    size: 1024x1024
+    quality: medium
+    background: transparent
+    deliver: 256x256
+    body: |
+      The object: {subject}. It fills about 55 percent of the square frame, seen from the front three-quarter. It is a single assembly.
+  og_background:
+    size: 1536x1024
+    quality: high
+    background: opaque
+    deliver: 1200x630
+    body: |
+      The object: {subject}. It sits in the right third of a wide frame on a plain light grey (#F4F5F7) bench that fades to nothing; the left two thirds are empty light grey for text placed later.
+
+# output is a path without extension; the script writes .png and .webp beside it.
+# copies lists other apps that need the same file.
+assets:
+  - id: empty-payments
+    type: empty_state
+    template: empty_state
+    subject: a flat rounded rectangular tile lying on a short straight track made of three rounded segments, the first segment teal
+    meaning: nothing has arrived yet
+    output: frontend/public/brand/generated/empty-payments
+  - id: empty-payouts
+    type: empty_state
+    template: empty_state
+    subject: a shallow rounded slot in a flat plate with a thin rounded bar emerging halfway out of it, the tip of the bar teal
+    meaning: nothing has gone out yet
+    output: frontend/public/brand/generated/empty-payouts
+  - id: empty-wallets
+    type: empty_state
+    template: empty_state
+    subject: an open shallow rounded tray seen from above at an angle, empty, with a small teal tab on its front edge
+    meaning: nothing is held yet
+    output: frontend/public/brand/generated/empty-wallets
+  - id: empty-webhooks
+    type: empty_state
+    template: empty_state
+    subject: a thin rounded rod bent into a smooth hook, its end finished with a small teal disc
+    meaning: nothing has been sent yet
+    output: frontend/public/brand/generated/empty-webhooks
+  - id: empty-api-keys
+    type: empty_state
+    template: empty_state
+    subject: a flat key, a rounded bar with two square notches on one edge and a small ring at the other end, one notch teal
+    meaning: no key exists yet
+    output: frontend/public/brand/generated/empty-api-keys
+  - id: empty-customers
+    type: empty_state
+    template: empty_state
+    subject: three short rounded pegs standing in a row on a flat base, the middle peg teal
+    meaning: no one has paid yet
+    output: frontend/public/brand/generated/empty-customers
+  - id: icon-card
+    type: rail_icon
+    template: rail_icon
+    subject: a flat rounded rectangular slab slightly thicker than a card, with one short raised teal bar near its lower edge
+    output: frontend/public/brand/generated/icon-card
+    copies: [landing/public/brand/generated/icon-card]
+  - id: icon-bank
+    type: rail_icon
+    template: rail_icon
+    subject: a flat rectangular base carrying three short upright rounded pillars and a flat lid, the middle pillar teal
+    output: frontend/public/brand/generated/icon-bank
+    copies: [landing/public/brand/generated/icon-bank]
+  - id: icon-stablecoin
+    type: rail_icon
+    template: rail_icon
+    subject: a thick flat disc with a completely plain face and a thin teal inset ring near its edge
+    output: frontend/public/brand/generated/icon-stablecoin
+    copies: [landing/public/brand/generated/icon-stablecoin]
+  - id: icon-chain-finality
+    type: rail_icon
+    template: rail_icon
+    subject: three rounded bars in a row, joined end to end on a flat base, the last bar teal
+    output: frontend/public/brand/generated/icon-chain-finality
+    copies: [landing/public/brand/generated/icon-chain-finality]
+  - id: icon-settlement
+    type: rail_icon
+    template: rail_icon
+    subject: a flat rounded bar sliding into a matching slot in a flat base plate, the rim of the slot teal
+    output: frontend/public/brand/generated/icon-settlement
+    copies: [landing/public/brand/generated/icon-settlement]
+  - id: icon-custody
+    type: rail_icon
+    template: rail_icon
+    subject: a rounded square housing with a smaller rounded square tile recessed inside it, the tile teal
+    output: frontend/public/brand/generated/icon-custody
+    copies: [landing/public/brand/generated/icon-custody]
+  - id: og-background
+    type: og_background
+    template: og_background
+    subject: a straight track of three rounded segments on a thin base, the first two segments teal and the third graphite
+    output: frontend/public/brand/generated/og-background
+    copies: [landing/public/brand/generated/og-background]

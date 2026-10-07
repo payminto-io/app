@@ -2,11 +2,8 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * DataTable — backward-compatible version.
- *
- * Keeps the existing `Column` type and `keyOf` prop that all current
- * pages use. The worktree `DataTableColumn` + `getRowId` variant lives
- * at @/components/data-table for new pages.
+ * DataTable with the `Column` + `keyOf` API that existing pages use.
+ * The `DataTableColumn` + `getRowId` variant lives at @/components/data-table.
  */
 export interface Column<T> {
   key: string;
@@ -32,43 +29,47 @@ export function DataTable<T>({
     return empty ?? null;
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      <table className="w-full text-sm">
-        <thead className="border-b border-border bg-muted/30 text-left">
-          <tr>
-            {columns.map((c) => (
-              <th
-                key={c.key}
-                className={cn(
-                  "px-4 py-3 pm-label text-muted-foreground",
-                  c.className
-                )}
-              >
-                {c.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={keyOf(row)}
-              className={cn(
-                "border-b border-border last:border-0",
-                onRowClick &&
-                  "cursor-pointer transition-colors hover:bg-muted/30"
-              )}
-              onClick={onRowClick ? () => onRowClick(row) : undefined}
-            >
+    <div className="overflow-hidden rounded-md border border-line bg-surface">
+      <div data-slot="table-container" className="w-full overflow-x-auto">
+        <table className="w-full text-body-sm">
+          <thead className="border-b border-line bg-surface-sunken/70 text-left">
+            <tr>
               {columns.map((c) => (
-                <td key={c.key} className={cn("px-4 py-3", c.className)}>
-                  {c.cell(row)}
-                </td>
+                <th
+                  key={c.key}
+                  className={cn(
+                    "h-9 px-3 text-label font-medium whitespace-nowrap text-ink-soft",
+                    c.className
+                  )}
+                >
+                  {c.header}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={keyOf(row)}
+                className={cn(
+                  "border-b border-line last:border-0 transition-colors duration-120",
+                  onRowClick && "cursor-pointer hover:bg-surface-sunken/60"
+                )}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+              >
+                {columns.map((c) => (
+                  <td key={c.key} className={cn("h-9 px-3 py-2 align-middle text-ink", c.className)}>
+                    {c.cell(row)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="border-t border-line px-3 py-2 text-caption text-ink-soft num">
+        {rows.length} {rows.length === 1 ? "result" : "results"}
+      </div>
     </div>
   );
 }

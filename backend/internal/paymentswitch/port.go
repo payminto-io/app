@@ -76,6 +76,8 @@ var (
 	ErrConcurrentUpdate    = errors.New("paymentswitch: another request changed this payment first")
 	ErrOutcomeUnknown      = errors.New("paymentswitch: connector outcome unknown; the operation is in flight and will be synced")
 	ErrAmountUnknown       = errors.New("paymentswitch: connector reported money in without an amount and none was claimed")
+	ErrFeeRuleMissing      = errors.New("paymentswitch: no fee rule prices this payment")
+	ErrPaymentRecord       = errors.New("paymentswitch: could not open the payment record this intent is priced against")
 )
 
 // Error codes exposed to merchants; raw connector and backend errors go to the audit trail and logs (M7).
@@ -93,7 +95,16 @@ const (
 	AnomalyStaleInFlight         = "stale_in_flight"
 	AnomalyAmountUnknown         = "amount_unknown"
 	AnomalyUnmappedStatus        = "unmapped_status"
+	// AnomalyLateReceipt: funds arrived on a chain address after the attempt closed; booked to unallocated receipts.
+	AnomalyLateReceipt = "late_receipt"
+	// AnomalyReceivedDecreased: a connector reported a cumulative below the watermark; nothing was changed.
+	AnomalyReceivedDecreased = "received_decreased"
+	// AnomalyFeeAlreadyPosted: fees refused a second successful attempt on one payment; the money was still booked.
+	AnomalyFeeAlreadyPosted = "fee_already_posted"
 )
+
+// UnallocatedReceiptsOwner is the platform liability that holds late money until an operator refunds or applies it.
+const UnallocatedReceiptsOwner = "unallocated_receipts"
 
 // Domain events, named and versioned (MODULES.md rule 9).
 const (
@@ -166,6 +177,8 @@ type Attempt struct {
 	ErrorCode              string
 	ErrorMessage           string
 	NextAction             *connectors.NextAction
+	ClaimedUntil           *time.Time
+	StatusChangedAt        time.Time
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 }
@@ -233,4 +246,42 @@ type MerchantConnectors interface {
 // Ledger is the only money-recording port the switch uses; satisfied by *ledger.Service.
 type Ledger interface {
 	PostIn(ctx context.Context, tx *gorm.DB, j ledger.Journal) (ledger.Receipt, error)
+}
+
+// FeeRef names the attempt and the Payminto payment record the fees module prices it against.
+type FeeRef struct {
+	PaymentRecordID uint
+	AttemptID       string
+}
+
+// FeeQuery is what fees needs to resolve a rule; Method is the fees vocabulary (card, bank, upi, crypto).
+type FeeQuery struct {
+	Method    string
+	Connector string
+	Currency  string
+	Chain     string
+}
+
+// Fees is the fee-rules port (internal/fees, ticket 02): Snapshot in the attempt's creating transaction, PostFee in
+// the transaction that books the money. ErrFeeRuleMissing when no rule matches; ErrFeeAlreadyPosted when the
+// payment already carries a fee from another attempt (a duplicate success to reconcile, not a retry).
+type Fees interface {
+	Snapshot(ctx context.Context, tx *gorm.DB, ref FeeRef, q FeeQuery) error
+	PostFee(ctx context.Context, tx *gorm.DB, ref FeeRef, captured decimal.Decimal) error
+}
+
+var ErrFeeAlreadyPosted = errors.New("paymentswitch: a fee is already posted for this payment by another attempt")
+
+// PaymentRecord is the Payminto payment_requests row an intent is priced against (fees reads the merchant there).
+type PaymentRecord struct {
+	IntentID    string
+	MerchantID  string
+	PlatformID  string
+	Money       Money
+	Description string
+}
+
+// PaymentRecords opens that row in the intent's creating transaction and returns its id.
+type PaymentRecords interface {
+	Open(ctx context.Context, tx *gorm.DB, rec PaymentRecord) (uint, error)
 }

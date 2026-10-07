@@ -77,14 +77,27 @@ func RunBackendSuite(t *testing.T, h BackendHarness) {
 		if st.State != "FILLED" || !st.Received.Equal(decimal.NewFromInt(100)) {
 			t.Fatalf("after 100 = %+v", st)
 		}
-		if err := b.CancelPayment(ctx, res.Reference); err == nil {
-			t.Fatal("a filled request cannot be cancelled")
+		if err := b.CancelPayment(ctx, res.Reference); !errors.Is(err, ErrNotCancellable) {
+			t.Fatalf("a filled request cannot be cancelled, err = %v", err)
 		}
 		over := open(t, b, "pa_suite_3")
 		h.Confirm(t, b, over.Reference, decimal.NewFromInt(150))
 		st, _ = b.PaymentStatus(ctx, over.Reference)
 		if st.State != "OVER_FILLED" || !st.Received.Equal(decimal.NewFromInt(150)) {
 			t.Fatalf("after 150 = %+v", st)
+		}
+	})
+
+	t.Run("money after cancel is still reported", func(t *testing.T) {
+		b := h.New(t)
+		res := open(t, b, "pa_suite_6")
+		if err := b.CancelPayment(ctx, res.Reference); err != nil {
+			t.Fatal(err)
+		}
+		h.Confirm(t, b, res.Reference, decimal.NewFromInt(100))
+		st, err := b.PaymentStatus(ctx, res.Reference)
+		if err != nil || st.State != "CANCELLED" || !st.Received.Equal(decimal.NewFromInt(100)) {
+			t.Fatalf("late deposit on a cancelled request must stay visible: %+v, %v", st, err)
 		}
 	})
 
@@ -97,8 +110,8 @@ func RunBackendSuite(t *testing.T, h BackendHarness) {
 		if st, _ := b.PaymentStatus(ctx, res.Reference); st.State != "CANCELLED" {
 			t.Fatalf("state = %s", st.State)
 		}
-		if err := b.CancelPayment(ctx, res.Reference); err == nil {
-			t.Fatal("cancelling twice must fail")
+		if err := b.CancelPayment(ctx, res.Reference); !errors.Is(err, ErrNotCancellable) {
+			t.Fatalf("cancelling twice err = %v, want ErrNotCancellable", err)
 		}
 		partial := open(t, b, "pa_suite_5")
 		h.Confirm(t, b, partial.Reference, decimal.NewFromInt(10))

@@ -81,7 +81,7 @@ func TestChainDeposit_UnderAndOverPaymentAreExplicitStatuses(t *testing.T) {
 		t.Fatalf("under-payment sync = %+v, %v", sync, err)
 	}
 	v, err := c.Void(ctx, connectors.VoidRequest{ConnectorTransactionID: resp.ConnectorTransactionID})
-	if err != nil || v.RawStatus != chaindeposit.StatusCancelledUnderpaid {
+	if err != nil || v.RawStatus != chaindeposit.StatusCancelledUnderpaid || v.AmountReceived == nil || !v.AmountReceived.Equal(decimal.NewFromInt(40)) || v.ReceivedAsset != "USDC.ETH" {
 		t.Fatalf("void of a partially filled request = %+v, %v", v, err)
 	}
 	sync, err = c.Sync(ctx, connectors.SyncRequest{ConnectorTransactionID: resp.ConnectorTransactionID})
@@ -99,6 +99,26 @@ func TestChainDeposit_UnderAndOverPaymentAreExplicitStatuses(t *testing.T) {
 	}
 	if _, err := c.Void(ctx, connectors.VoidRequest{ConnectorTransactionID: over.ConnectorTransactionID}); !errors.Is(err, connectors.ErrInvalidRequest) {
 		t.Fatalf("void after fill err = %v", err)
+	}
+}
+
+// A fill that wins the race against a cancel is reported as filled; a cancelled request that later receives its
+// full amount is cancelled (with the money reported), never underpaid.
+func TestChainDeposit_VoidReReadsAndPaidAfterCancelIsNotUnderpaid(t *testing.T) {
+	backend := chaindeposit.NewMemoryBackend()
+	c := chaindeposit.New(backend)
+	ctx := context.Background()
+	resp, _ := c.Authorize(ctx, connectors.AuthorizeRequest{AttemptID: "pa_1", MerchantID: "7", PlatformID: "3", Money: connectors.Money{Amount: decimal.NewFromInt(100), Asset: "USD"}, CaptureMethod: connectors.CaptureAutomatic, PaymentMethod: usdc()})
+	v, err := c.Void(ctx, connectors.VoidRequest{ConnectorTransactionID: resp.ConnectorTransactionID})
+	if err != nil || v.RawStatus != chaindeposit.StatusCancelled || v.AmountReceived != nil {
+		t.Fatalf("void = %+v, %v", v, err)
+	}
+	if err := backend.Deposit(resp.ConnectorTransactionID, decimal.NewFromInt(100)); err != nil {
+		t.Fatal(err)
+	}
+	sync, err := c.Sync(ctx, connectors.SyncRequest{ConnectorTransactionID: resp.ConnectorTransactionID})
+	if err != nil || sync.RawStatus != chaindeposit.StatusCancelled || sync.AmountReceived == nil || !sync.AmountReceived.Equal(decimal.NewFromInt(100)) {
+		t.Fatalf("paid after cancel = %+v, %v; must be cancelled with the money, not underpaid", sync, err)
 	}
 }
 

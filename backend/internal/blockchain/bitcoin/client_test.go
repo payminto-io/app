@@ -17,9 +17,9 @@ import (
 func newFakeBTCRPC(t *testing.T, handler func(method string) any) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			ID     int         `json:"id"`
-			Method string      `json:"method"`
-			Params any `json:"params"`
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+			Params any    `json:"params"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 

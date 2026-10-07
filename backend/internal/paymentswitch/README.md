@@ -38,7 +38,8 @@ An unmapped raw status is `ErrUnmappedStatus`, never a guess, and `CheckStatusMa
 
 ## Flows
 
-Every command is claim, call, apply: an exclusive compare-and-set moves the row into an in-flight status (`processing` with a new attempt, `capture_initiated`, `void_initiated`, refund `initiated`; a same-status transition is a conflict), the connector is called outside any transaction, then a second transaction applies the mapped result.
+Every command is claim, call, apply: an exclusive compare-and-set moves the row into an in-flight status (`started` with a new attempt, `capture_initiated`, `void_initiated`, refund `initiated`; a same-status transition is a conflict), the connector is called outside any transaction, then a second transaction applies the mapped result.
+Every claim takes a lease (`claimed_until = now + SWITCH_CLAIM_LEASE`, default two minutes). A rollback edge (`capture_initiated`/`void_initiated -> authorized`, "the operation never landed") is applied only by the reconciler, only after the lease expired, and only with the connector's word; a merchant's `GET ?sync=true` and webhooks never roll back. A second Capture or Cancel while one is in flight is a conflict; the reconciler resolves the first.
 Two confirms, two captures or two cancels on one intent cannot both win; the loser sees `ErrInvalidTransition`.
 
 Only a typed `connectors.ErrDeclined` is terminal. Any other error is "outcome unknown": the attempt stays in flight with a typed error code and a redacted message (the raw error goes to the transition reason and the log), no new attempt opens, a retry of the same operation re-sends with the same connector idempotency key and amount, and the reconciler resolves it with `Sync`/`SyncRefund`.
@@ -52,12 +53,17 @@ Lock order everywhere: intent, then attempt, then refund; webhooks read the atte
 - `Refund` - keyed like `Create`; the refundable balance counts pending refunds.
 - `Sync` - resolves unknown outcomes for the active attempt and every open refund; connectors answer by our attempt or refund id when no connector id was stored. Sync and webhooks keep `next_action` unless the connector supplies a replacement or the status leaves the customer nothing to do.
 - `HandleWebhook` - connector verifies authenticity (signature and timestamp window), the switch records the event id and applies it; a replay or an out-of-order event is answered 200 with an `ignored` marker, money-in evidence after a terminal state becomes an anomaly.
-- `Reconciler` (`reconciler.go`) - a worker registered with the manager; syncs attempts in `pending`/`capture_initiated`/`void_initiated` and refunds in `initiated`/`pending` with per-row backoff, and past `MaxAge` records a `stale_in_flight` anomaly and logs at error level rather than inventing a status.
+- `Reconciler` (`reconciler.go`) - a worker registered with the manager; syncs attempts in `started`/`pending`/`capture_initiated`/`void_initiated` and refunds in `initiated`/`pending` once their lease or backoff is due, skips connectors that cannot `Sync`, and past `MaxAge` since the last status change records a `stale_in_flight` anomaly and logs at error level rather than inventing a status. A `started` attempt the connector has no record of after its lease is failed by the reconciler (the connector proved no authorization), which is what lets `Cancel` close it. A slow lane re-reads terminal attempts of connectors that keep watching their address (chain deposits) for `SWITCH_LATE_RECEIPT_RETENTION` (default 30 days).
 
 ## Ledger
 
 The first time a card attempt has money in (`charged`, `partial_charged`) the switch posts one `payment` journal in the same transaction: debit `connector/<code>` asset, credit `member/<merchant>` liability, key `switch.payment.<attempt_id>`.
 A chain deposit posts in the asset actually received, using the ledger's chain-qualified code (`USDC.ETH`), into `platform/crypto_assets` against the merchant's liability in that asset, by delta as confirmations arrive (`partially_paid`, `charged`, `overpaid`), keyed by the cumulative received amount; the USD price is journal metadata only. Conversion is ticket 10.
+The received amount is a monotonic watermark: a connector reporting less than what is booked changes nothing and raises a `received_decreased` anomaly.
+Money that arrives after the attempt closed (a deposit confirmed after a cancel, or more on an underpaid request) is booked into `platform/crypto_assets` against the platform liability `unallocated_receipts` in that asset, with a `late_receipt` anomaly; refunding or applying it is ticket 11.
+Switch journals never set `PostedAt`, so a replayed key is a replay for the ledger, not a conflict.
+
+Fees (ticket 02): every intent opens a Payminto payment record in its creating transaction (`PaymentRecords`, USD only, the asset Payminto prices in), `Fees.Snapshot` pins the rule version in the attempt's creating transaction (no matching rule refuses the confirm with `no_fee_rule`), and `Fees.PostFee` books the fee in the same transaction as the payment journal when an attempt is charged, partially charged or overpaid. A refusal because another attempt of the payment already carries the fee is a `fee_already_posted` anomaly, not a failed payment.
 A successful refund posts the reverse as a `refund` journal keyed `switch.refund.<refund_id>`.
 Exactly once is guaranteed by the shared transaction and the ledger's own idempotency key.
 
@@ -65,7 +71,7 @@ Domain events `switch.payment.succeeded.v1`, `switch.payment.failed.v1` and `swi
 
 ## Config
 
-`SWITCH_CONNECTORS` (default `mock,chaindeposit`) and `SWITCH_MOCK_WEBHOOK_SECRET`; see `internal/modules/paymentswitch.go`.
+`SWITCH_CONNECTORS` (default `mock,chaindeposit`), `SWITCH_MOCK_WEBHOOK_SECRET`, `SWITCH_CLAIM_LEASE` (default `2m`), `SWITCH_LATE_RECEIPT_RETENTION` (default `720h`); see `internal/modules/paymentswitch.go`.
 The mock refuses to wire in staging and production.
 
 ## Routes

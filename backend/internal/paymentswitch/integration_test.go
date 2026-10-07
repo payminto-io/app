@@ -5,13 +5,17 @@ package paymentswitch_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/payminto/payminto/backend/internal/connectors/mock"
 	"github.com/payminto/payminto/backend/internal/database"
+	"github.com/payminto/payminto/backend/internal/fees"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/models"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/paymentswitch"
 	"github.com/shopspring/decimal"
 )
@@ -287,5 +291,86 @@ func TestIntegration_ConcurrentRefundsCannotOverRefund(t *testing.T) {
 	f.wantRefundJournals(1)
 	if v := f.get(in.ID); !v.Intent.AmountRefunded.Equal(sixty) {
 		t.Fatalf("amount refunded = %s", v.Intent.AmountRefunded)
+	}
+}
+
+// Fees on Postgres through the real fees module: the fee journal is posted exactly once, in the same transaction as
+// the payment journal, keyed fee:attempt:<attempt id>, and a later Sync adds nothing.
+func TestIntegration_FeeJournalPostsOnceWithThePaymentJournal(t *testing.T) {
+	f := newPostgresFixture(t)
+	ctx := context.Background()
+	platform := models.ExternalPlatform{Name: "switch-fees"}
+	if err := f.db.Create(&platform).Error; err != nil {
+		t.Fatal(err)
+	}
+	member := models.Member{Name: "fee merchant", MemberType: "merchant", State: "active"}
+	if err := f.db.Create(&member).Error; err != nil {
+		t.Fatal(err)
+	}
+	feeSvc := fees.NewService(f.db, f.ledger.inner, fees.DefaultPolicy(), fees.WithEnvironment("test"))
+	rule, err := feeSvc.CreateRule(ctx, fees.RuleInput{
+		Scope:   fees.Scope{Method: fees.MethodCard, Currency: "USD"},
+		Pricing: fees.Pricing{Percent: decimal.RequireFromString("2.5"), Flat: decimal.RequireFromString("0.30"), FeeBearer: fees.BearerMerchant},
+	}, "member:1")
+	if err != nil {
+		t.Fatalf("create fee rule: %v", err)
+	}
+	reg := connectors.NewRegistry()
+	m := mock.New()
+	if err := reg.Register(m); err != nil {
+		t.Fatal(err)
+	}
+	selector := paymentswitch.FirstEnabledSelector{Merchants: paymentswitch.StaticMerchantConnectors{mock.Code}, Connectors: reg}
+	svc := paymentswitch.New(f.db, reg, selector, f.ledger, paymentswitch.WithFees(modules.FeesAdapter{Port: feeSvc}, modules.PaymintoPaymentRecords{DB: f.db}))
+	merchantID := strconv.FormatUint(uint64(member.ID), 10)
+	platformID := strconv.FormatUint(uint64(platform.ID), 10)
+
+	in, err := svc.Create(ctx, paymentswitch.CreateCommand{MerchantID: merchantID, PlatformID: platformID, Money: usd(100), PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	if err != nil {
+		t.Fatalf("create+confirm: %v", err)
+	}
+	if in.Status != paymentswitch.IntentSucceeded {
+		t.Fatalf("status = %s", in.Status)
+	}
+	view, err := svc.Get(ctx, merchantID, in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID := view.Attempts[0].ID
+	countFee := func() int64 {
+		var n int64
+		f.db.Model(&ledger.JournalRow{}).Where("kind = ? AND idempotency_key = ?", ledger.KindFee, "fee:attempt:"+attemptID).Count(&n)
+		return n
+	}
+	if countFee() != 1 {
+		t.Fatalf("fee journals = %d, want 1", countFee())
+	}
+	var txids []int64
+	if err := f.db.Raw(`SELECT posting_txid FROM ledger_journals WHERE idempotency_key IN (?, ?)`, "switch.payment."+attemptID, "fee:attempt:"+attemptID).Scan(&txids).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(txids) != 2 || txids[0] != txids[1] {
+		t.Fatalf("payment and fee journals must share one transaction, posting_txid = %v", txids)
+	}
+	var snapshots, postings int64
+	f.db.Table("fee_snapshots").Where("attempt_id = ?", attemptID).Count(&snapshots)
+	f.db.Table("fee_postings").Where("attempt_id = ?", attemptID).Count(&postings)
+	if snapshots != 1 || postings != 1 {
+		t.Fatalf("snapshots = %d postings = %d, want 1 and 1 (rule %d)", snapshots, postings, rule.ID)
+	}
+	if _, err := svc.Sync(ctx, merchantID, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	if countFee() != 1 {
+		t.Fatalf("fee journals after sync = %d, want 1", countFee())
+	}
+	bal, err := f.ledger.inner.Balances(ctx, ledger.OwnerMember, merchantID)
+	if err != nil || !bal["USD"].Equal(decimal.RequireFromString("97.2")) {
+		t.Fatalf("merchant USD balance = %v, %v; want 100 less 2.5%% + 0.30", bal, err)
+	}
+
+	noRule, err := svc.Create(ctx, paymentswitch.CreateCommand{MerchantID: merchantID, PlatformID: platformID, Money: paymentswitch.Money{Amount: decimal.NewFromInt(10), Asset: "EUR"}, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	if !errors.Is(err, paymentswitch.ErrPaymentRecord) || noRule.ID != "" {
+		t.Fatalf("a non-USD intent cannot be priced in Payminto's record: %+v, %v", noRule, err)
 	}
 }

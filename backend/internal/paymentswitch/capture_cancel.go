@@ -28,7 +28,12 @@ func (s *Service) claimAttempt(ctx context.Context, intent IntentRow, attempt At
 		if current.Version != intent.Version {
 			return fmt.Errorf("%w: intent %s", ErrConcurrentUpdate, intent.ID)
 		}
-		updates := map[string]any{"status": to, "error_code": "", "error_message": "", "version": attempt.Version + 1, "updated_at": s.now()}
+		now := s.now()
+		lease := now.Add(s.lease)
+		updates := map[string]any{
+			"status": to, "error_code": "", "error_message": "", "claimed_until": lease, "next_sync_at": lease,
+			"status_changed_at": now, "version": attempt.Version + 1, "updated_at": now,
+		}
 		if amountToCapture != nil {
 			updates["amount_to_capture"] = *amountToCapture
 		}
@@ -88,11 +93,8 @@ func (s *Service) Capture(ctx context.Context, merchantID, intentID string, cmd 
 	}
 	switch attempt.Status {
 	case AttemptCaptureInitiated:
-		// Retry of an unknown outcome: same key, same amount, no new claim (I2).
-		if cmd.Amount != nil && !amount.Equal(attempt.AmountToCapture) {
-			return Intent{}, fmt.Errorf("%w: a capture of %s is in flight; retry with the same amount", ErrInvalidTransition, attempt.AmountToCapture)
-		}
-		amount = attempt.AmountToCapture
+		// A second capture while one is in flight is a conflict (R1); the reconciler resolves the first with Sync.
+		return Intent{}, fmt.Errorf("%w: a capture of %s is in flight on attempt %s", ErrInvalidTransition, attempt.AmountToCapture, attempt.ID)
 	case AttemptAuthorized, AttemptCaptureFailed:
 		if amount.GreaterThan(attempt.Amount) {
 			return Intent{}, fmt.Errorf("%w: capture %s of %s %s", ErrAmountExceeds, amount, attempt.Amount, attempt.Asset)
@@ -139,7 +141,6 @@ func (s *Service) Capture(ctx context.Context, merchantID, intentID string, cmd 
 func (s *Service) markUnknown(ctx context.Context, merchantID, intentID, attemptID, op string, callErr error) (Intent, error) {
 	ec, em := redact(callErr)
 	s.logf("[paymentswitch] %s outcome unknown for attempt %s: %v", op, attemptID, callErr)
-	next := s.now().Add(backoff(0, s.syncBase()))
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		intent, err := loadIntent(lockIfPostgres(tx), merchantID, intentID)
 		if err != nil {
@@ -150,9 +151,6 @@ func (s *Service) markUnknown(ctx context.Context, merchantID, intentID, attempt
 			return err
 		}
 		attempt.ErrorCode, attempt.ErrorMessage = ec, em
-		if attempt.NextSyncAt == nil {
-			attempt.NextSyncAt = &next
-		}
 		intent.LastErrorCode, intent.LastErrorMessage = ec, em
 		if err := s.saveAttempt(tx, &attempt); err != nil {
 			return err
@@ -200,7 +198,7 @@ func (s *Service) Cancel(ctx context.Context, merchantID, intentID string, cmd C
 	case AttemptAuthorizationFailed, AttemptFailure:
 		return s.cancelLocally(ctx, merchantID, intentID, reason)
 	case AttemptVoidInitiated:
-		// Retry of an unknown outcome: same key, no new claim.
+		return Intent{}, fmt.Errorf("%w: a void is in flight on attempt %s; the reconciler resolves it", ErrInvalidTransition, attempt.ID)
 	default:
 		if attempt.Status.IsTerminal() {
 			return Intent{}, fmt.Errorf("%w: attempt %s is %s", ErrInvalidTransition, attempt.ID, attempt.Status)
@@ -219,13 +217,11 @@ func (s *Service) Cancel(ctx context.Context, merchantID, intentID string, cmd C
 	if attempt.ConnectorTransactionID == nil {
 		return Intent{}, fmt.Errorf("%w: attempt %s has no connector transaction yet; sync first", ErrInvalid, attempt.ID)
 	}
-	if attempt.Status != AttemptVoidInitiated {
-		if attempt.Status == AttemptPartiallyPaid {
-			reason += " (received funds await refund)"
-		}
-		if err := s.claimAttempt(ctx, intent, attempt, AttemptVoidInitiated, nil, reason); err != nil {
-			return Intent{}, err
-		}
+	if attempt.Status == AttemptPartiallyPaid {
+		reason += " (received funds await refund)"
+	}
+	if err := s.claimAttempt(ctx, intent, attempt, AttemptVoidInitiated, nil, reason); err != nil {
+		return Intent{}, err
 	}
 	resp, callErr := conn.Void(ctx, connectors.VoidRequest{
 		AttemptID:              attempt.ID,
@@ -240,7 +236,7 @@ func (s *Service) Cancel(ctx context.Context, merchantID, intentID string, cmd C
 		if err != nil {
 			return Intent{}, err
 		}
-		update = attemptUpdate{status: status, raw: resp.RawStatus, errorCode: resp.ErrorCode, errorMessage: resp.ErrorMessage, reason: reason}
+		update = attemptUpdate{status: status, raw: resp.RawStatus, amountReceived: resp.AmountReceived, receivedAsset: resp.ReceivedAsset, errorCode: resp.ErrorCode, errorMessage: resp.ErrorMessage, reason: reason}
 	case connectors.Definitive(callErr):
 		ec, em := redact(callErr)
 		update = attemptUpdate{status: AttemptVoidFailed, errorCode: ec, errorMessage: em, reason: "void declined: " + callErr.Error()}

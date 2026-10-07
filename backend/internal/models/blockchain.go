@@ -5,13 +5,13 @@ package models
 // PayRam columns: id, family, path, gas_path, supports_hd_wallet, supports_sc_wallet
 type BlockchainFamily struct {
 	PaymintoModel
-	Name              string `gorm:"type:varchar(50);not null;uniqueIndex" json:"name"`
-	Code              string `gorm:"type:varchar(20);not null;uniqueIndex" json:"code"`
-	Family            string `gorm:"type:varchar(50)" json:"family"`                  // PayRam: ETH_Family, BTC_Family, TRX_Family
-	Path              string `gorm:"type:varchar(100)" json:"path"`                   // HD derivation path template e.g. m/44'/60'/0'/0/%d
-	GasPath           string `gorm:"type:varchar(100)" json:"gasPath"`                // Gas derivation path (if different)
-	SupportsHDWallet  bool   `gorm:"default:false" json:"supportsHDWallet"`           // BTC uses HD, EVM uses SCW
-	SupportsSCWallet  bool   `gorm:"default:false" json:"supportsSCWallet"`           // EVM uses smart contract wallets
+	Name             string `gorm:"type:varchar(50);not null;uniqueIndex" json:"name"`
+	Code             string `gorm:"type:varchar(20);not null;uniqueIndex" json:"code"`
+	Family           string `gorm:"type:varchar(50)" json:"family"`        // PayRam: ETH_Family, BTC_Family, TRX_Family
+	Path             string `gorm:"type:varchar(100)" json:"path"`         // HD derivation path template e.g. m/44'/60'/0'/0/%d
+	GasPath          string `gorm:"type:varchar(100)" json:"gasPath"`      // Gas derivation path (if different)
+	SupportsHDWallet bool   `gorm:"default:false" json:"supportsHDWallet"` // BTC uses HD, EVM uses SCW
+	SupportsSCWallet bool   `gorm:"default:false" json:"supportsSCWallet"` // EVM uses smart contract wallets
 
 	Blockchains []Blockchain `gorm:"foreignKey:BlockchainFamilyID" json:"blockchains,omitempty"`
 }
@@ -25,20 +25,20 @@ func (BlockchainFamily) TableName() string { return "blockchain_families" }
 // is_scw, blockchain_family_id, is_create2_supported
 type Blockchain struct {
 	PaymintoModel
-	Code                string  `gorm:"type:varchar(20);not null;uniqueIndex" json:"code"`
-	Name                string  `gorm:"type:varchar(100);not null" json:"name"`
-	Family              string  `gorm:"type:varchar(50)" json:"family"`                    // PayRam: ETH_Family, BTC_Family, TRX_Family
-	Client              string  `gorm:"type:varchar(50)" json:"client"`                    // PayRam: geth, bitcoin_core, trongrid
-	BlockchainFamilyID  uint    `gorm:"not null" json:"blockchainFamilyID"`
-	Height              int64   `gorm:"default:0" json:"height"`
-	HeightTimestamp     *string `gorm:"type:timestamptz" json:"heightTimestamp,omitempty"`  // Last block timestamp
-	Status              string  `gorm:"type:varchar(20);default:'active'" json:"status"`
-	MinConfirmations    int     `gorm:"default:12" json:"minConfirmations"`
-	ChainID             *int64  `gorm:"type:bigint" json:"chainID,omitempty"`              // EVM chain ID (11155111 for Sepolia, etc.)
-	IsSCW               bool    `gorm:"default:false" json:"isSCW"`                        // Supports smart contract wallets
-	IsCreate2Supported  bool    `gorm:"default:false" json:"isCreate2Supported"`           // Supports CREATE2 deterministic deployment
-	ExplorerTx          string  `gorm:"type:text" json:"explorerTx"`
-	ExplorerAddress     string  `gorm:"type:text" json:"explorerAddress"`
+	Code               string  `gorm:"type:varchar(20);not null;uniqueIndex" json:"code"`
+	Name               string  `gorm:"type:varchar(100);not null" json:"name"`
+	Family             string  `gorm:"type:varchar(50)" json:"family"` // PayRam: ETH_Family, BTC_Family, TRX_Family
+	Client             string  `gorm:"type:varchar(50)" json:"client"` // PayRam: geth, bitcoin_core, trongrid
+	BlockchainFamilyID uint    `gorm:"not null" json:"blockchainFamilyID"`
+	Height             int64   `gorm:"default:0" json:"height"`
+	HeightTimestamp    *string `gorm:"type:timestamptz" json:"heightTimestamp,omitempty"` // Last block timestamp
+	Status             string  `gorm:"type:varchar(20);default:'active'" json:"status"`
+	MinConfirmations   int     `gorm:"default:12" json:"minConfirmations"`
+	ChainID            *int64  `gorm:"type:bigint" json:"chainID,omitempty"`    // EVM chain ID (11155111 for Sepolia, etc.)
+	IsSCW              bool    `gorm:"default:false" json:"isSCW"`              // Supports smart contract wallets
+	IsCreate2Supported bool    `gorm:"default:false" json:"isCreate2Supported"` // Supports CREATE2 deterministic deployment
+	ExplorerTx         string  `gorm:"type:text" json:"explorerTx"`
+	ExplorerAddress    string  `gorm:"type:text" json:"explorerAddress"`
 
 	BlockchainFamily *BlockchainFamily `gorm:"foreignKey:BlockchainFamilyID" json:"blockchainFamily,omitempty"`
 }

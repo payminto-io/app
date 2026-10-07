@@ -64,6 +64,11 @@ Every number is a ledger line or a receipt. No card data on our servers. Live an
 | UI/UX | form design, checkout states, dashboard reviews | Opus |
 | DevOps | compose, CI, mocks, release pipeline, secrets | Opus |
 | QA | money-path tests, conformance suite, security review | Fable for security review, Opus otherwise |
+| Senior designer | Mobbin reference board, design system, auth, shell, checkout | Fable |
+| Junior designer | restyles remaining pages from `docs/design/JUNIOR_BRIEF.md` | Opus |
+| Chainlink engineer | CRE attestation module, workflows, consumer contract, verifier | Fable |
+
+Design bar: Stripe-level craft with our own identity, never a copy. Every UI ticket reads `docs/design/DESIGN.md` and `docs/design/references.md` (Mobbin references by surface) before starting, and is verified by screenshot at 390px and 1440px in light and dark.
 
 Security review of the money path (tickets 01, 02, 08, 09, 11) is a gate before any live merchant.
 
@@ -80,7 +85,7 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 06 | Routing engine | Principal | 05 |
 | 07 | Card connector through hosted fields | Backend | 05 |
 | 08 | Custody provider interface, mock and direct-to-wallet | Blockchain | 01 |
-| 09 | Solana adapter and USDC deposits | Solana | 08 |
+| 09 | Solana adapter, USDC and USDT side by side | Solana | 08 |
 | 10 | Conversion at receipt | Blockchain | 01, 09 |
 | 11 | Settlement policy, destinations, approvals, runs | Blockchain | 08, 10 |
 | 12 | BitGo custody adapter and conformance suite | Blockchain | 08, 11 |
@@ -88,6 +93,18 @@ Pick the lowest-numbered unblocked ticket with `Status: ready-for-agent`. Set `S
 | 14 | Hosted checkout rendering every link option | Frontend | 04, 07, 09 |
 | 15 | Compose with mocks, CI, release pipeline | DevOps | 05, 08 |
 | 16 | QA: money-path tests, security review, demo script | QA | 11, 14, 15 |
+| 17 | Public checkout projection fields | Backend | 03, 05, 09 |
+| 18 | Dashboard per-asset totals and mobile tables | Frontend | 01 |
+| 19 | Chainlink CRE research, market fit and module spec | Chainlink | - |
+| 20 | CRE install-time option, configuration and dashboard settings | DevOps + Frontend | 15, 19 |
+| 21 | CRE module: port, service, none and mock providers, verifier, storage, routes | Chainlink | 01, 11, 20 |
+| 22 | GatewayAttestations consumer contract | Chainlink | 19 |
+| 23 | CRE workflow: solvency attestation | Chainlink | 21, 22 |
+| 24 | CRE workflow: deposit finality attestation | Chainlink + Solana | 09, 21, 22 |
+| 25 | CRE workflow: conversion reference rate stamp | Chainlink | 10, 21, 22 |
+| 26 | CRE frontend: badges, runs and records, public verification page | Frontend + UI/UX | 20, 21 |
+| 27 | CRE end-to-end demo with cre workflow simulate | QA + Chainlink | 23, 24, 25, 26 |
+| 28 | CRE Solana receiver program for mirrored attestations | Solana + Chainlink | 09, 23 |
 
 ## Distribution: open core, self-hosted by default, white-label in the paid tier
 

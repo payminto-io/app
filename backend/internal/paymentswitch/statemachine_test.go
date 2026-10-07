@@ -37,6 +37,7 @@ var expectedIntentEdges = map[intentEdge]bool{
 	{IntentRequiresCapture, IntentCancelled}:                  true,
 	{IntentFailed, IntentRequiresPaymentMethod}:               true,
 	{IntentFailed, IntentProcessing}:                          true,
+	{IntentFailed, IntentCancelled}:                           true,
 }
 
 var expectedAttemptEdges = map[attemptEdge]bool{
@@ -243,13 +244,24 @@ func TestAttemptEdgesDeriveAllowedIntentEdges(t *testing.T) {
 
 func TestMoneyInAndInFlight(t *testing.T) {
 	moneyIn := map[AttemptStatus]bool{AttemptCharged: true, AttemptPartialCharged: true, AttemptOverpaid: true, AttemptPartiallyPaid: true, AttemptUnderpaid: true}
-	inFlight := map[AttemptStatus]bool{AttemptPending: true, AttemptCaptureInitiated: true, AttemptVoidInitiated: true}
+	inFlight := map[AttemptStatus]bool{AttemptStarted: true, AttemptPending: true, AttemptCaptureInitiated: true, AttemptVoidInitiated: true}
 	for _, s := range AllAttemptStatuses {
 		if s.MoneyIn() != moneyIn[s] {
 			t.Errorf("%s MoneyIn = %v", s, s.MoneyIn())
 		}
 		if s.InFlight() != inFlight[s] {
 			t.Errorf("%s InFlight = %v", s, s.InFlight())
+		}
+	}
+}
+
+func TestIsRollback(t *testing.T) {
+	for _, from := range AllAttemptStatuses {
+		for _, to := range AllAttemptStatuses {
+			want := (from == AttemptCaptureInitiated || from == AttemptVoidInitiated) && to == AttemptAuthorized
+			if IsRollback(from, to) != want {
+				t.Errorf("IsRollback(%s, %s) = %v", from, to, !want)
+			}
 		}
 	}
 }

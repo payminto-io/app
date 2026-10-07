@@ -1,184 +1,86 @@
 "use client";
 
-import { useState } from "react";
-import { use } from "react";
-import { KeyRound, RotateCcw } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
+import { useState, use } from "react";
+import { RotateCcw } from "lucide-react";
+import { useExternalPlatform, useRegenerateEPAPIKey } from "@/lib/query/hooks/use-admin";
+import { PageHeader } from "@/components/page-header";
+import { DateTime } from "@/components/date-time";
+import { DetailItem, DetailList } from "@/components/detail-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { StatusBadge } from "@/components/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/states";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  useExternalPlatform,
-  useRegenerateEPAPIKey,
-} from "@/lib/query/hooks/use-admin";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { ApiKeyRevealDialog } from "../api-key-reveal-dialog";
 import { CurrenciesTable } from "./currencies-table";
 
 export const dynamic = "force-dynamic";
 
-function DetailSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-10 rounded-lg" />
-        <div className="space-y-2">
-          <Skeleton className="h-6 w-48" />
-          <Skeleton className="h-4 w-32" />
-        </div>
-      </div>
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-4 gap-6">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="space-y-2">
-                <Skeleton className="h-3 w-16" />
-                <Skeleton className="h-5 w-24" />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-export default function ExternalPlatformDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function ExternalPlatformDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: rawId } = use(params);
   const id = Number(rawId);
-  const { data: platform, isLoading, error, refetch } = useExternalPlatform(id);
+  const { data: platform, error, refetch } = useExternalPlatform(id);
   const regenerate = useRegenerateEPAPIKey();
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
 
   async function handleRegenerate() {
-    if (!confirm("Regenerate API key? The old key will stop working immediately.")) {
-      return;
-    }
+    if (!confirm("Regenerate the API key? The current key stops working at once.")) return;
     const result = await regenerate.mutateAsync(id);
-    if (result.apiKey) {
-      setRevealedKey(result.apiKey);
-    }
+    if (result.apiKey) setRevealedKey(result.apiKey);
   }
 
-  if (isLoading) return <DetailSkeleton />;
   if (error) {
+    return <ErrorState message={error instanceof Error ? error.message : "Failed to load"} retry={() => refetch()} />;
+  }
+  if (!platform) {
     return (
-      <ErrorState
-        message={error instanceof Error ? error.message : "Failed to load"}
-        retry={() => refetch()}
-      />
+      <div className="space-y-6">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-24 w-full rounded-md" />
+      </div>
     );
   }
-  if (!platform) return null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
-        title={platform.name}
-        description={platform.websiteURL ?? undefined}
-        breadcrumbs={[
-          { label: "Projects", href: "/admin/external-platforms" },
-          { label: platform.name },
-        ]}
-        actions={
-          <Button
-            variant="outline"
-            onClick={handleRegenerate}
-            disabled={regenerate.isPending}
-          >
-            <RotateCcw className="size-4" />
-            {regenerate.isPending ? "Regenerating..." : "Regenerate API Key"}
-          </Button>
+        breadcrumbs={[{ label: "Projects", href: "/admin/external-platforms" }, { label: platform.name }]}
+        title={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {platform.name}
+            <StatusBadge status={platform.active ? "active" : "inactive"} />
+          </span>
         }
-      />
+      >
+        <Button variant="outline" onClick={handleRegenerate} disabled={regenerate.isPending}>
+          <RotateCcw />
+          {regenerate.isPending ? "Regenerating..." : "Regenerate API key"}
+        </Button>
+      </PageHeader>
 
-      <Tabs defaultValue="info">
-        <TabsList variant="line">
-          <TabsTrigger value="info">Info</TabsTrigger>
-          <TabsTrigger value="currencies">Currencies</TabsTrigger>
-          <TabsTrigger value="api-keys">
-            <KeyRound className="size-3.5" />
-            API Keys
-          </TabsTrigger>
-        </TabsList>
+      <Card>
+        <CardContent>
+          <DetailList className="grid-cols-1 sm:grid-cols-3">
+            <DetailItem label="Website">
+              {platform.websiteURL ? <span className="font-mono text-body-sm break-all">{platform.websiteURL}</span> : null}
+            </DetailItem>
+            <DetailItem label="Created">
+              <DateTime value={platform.createdAt} format="date" />
+            </DetailItem>
+            <DetailItem label="Updated">
+              <DateTime value={platform.updatedAt} format="date" />
+            </DetailItem>
+          </DetailList>
+        </CardContent>
+      </Card>
 
-        <TabsContent value="info">
-          <Card className="mt-4">
-            <CardContent className="pt-6">
-              <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm sm:grid-cols-4">
-                <div>
-                  <dt className="pm-label text-muted-foreground">Status</dt>
-                  <dd className="mt-1.5">
-                    <StatusBadge status={platform.active ? "active" : "inactive"} />
-                  </dd>
-                </div>
-                <div>
-                  <dt className="pm-label text-muted-foreground">Website</dt>
-                  <dd className="mt-1.5 text-[13px]">
-                    {platform.websiteURL ?? "--"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="pm-label text-muted-foreground">Created</dt>
-                  <dd className="mt-1.5 text-[13px] tabular-nums">
-                    {new Date(platform.createdAt).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="pm-label text-muted-foreground">Updated</dt>
-                  <dd className="mt-1.5 text-[13px] tabular-nums">
-                    {new Date(platform.updatedAt).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </dd>
-                </div>
-              </dl>
-            </CardContent>
-          </Card>
-        </TabsContent>
+      <section className="space-y-3">
+        <h2 className="text-h3 font-semibold text-ink">Currencies</h2>
+        <CurrenciesTable platformId={id} />
+      </section>
 
-        <TabsContent value="currencies">
-          <div className="mt-4">
-            <CurrenciesTable platformId={id} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="api-keys">
-          <Card className="mt-4">
-            <CardContent className="pt-6 space-y-4">
-              <p className="text-[13px] text-muted-foreground">
-                API keys are shown only once when created or regenerated. If you
-                lose your key, regenerate a new one.
-              </p>
-              <Button
-                variant="outline"
-                onClick={handleRegenerate}
-                disabled={regenerate.isPending}
-              >
-                <KeyRound className="size-4" />
-                {regenerate.isPending ? "Regenerating..." : "Regenerate API Key"}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      <ApiKeyRevealDialog
-        apiKey={revealedKey}
-        onClose={() => setRevealedKey(null)}
-      />
+      <ApiKeyRevealDialog apiKey={revealedKey} onClose={() => setRevealedKey(null)} />
     </div>
   );
 }

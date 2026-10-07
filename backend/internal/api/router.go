@@ -80,6 +80,8 @@ type RouterConfig struct {
 
 	// PaymentSwitch mounts /api/v2/payments and /api/v2/webhooks when wired.
 	PaymentSwitch *modules.PaymentSwitchModule
+	// Fees is the fee rules module (internal/fees); nil leaves its routes unmounted.
+	Fees *modules.FeesModule
 }
 
 // NewRouter constructs and returns a configured Gin engine.
@@ -316,7 +318,6 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 			analyticsGrp.GET("/volume", analyticsH.GetVolume)
 			analyticsGrp.GET("/customers/top", analyticsH.GetTopCustomers)
 			analyticsGrp.GET("/revenue", analyticsH.GetRevenueBreakdown)
-			analyticsGrp.GET("/sweeps", analyticsH.GetSweepStats)
 			analyticsGrp.GET("/withdrawals", analyticsH.GetWithdrawalStats)
 			analyticsGrp.GET("/summary", analyticsH.GetSummary)
 		}
@@ -421,6 +422,15 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 	// ---- v2: payment switch (intents, attempts, refunds, connector webhooks) ----
 	if cfg.PaymentSwitch != nil {
 		RegisterPaymentSwitchRoutes(r.Group("/api/v2"), cfg.PaymentSwitch, middleware.JWTOrAPIKey(cfg.AuthSvc))
+	}
+
+	// ---- Fee rules: preview for merchants; management needs a dashboard session and system.admin ----
+	if cfg.Fees != nil && cfg.AuthSvc != nil {
+		auth := FeesAuth{Merchant: middleware.JWTOrAPIKey(cfg.AuthSvc), Session: middleware.JWTAuth(cfg.AuthSvc)}
+		if cfg.MEPRoleSvc != nil {
+			auth.Admin = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
+		}
+		RegisterFeesRoutes(v1, cfg.Fees, auth)
 	}
 
 	return r

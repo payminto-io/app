@@ -20,6 +20,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/service"
 	"github.com/payminto/payminto/backend/internal/worker"
+	"github.com/shopspring/decimal"
 )
 
 // managerAdapter adapts worker.Manager to the service.WorkerManager interface,
@@ -179,9 +180,9 @@ func main() {
 		DB:           db,
 		Config:       cfg,
 		Ledger:       ledger.New(db),
-		Environment:  cfg.Server.Environment,
-		ChainDeposit: chaindeposit.NewPaymintoBackend(reg.PaymentService(), reg.PaymentRepo(), reg.DepositRepo(), db),
+		ChainDeposit: chaindeposit.NewPaymintoBackend(openPayminto(reg.PaymentService()), reg.PaymentRepo(), reg.DepositRepo(), db),
 		Events:       modules.EmitterEvents{Emitter: reg.EventEmitterService()},
+		Fees:         modules.FeesAdapter{Port: reg.FeesModule().Port},
 	})
 	if err != nil {
 		log.Fatalf("payment switch: %v", err)
@@ -232,6 +233,7 @@ func main() {
 		WalletSvc:            reg.WalletService(),
 		VaultSvc:             reg.SecretsVaultService(),
 		APIKeyRepo:           reg.APIKeyRepo(),
+		Fees:                 reg.FeesModule(),
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
@@ -275,4 +277,20 @@ func main() {
 		observability.Logger().Error("worker manager stop error", "err", err)
 	}
 	observability.Logger().Info("shutdown complete")
+}
+
+// openPayminto adapts PaymentService.CreatePayment for the chaindeposit connector (the connector package must not
+// import internal/service). The invoice id is written in the same insert as the request.
+func openPayminto(payments *service.PaymentService) chaindeposit.PaymentOpener {
+	return func(amount decimal.Decimal, invoiceID, chainCode, currencyCode string, memberID, platformID uint) (chaindeposit.Opened, error) {
+		result, err := payments.CreatePayment(service.CreatePaymentInput{AmountInUSD: amount, InvoiceID: &invoiceID, BlockchainCode: chainCode, CurrencyCode: currencyCode}, memberID, platformID)
+		if err != nil {
+			return chaindeposit.Opened{}, err
+		}
+		out := chaindeposit.Opened{Reference: result.Payment.ReferenceID, ExpiresAt: result.Payment.ExpiresAt}
+		if result.DepositAddress != nil {
+			out.Address = result.DepositAddress.Address
+		}
+		return out, nil
+	}
 }

@@ -63,12 +63,11 @@ export function RolePermissionsEditor({
 
   return (
     <Dialog open onOpenChange={() => onClose()}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Permissions for {role.name}</DialogTitle>
           <DialogDescription>
-            Toggle permissions for this role. Changes take effect immediately
-            on save.
+            <span className="num">{selected.size}</span> selected. Changes apply on save.
           </DialogDescription>
         </DialogHeader>
 
@@ -90,25 +89,21 @@ export function RolePermissionsEditor({
           <div className="space-y-5">
             {Object.entries(grouped).map(([category, perms]) => (
               <div key={category}>
-                <h4 className="pm-label mb-2.5 text-muted-foreground uppercase tracking-wider">
-                  {category}
-                </h4>
-                <div className="rounded-lg border border-border divide-y divide-border">
+                <h4 className="mb-2 text-label font-medium text-ink-soft">{category}</h4>
+                <div className="divide-y divide-line rounded-sm border border-line">
                   {perms.map((p) => (
                     <label
                       key={p.name}
-                      className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-muted/50 cursor-pointer transition-colors"
+                      className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors duration-120 hover:bg-surface-sunken/60"
                     >
                       <Checkbox
                         checked={selected.has(p.name)}
                         onCheckedChange={() => toggle(p.name)}
                       />
                       <div className="min-w-0">
-                        <span className="text-[13px] font-medium">{p.name}</span>
+                        <div className="font-mono text-label text-ink">{p.name}</div>
                         {p.description ? (
-                          <span className="ml-2 text-[11px] text-muted-foreground">
-                            {p.description}
-                          </span>
+                          <div className="mt-0.5 text-caption text-ink-soft">{p.description}</div>
                         ) : null}
                       </div>
                     </label>
@@ -124,7 +119,7 @@ export function RolePermissionsEditor({
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={setPerms.isPending}>
-            {setPerms.isPending ? "Saving..." : "Save Permissions"}
+            {setPerms.isPending ? "Saving..." : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>

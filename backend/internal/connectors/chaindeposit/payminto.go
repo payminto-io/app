@@ -4,51 +4,52 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
-	"github.com/payminto/payminto/backend/internal/service"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
-// PaymentOpener is the one PaymentService method the backend calls; *service.PaymentService satisfies it.
-type PaymentOpener interface {
-	CreatePayment(input service.CreatePaymentInput, memberID, platformID uint) (*service.CreatePaymentResult, error)
+// Opened is what Payminto's CreatePayment produced for the switch: its reference, the deposit address, expiry.
+type Opened struct {
+	Reference string
+	Address   string
+	ExpiresAt *time.Time
 }
 
+// PaymentOpener is PaymentService.CreatePayment behind a function, so this package never imports
+// internal/service (service/registry.go imports modules, which imports this package). main.go adapts it;
+// invoiceID must be persisted in the same insert as the request.
+type PaymentOpener func(amountInUSD decimal.Decimal, invoiceID, chainCode, currencyCode string, memberID, platformID uint) (Opened, error)
+
 // PaymintoBackend drives the inherited deposit flow through its existing services; nothing in Payminto changes.
-// The attempt id travels as CreatePaymentInput.InvoiceID, which CreatePayment persists in the same insert, so a
-// crash after the request committed still leaves it findable by attempt.
+// The attempt id travels as the request's invoice_id, written in the same insert, so a crash after the request
+// committed still leaves it findable by attempt.
 type PaymintoBackend struct {
-	payments PaymentOpener
+	open     PaymentOpener
 	repo     repository.PaymentRepository
 	deposits repository.DepositRepository
 	db       *gorm.DB
 }
 
-func NewPaymintoBackend(payments PaymentOpener, repo repository.PaymentRepository, deposits repository.DepositRepository, db *gorm.DB) *PaymintoBackend {
-	return &PaymintoBackend{payments: payments, repo: repo, deposits: deposits, db: db}
+func NewPaymintoBackend(open PaymentOpener, repo repository.PaymentRepository, deposits repository.DepositRepository, db *gorm.DB) *PaymintoBackend {
+	return &PaymintoBackend{open: open, repo: repo, deposits: deposits, db: db}
 }
 
 func (b *PaymintoBackend) OpenPayment(_ context.Context, req OpenRequest) (OpenResult, error) {
 	if req.AttemptID == "" {
 		return OpenResult{}, fmt.Errorf("attempt id required")
 	}
-	invoice := req.AttemptID
-	result, err := b.payments.CreatePayment(service.CreatePaymentInput{
-		AmountInUSD:    req.AmountInUSD,
-		InvoiceID:      &invoice,
-		BlockchainCode: req.ChainCode,
-		CurrencyCode:   req.CurrencyCode,
-	}, req.MerchantMemberID, req.PlatformID)
+	opened, err := b.open(req.AmountInUSD, req.AttemptID, req.ChainCode, req.CurrencyCode, req.MerchantMemberID, req.PlatformID)
 	if err != nil {
 		return OpenResult{}, err
 	}
-	if result.DepositAddress == nil {
-		return OpenResult{}, fmt.Errorf("payment %s opened without a deposit address", result.Payment.ReferenceID)
+	if opened.Address == "" || opened.Reference == "" {
+		return OpenResult{}, fmt.Errorf("payment %q opened without a deposit address", opened.Reference)
 	}
-	return OpenResult{Reference: result.Payment.ReferenceID, Address: result.DepositAddress.Address, ExpiresAt: result.Payment.ExpiresAt}, nil
+	return OpenResult{Reference: opened.Reference, Address: opened.Address, ExpiresAt: opened.ExpiresAt}, nil
 }
 
 // PaymentStatus reports the state Payminto's finalizer wrote and the sum of confirmed deposits.
@@ -101,7 +102,18 @@ func (b *PaymintoBackend) status(ctx context.Context, p *models.PaymentRequest) 
 	return st, nil
 }
 
-func (b *PaymintoBackend) CancelPayment(_ context.Context, reference string) error {
+// CancelPayment is one conditional UPDATE: the finalizer locks the row to fill it, and a fill that commits between
+// a read and an unconditional update must win, so the state is part of the WHERE clause.
+func (b *PaymintoBackend) CancelPayment(ctx context.Context, reference string) error {
+	res := b.db.WithContext(ctx).Model(&models.PaymentRequest{}).
+		Where("reference_id = ? AND deleted_at IS NULL AND state IN ?", reference, []string{models.PaymentStateOpen, models.PaymentStatePartiallyFilled}).
+		Update("state", models.PaymentStateCancelled)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 1 {
+		return nil
+	}
 	p, err := b.repo.GetByReferenceID(reference)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -109,8 +121,5 @@ func (b *PaymintoBackend) CancelPayment(_ context.Context, reference string) err
 		}
 		return err
 	}
-	if p.State != models.PaymentStateOpen && p.State != models.PaymentStatePartiallyFilled {
-		return fmt.Errorf("payment %s is %s", reference, p.State)
-	}
-	return b.repo.UpdateState(p.ID, models.PaymentStateCancelled)
+	return fmt.Errorf("%w: payment %s is %s", ErrNotCancellable, reference, p.State)
 }

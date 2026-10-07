@@ -112,8 +112,6 @@ type DashboardSummary struct {
 	FilledPayments int64
 	// TotalVolume is the sum of deposit amounts across all FILLED payments.
 	TotalVolume decimal.Decimal
-	// TotalSweeps is the lifetime count of sweeps.
-	TotalSweeps int64
 	// TotalWithdrawals is the lifetime count of withdrawals.
 	TotalWithdrawals int64
 	// ActiveWebhooks is the count of active webhook endpoints.
@@ -268,7 +266,7 @@ func (r *AnalyticsRepositoryImpl) GetRevenueBreakdown(platformID uint, start, en
 			COALESCE(SUM(d.amount), 0)   AS total_amount,
 			COUNT(DISTINCT p.id)          AS count
 		FROM payment_requests p
-		LEFT JOIN deposits d ON d.payment_request_id = p.id AND d.deleted_at IS NULL
+		LEFT JOIN deposits d ON d.payment_request_id = p.id AND d.deleted_at IS NULL AND d.status IN ('confirmed', 'swept')
 		LEFT JOIN deposit_addresses da ON da.id = p.deposit_address_id AND da.deleted_at IS NULL
 		LEFT JOIN blockchain_currencies bc ON bc.id = da.blockchain_currency_id AND bc.deleted_at IS NULL
 		LEFT JOIN blockchains b ON b.id = bc.blockchain_id AND b.deleted_at IS NULL
@@ -366,8 +364,7 @@ func (r *AnalyticsRepositoryImpl) GetWithdrawalStats(platformID uint, start, end
 // home tile. Each query checks its own error so a single failed scan no
 // longer silently zeros the response.
 //
-// Note: TotalSweeps is intentionally not platform-scoped — see GetSweepStats
-// for the rationale. Future Phase J work will reintroduce a scoped variant.
+// Sweeps batch addresses across platforms, so no sweep count is reported per platform.
 func (r *AnalyticsRepositoryImpl) GetDashboardSummary(platformID uint) (DashboardSummary, error) {
 	var summary DashboardSummary
 
@@ -400,11 +397,6 @@ func (r *AnalyticsRepositoryImpl) GetDashboardSummary(platformID uint) (Dashboar
 		return summary, fmt.Errorf("dashboard total volume: %w", err)
 	}
 	summary.TotalVolume = vr.Volume
-
-	// Sweep count (instance-wide — see method doc).
-	if err := r.db.Raw(`SELECT COUNT(*) FROM sweeps WHERE deleted_at IS NULL`).Scan(&summary.TotalSweeps).Error; err != nil {
-		return summary, fmt.Errorf("dashboard total sweeps: %w", err)
-	}
 
 	// Withdrawal count.
 	if err := r.db.Raw(

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the top-level configuration struct loaded from environment variables at startup.
@@ -19,6 +20,7 @@ type Config struct {
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
 	Switch     SwitchConfig
+	Fees       FeesConfig
 }
 
 // SwitchConfig configures the payment switch (internal/paymentswitch) and which connectors every merchant
@@ -26,6 +28,20 @@ type Config struct {
 type SwitchConfig struct {
 	Connectors        []string
 	MockWebhookSecret string
+	// ClaimLease is how long a claimed connector operation is trusted to be in flight before Sync may roll it back.
+	ClaimLease time.Duration
+	// LateReceiptRetention is how long terminal chain-deposit attempts keep being synced for late money.
+	LateReceiptRetention time.Duration
+}
+
+// FeesConfig holds FEES_* keys; internal/fees/README.md "Configuration" documents them.
+type FeesConfig struct {
+	// SurchargeForbiddenMethods is a comma list of payment methods, "none", or empty for the default (upi).
+	SurchargeForbiddenMethods string
+	// AssetPrecision adds on-chain assets as "CODE:decimals,...".
+	AssetPrecision string
+	// OperatorPlatformID is the only platform allowed to manage fee rules; 0 means unset.
+	OperatorPlatformID uint
 }
 
 // EmailConfig holds SMTP delivery settings. When Host/From are empty, email
@@ -120,6 +136,10 @@ func Load() (*Config, error) {
 	if isDeploymentEnvironment(environment) {
 		defaultSSLMode = "verify-full"
 	}
+	feesOperator, err := envUint("FEES_OPERATOR_PLATFORM_ID")
+	if err != nil {
+		return nil, err
+	}
 	custodyEnabled, err := envBoolStrict("CUSTODY_ENABLED", false)
 	if err != nil {
 		return nil, err
@@ -173,8 +193,15 @@ func Load() (*Config, error) {
 			SentryDSN:      envStr("SENTRY_DSN", ""),
 		},
 		Switch: SwitchConfig{
-			Connectors:        envCSVDefault("SWITCH_CONNECTORS", []string{"mock", "chaindeposit"}),
-			MockWebhookSecret: envStr("SWITCH_MOCK_WEBHOOK_SECRET", "mock-webhook-secret"),
+			Connectors:           envCSVDefault("SWITCH_CONNECTORS", []string{"mock", "chaindeposit"}),
+			MockWebhookSecret:    envStr("SWITCH_MOCK_WEBHOOK_SECRET", "mock-webhook-secret"),
+			ClaimLease:           envDuration("SWITCH_CLAIM_LEASE", 2*time.Minute),
+			LateReceiptRetention: envDuration("SWITCH_LATE_RECEIPT_RETENTION", 30*24*time.Hour),
+		},
+		Fees: FeesConfig{
+			SurchargeForbiddenMethods: envStr("FEES_SURCHARGE_FORBIDDEN_METHODS", ""),
+			AssetPrecision:            envStr("FEES_ASSET_PRECISION", ""),
+			OperatorPlatformID:        feesOperator,
 		},
 	}
 	if err := cfg.validate(); err != nil {
@@ -295,6 +322,19 @@ func envCSVDefault(key string, fallback []string) []string {
 	return envCSV(key)
 }
 
+// envDuration reads a Go duration ("2m", "720h"); an unparsable value keeps the fallback.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
 func envCSV(key string) []string {
 	v := os.Getenv(key)
 	if v == "" {
@@ -375,4 +415,17 @@ func EnforceModeMatch(envMode string, repo ConfigurationReader) error {
 		return fmt.Errorf("network mode mismatch: database is stamped as %q but BLOCKCHAIN_NETWORK_TYPE=%q — refusing to start. To switch modes, redeploy with a fresh database", c, envMode)
 	}
 	return nil
+}
+
+// envUint reads an optional positive integer; unset is 0, anything else unparsable is an error.
+func envUint(key string) (uint, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("%s must be a positive integer; got %q", key, raw)
+	}
+	return uint(n), nil
 }

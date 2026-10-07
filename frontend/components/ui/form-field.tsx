@@ -1,6 +1,10 @@
-import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+/** Label above the control, then a hint or an error. Rules: DESIGN.md section 12. */
 export function FormField({
   label,
   htmlFor,
@@ -18,15 +22,11 @@ export function FormField({
 }) {
   return (
     <div className={cn("space-y-1.5", className)}>
-      <label htmlFor={htmlFor} className="text-sm font-medium">
-        {label}
-      </label>
+      <Label htmlFor={htmlFor}>{label}</Label>
       {children}
-      {hint && !error ? (
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      ) : null}
+      {hint && !error ? <p className="text-caption text-ink-soft">{hint}</p> : null}
       {error ? (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-label text-bad">
           {error}
         </p>
       ) : null}
@@ -34,18 +34,10 @@ export function FormField({
   );
 }
 
-const inputClass =
-  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
-
-export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={cn(inputClass, props.className)} />;
+export function TextInput(props: ComponentProps<"input">) {
+  return <Input {...props} />;
 }
 
-export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      {...props}
-      className={cn(inputClass, "min-h-20 resize-y", props.className)}
-    />
-  );
+export function TextArea(props: ComponentProps<"textarea">) {
+  return <Textarea {...props} />;
 }

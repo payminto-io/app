@@ -34,11 +34,20 @@ type Service struct {
 	connectors connectors.Lookup
 	selector   ConnectorSelector
 	ledger     Ledger
+	fees       Fees
+	records    PaymentRecords
 	events     Events
+	lease      time.Duration
+	retention  time.Duration
 	now        func() time.Time
 	newID      func(prefix string) string
 	logf       func(format string, args ...any)
 }
+
+const (
+	defaultLease     = 2 * time.Minute
+	defaultRetention = 30 * 24 * time.Hour
+)
 
 type Option func(*Service)
 
@@ -47,6 +56,29 @@ func WithIDs(gen func(prefix string) string) Option {
 	return func(s *Service) { s.newID = gen }
 }
 func WithEvents(e Events) Option { return func(s *Service) { s.events = e } }
+
+// WithFees wires the fee-rules port and the payment records it prices against; both or neither.
+func WithFees(f Fees, r PaymentRecords) Option {
+	return func(s *Service) { s.fees, s.records = f, r }
+}
+
+// WithLease sets how long a claimed connector operation is trusted before Sync may roll it back.
+func WithLease(d time.Duration) Option {
+	return func(s *Service) {
+		if d > 0 {
+			s.lease = d
+		}
+	}
+}
+
+// WithLateReceiptRetention sets how long terminal attempts of watching connectors keep being synced.
+func WithLateReceiptRetention(d time.Duration) Option {
+	return func(s *Service) {
+		if d > 0 {
+			s.retention = d
+		}
+	}
+}
 func WithLogger(logf func(format string, args ...any)) Option {
 	return func(s *Service) { s.logf = logf }
 }
@@ -58,6 +90,8 @@ func New(db *gorm.DB, lookup connectors.Lookup, selector ConnectorSelector, ledg
 		selector:   selector,
 		ledger:     ledger,
 		events:     NoEvents{},
+		lease:      defaultLease,
+		retention:  defaultRetention,
 		now:        func() time.Time { return time.Now().UTC() },
 		newID:      func(prefix string) string { return prefix + "_" + strings.ReplaceAll(uuid.NewString(), "-", "") },
 		logf:       log.Printf,
@@ -256,6 +290,16 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error)
 			replayed = true
 			return nil
 		}
+		if s.records != nil {
+			id, err := s.records.Open(ctx, tx, PaymentRecord{IntentID: row.ID, MerchantID: row.MerchantID, PlatformID: row.PlatformID, Money: Money{Amount: row.Amount, Asset: row.Asset}, Description: row.Description})
+			if err != nil {
+				return fmt.Errorf("%w: %v", ErrPaymentRecord, err)
+			}
+			if err := tx.Model(&IntentRow{}).Where("id = ?", row.ID).Update("payment_record_id", id).Error; err != nil {
+				return fmt.Errorf("paymentswitch: store payment record id: %w", err)
+			}
+			row.PaymentRecordID = id
+		}
 		return s.recordTransition(tx, "intent", row.ID, "", string(row.Status), "create")
 	})
 	if err != nil {
@@ -366,6 +410,13 @@ func (s *Service) recordTransition(tx *gorm.DB, entity, id, from, to, reason str
 		return fmt.Errorf("paymentswitch: record transition: %w", err)
 	}
 	return nil
+}
+
+// touchStatus stamps when a status moved; stale age is measured from it.
+func (s *Service) touchStatus(a *AttemptRow, from AttemptStatus) {
+	if a.Status != from {
+		a.StatusChangedAt = s.now()
+	}
 }
 
 // recordNote writes an audit row for something that happened without a status change (an unknown outcome).

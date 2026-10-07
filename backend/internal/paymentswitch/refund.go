@@ -62,19 +62,24 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 		return Refund{}, fmt.Errorf("%w: attempt %s has no connector transaction", ErrInvalid, attempt.ID)
 	}
 
+	now := s.now()
+	lease := now.Add(s.lease)
 	row := RefundRow{
-		ID:             s.newID("re"),
-		IntentID:       intent.ID,
-		AttemptID:      attempt.ID,
-		MerchantID:     merchantID,
-		ConnectorCode:  attempt.ConnectorCode,
-		IdempotencyKey: cmd.IdempotencyKey,
-		RequestHash:    hash,
-		Status:         RefundInitiated,
-		Asset:          attempt.Asset,
-		Reason:         cmd.Reason,
-		CreatedAt:      s.now(),
-		UpdatedAt:      s.now(),
+		ClaimedUntil:    &lease,
+		NextSyncAt:      &lease,
+		StatusChangedAt: now,
+		ID:              s.newID("re"),
+		IntentID:        intent.ID,
+		AttemptID:       attempt.ID,
+		MerchantID:      merchantID,
+		ConnectorCode:   attempt.ConnectorCode,
+		IdempotencyKey:  cmd.IdempotencyKey,
+		RequestHash:     hash,
+		Status:          RefundInitiated,
+		Asset:           attempt.Asset,
+		Reason:          cmd.Reason,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	var replayed bool
 	err = db.Transaction(func(tx *gorm.DB) error {
@@ -123,7 +128,8 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 	if err != nil {
 		return Refund{}, err
 	}
-	if replayed && row.Status != RefundInitiated {
+	if replayed {
+		// An initiated refund is resolved by the reconciler with SyncRefund; a replay reports it as it is.
 		return row.toRefund(), nil
 	}
 	return s.sendRefund(ctx, conn, row, attempt)
@@ -161,7 +167,6 @@ func (s *Service) sendRefund(ctx context.Context, conn connectors.Connector, row
 func (s *Service) markRefundUnknown(ctx context.Context, merchantID, refundID string, callErr error) (Refund, error) {
 	ec, em := redact(callErr)
 	s.logf("[paymentswitch] refund outcome unknown for %s: %v", refundID, callErr)
-	next := s.now().Add(backoff(0, s.syncBase()))
 	var out RefundRow
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		refund, err := loadRefund(lockIfPostgres(tx), refundID)
@@ -169,9 +174,6 @@ func (s *Service) markRefundUnknown(ctx context.Context, merchantID, refundID st
 			return err
 		}
 		refund.ErrorCode, refund.ErrorMessage = ec, em
-		if refund.NextSyncAt == nil {
-			refund.NextSyncAt = &next
-		}
 		if err := s.saveRefund(tx, &refund); err != nil {
 			return err
 		}

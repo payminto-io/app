@@ -43,9 +43,8 @@ func newSwitchTestServer(t *testing.T) *switchTestServer {
 	}
 	m, err := modules.WirePaymentSwitch(modules.Deps{
 		DB:           db,
-		Config:       &config.Config{Switch: config.SwitchConfig{Connectors: []string{"mock", "chaindeposit"}, MockWebhookSecret: "s3cret"}},
+		Config:       &config.Config{Server: config.ServerConfig{Environment: config.EnvironmentTest}, Switch: config.SwitchConfig{Connectors: []string{"mock", "chaindeposit"}, MockWebhookSecret: "s3cret"}},
 		Ledger:       ledger.New(db),
-		Environment:  config.EnvironmentTest,
 		ChainDeposit: chaindeposit.NewMemoryBackend(),
 	})
 	if err != nil {

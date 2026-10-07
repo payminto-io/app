@@ -17,7 +17,7 @@ const defaultSyncBase = 30 * time.Second
 func (s *Service) syncBase() time.Duration { return defaultSyncBase }
 
 // Sync asks the connector for the active attempt's current state and for every refund still open on the intent.
-// It is how an unknown outcome resolves. Evidence that cannot be applied is recorded, never swallowed silently.
+// A merchant's sync applies forward evidence only; rollbacks wait for the reconciler after the lease (R1).
 func (s *Service) Sync(ctx context.Context, merchantID, intentID string) (Intent, error) {
 	db := s.db.WithContext(ctx)
 	intent, err := loadIntent(db, merchantID, intentID)
@@ -29,8 +29,8 @@ func (s *Service) Sync(ctx context.Context, merchantID, intentID string) (Intent
 		if err != nil {
 			return Intent{}, err
 		}
-		if !attempt.Status.IsTerminal() {
-			if _, err := s.syncAttempt(ctx, attempt); err != nil {
+		if !attempt.Status.IsTerminal() || s.watchesLate(attempt) {
+			if _, err := s.syncAttempt(ctx, attempt, sourceManualSync); err != nil {
 				return Intent{}, err
 			}
 		}
@@ -47,8 +47,19 @@ func (s *Service) Sync(ctx context.Context, merchantID, intentID string) (Intent
 	return s.current(ctx, merchantID, intentID)
 }
 
-// syncAttempt is one reconciliation step; it never invents a status: ErrNotFound only moves the sync schedule.
-func (s *Service) syncAttempt(ctx context.Context, attempt AttemptRow) (applyResult, error) {
+// watchesLate reports whether a terminal attempt is still inside the late-money retention window of a connector
+// that keeps watching its address (R3).
+func (s *Service) watchesLate(attempt AttemptRow) bool {
+	c, ok := s.connectors.Get(attempt.ConnectorCode)
+	if !ok || !c.Capabilities().WatchesAfterTerminal || !attempt.Status.IsTerminal() {
+		return false
+	}
+	return s.now().Sub(attempt.StatusChangedAt) <= s.retention
+}
+
+// syncAttempt is one reconciliation step; it never invents a status. ErrNotFound only moves the schedule, except
+// for a started attempt past its lease asked by the reconciler: the connector then proves no authorization (R2).
+func (s *Service) syncAttempt(ctx context.Context, attempt AttemptRow, source updateSource) (applyResult, error) {
 	conn, err := s.connector(attempt.ConnectorCode)
 	if err != nil {
 		return applyResult{}, err
@@ -66,6 +77,11 @@ func (s *Service) syncAttempt(ctx context.Context, attempt AttemptRow) (applyRes
 	resp, err := conn.Sync(ctx, req)
 	if err != nil {
 		if errors.Is(err, connectors.ErrNotFound) {
+			if attempt.Status == AttemptStarted && source == sourceReconciler && s.leaseExpired(attempt) {
+				update := attemptUpdate{status: AttemptFailure, errorCode: ErrorCodeNotFound, errorMessage: "the provider has no record of this authorization", reason: "reconciler: connector has no record after the claim lease expired", source: source}
+				_, result, err := s.applyToActiveAttempt(ctx, attempt.MerchantID, attempt.IntentID, attempt.ID, update)
+				return result, err
+			}
 			s.logf("[paymentswitch] sync: connector %s does not know attempt %s yet", attempt.ConnectorCode, attempt.ID)
 			return applyResult{}, nil
 		}
@@ -78,7 +94,7 @@ func (s *Service) syncAttempt(ctx context.Context, attempt AttemptRow) (applyRes
 	update := attemptUpdate{
 		status: status, raw: resp.RawStatus, connectorTransactionID: resp.ConnectorTransactionID,
 		amountCaptured: resp.AmountCaptured, amountReceived: resp.AmountReceived, receivedAsset: resp.ReceivedAsset, nextAction: resp.NextAction,
-		errorCode: resp.ErrorCode, errorMessage: resp.ErrorMessage, reason: "sync",
+		errorCode: resp.ErrorCode, errorMessage: resp.ErrorMessage, reason: string(source), source: source,
 	}
 	_, result, err := s.applyToActiveAttempt(ctx, attempt.MerchantID, attempt.IntentID, attempt.ID, update)
 	if err != nil {
@@ -91,6 +107,10 @@ func (s *Service) syncAttempt(ctx context.Context, attempt AttemptRow) (applyRes
 		s.logf("[paymentswitch] sync: attempt %s reported %q, not applied: %s", attempt.ID, resp.RawStatus, result.ignored)
 	}
 	return result, nil
+}
+
+func (s *Service) leaseExpired(attempt AttemptRow) bool {
+	return attempt.ClaimedUntil == nil || !s.now().Before(*attempt.ClaimedUntil)
 }
 
 func (s *Service) unmapped(ctx context.Context, attempt AttemptRow, raw connectors.RawStatus, err error) error {
@@ -268,7 +288,7 @@ func (s *Service) applyPaymentWebhook(tx *gorm.DB, code connectors.Code, ev conn
 		}
 		return applyResult{ignored: "attempt is no longer active"}, nil
 	}
-	update := attemptUpdate{status: status, raw: ev.RawStatus, amountCaptured: ev.AmountCaptured, amountReceived: ev.AmountReceived, receivedAsset: ev.ReceivedAsset, reason: "webhook " + ev.EventID}
+	update := attemptUpdate{status: status, raw: ev.RawStatus, amountCaptured: ev.AmountCaptured, amountReceived: ev.AmountReceived, receivedAsset: ev.ReceivedAsset, reason: "webhook " + ev.EventID, source: sourceWebhook}
 	applied, err := s.applyAttempt(tx, &intent, &attempt, update)
 	if errors.Is(err, ErrAmountUnknown) {
 		return applyResult{ignored: err.Error()}, nil

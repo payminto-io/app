@@ -44,6 +44,8 @@ Optional / feature flags:
 - `SENTRY_DSN` — enables error reporting; empty = structured logging only.
 - `POSTGRES_LEDGER_APP_ROLE` — role that `cmd/migrate` narrows to `SELECT, INSERT`
   on the ledger tables after applying migrations (also `--ledger-app-role`).
+- `FEES_SURCHARGE_FORBIDDEN_METHODS`, `FEES_ASSET_PRECISION`, `FEES_OPERATOR_PLATFORM_ID` - fee
+  rules (see Fee rules below and `backend/internal/fees/README.md`).
 - `SMTP_HOST/PORT/USERNAME/PASSWORD/FROM` — enables real email; otherwise emails
   are logged (no-op transport).
 
@@ -93,6 +95,36 @@ through `pg_upgrade` or a physical backup. Future migrations that alter a ledger
 function must `SET ROLE ledger_owner` first. Every environment also refuses to boot
 when the ledger tables, triggers or functions are missing, and validate mode additionally requires
 migration `2026100701` recorded as applied.
+
+### Fee rules
+
+Migration `2026100702` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`, which backs the
+constraint that no two fee rules for one scope are active at the same instant.
+`btree_gist` is a trusted extension (PostgreSQL 13 and later), so the migration role needs
+`CREATE` on the database rather than superuser.
+If the migration role lacks it, the migration fails and leaves nothing applied; run once as a
+role that has it, then rerun `cmd/migrate`:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+```
+
+Versions are closed only through `fee_rules_close_lineage`, a `SECURITY DEFINER` function the migration
+gives to `ledger_owner` (and grants `ledger_owner` `SELECT, UPDATE` on `fee_rules`) when the migrator can
+`SET ROLE ledger_owner`; the `fee_rules` trigger accepts an `effective_to` change only from that owner.
+If the migration logs `fees: fee_rules_close_lineage stays owned by ...`, hand it over by hand once the
+ledger roles exist:
+
+```sql
+GRANT SELECT, UPDATE ON fee_rules TO ledger_owner;
+ALTER FUNCTION fee_rules_close_lineage(uuid, timestamptz) OWNER TO ledger_owner;
+```
+
+The application role needs `SELECT, INSERT` on `fee_rules`, `fee_snapshots` and `fee_postings` (no
+`UPDATE` on `fee_rules`), `EXECUTE` on `fee_rules_close_lineage`, and `UPDATE` on `payment_requests` for the
+legacy `fee_rule_id`/`fee_rule_version` columns.
+Fee rule management is limited to the platform in `FEES_OPERATOR_PLATFORM_ID`; in staging and
+production the admin routes answer 403 until it is set.
 
 ## Observability
 

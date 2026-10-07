@@ -76,11 +76,14 @@ func (r *recordingEvents) ofType(t string) []paymentswitch.Event {
 	return out
 }
 
-// flaky wraps the mock so a test can script one raw, untyped error on Authorize (I2).
+// flaky wraps the mock so a test can script one raw, untyped error on Authorize (I2) and gate a Capture so it is
+// observably in flight (R1).
 type flaky struct {
 	connectors.Connector
 	mu           sync.Mutex
 	authorizeErr error
+	captureGate  chan struct{}
+	captureBegan chan struct{}
 }
 
 func (f *flaky) Authorize(ctx context.Context, req connectors.AuthorizeRequest) (connectors.AuthorizeResponse, error) {
@@ -95,6 +98,75 @@ func (f *flaky) Authorize(ctx context.Context, req connectors.AuthorizeRequest) 
 	return resp, callErr
 }
 
+func (f *flaky) Capture(ctx context.Context, req connectors.CaptureRequest) (connectors.CaptureResponse, error) {
+	f.mu.Lock()
+	gate, began := f.captureGate, f.captureBegan
+	f.captureGate, f.captureBegan = nil, nil
+	f.mu.Unlock()
+	if gate != nil {
+		close(began)
+		<-gate
+	}
+	return f.Connector.Capture(ctx, req)
+}
+
+// recordingFees is the fee port double: it records every call and the transaction it ran in, and can fail PostFee.
+type recordingFees struct {
+	mu         sync.Mutex
+	snapshots  []paymentswitch.FeeQuery
+	snapshotTx []*gorm.DB
+	posts      []decimal.Decimal
+	postTx     []*gorm.DB
+	postErr    error
+	noRule     bool
+}
+
+func (r *recordingFees) Snapshot(_ context.Context, tx *gorm.DB, ref paymentswitch.FeeRef, q paymentswitch.FeeQuery) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.noRule {
+		return fmt.Errorf("%w: %s %s", paymentswitch.ErrFeeRuleMissing, q.Method, q.Currency)
+	}
+	if ref.PaymentRecordID == 0 || ref.AttemptID == "" {
+		return fmt.Errorf("snapshot ref incomplete: %+v", ref)
+	}
+	r.snapshots = append(r.snapshots, q)
+	r.snapshotTx = append(r.snapshotTx, tx)
+	return nil
+}
+
+func (r *recordingFees) PostFee(_ context.Context, tx *gorm.DB, ref paymentswitch.FeeRef, captured decimal.Decimal) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.postErr != nil {
+		return r.postErr
+	}
+	if ref.PaymentRecordID == 0 || ref.AttemptID == "" {
+		return fmt.Errorf("post ref incomplete: %+v", ref)
+	}
+	r.posts = append(r.posts, captured)
+	r.postTx = append(r.postTx, tx)
+	return nil
+}
+
+// memoryRecords stands in for Payminto's payment_requests rows.
+type memoryRecords struct {
+	mu   sync.Mutex
+	seq  uint
+	rows map[string]uint
+}
+
+func (m *memoryRecords) Open(_ context.Context, _ *gorm.DB, rec paymentswitch.PaymentRecord) (uint, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.rows == nil {
+		m.rows = map[string]uint{}
+	}
+	m.seq++
+	m.rows[rec.IntentID] = m.seq
+	return m.seq, nil
+}
+
 type fixture struct {
 	t      *testing.T
 	db     *gorm.DB
@@ -104,8 +176,24 @@ type fixture struct {
 	chain  *chaindeposit.MemoryBackend
 	ledger *recordingLedger
 	events *recordingEvents
+	fees   *recordingFees
 	logs   []string
 	ctx    context.Context
+	mu     sync.Mutex
+	offset time.Duration
+}
+
+// advance moves the service clock forward (leases, retention, stale age).
+func (f *fixture) advance(d time.Duration) {
+	f.mu.Lock()
+	f.offset += d
+	f.mu.Unlock()
+}
+
+func (f *fixture) clock() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return time.Now().UTC().Add(f.offset)
 }
 
 // SQLite stores numeric as float, so unit tests use integer amounts; exactness is proven on Postgres.
@@ -137,14 +225,45 @@ func newFixture(t *testing.T) *fixture {
 	if err := reg.Register(chaindeposit.New(chain)); err != nil {
 		t.Fatalf("register chaindeposit: %v", err)
 	}
-	led := &recordingLedger{inner: ledger.New(db)}
+	led := &recordingLedger{inner: ledger.New(db, ledger.WithPostedAtWindow(365*24*time.Hour, 365*24*time.Hour))}
 	events := &recordingEvents{}
-	f := &fixture{t: t, db: db, mock: m, flaky: fl, chain: chain, ledger: led, events: events, ctx: context.Background()}
+	feesPort := &recordingFees{}
+	f := &fixture{t: t, db: db, mock: m, flaky: fl, chain: chain, ledger: led, events: events, fees: feesPort, ctx: context.Background()}
 	selector := paymentswitch.FirstEnabledSelector{Merchants: paymentswitch.StaticMerchantConnectors{mock.Code, chaindeposit.Code}, Connectors: reg}
-	f.svc = paymentswitch.New(db, reg, selector, led, paymentswitch.WithEvents(events), paymentswitch.WithLogger(func(format string, args ...any) {
-		f.logs = append(f.logs, fmt.Sprintf(format, args...))
-	}))
+	f.svc = paymentswitch.New(db, reg, selector, led,
+		paymentswitch.WithEvents(events),
+		paymentswitch.WithFees(feesPort, &memoryRecords{}),
+		paymentswitch.WithClock(f.clock),
+		paymentswitch.WithLogger(func(format string, args ...any) {
+			f.mu.Lock()
+			f.logs = append(f.logs, fmt.Sprintf(format, args...))
+			f.mu.Unlock()
+		}))
 	return f
+}
+
+func (f *fixture) logText() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return strings.Join(f.logs, "\n")
+}
+
+func (f *fixture) reconcile() *paymentswitch.Reconciler {
+	f.t.Helper()
+	rec := paymentswitch.NewReconciler(f.svc)
+	if _, err := rec.RunOnce(f.ctx); err != nil {
+		f.t.Fatalf("RunOnce: %v", err)
+	}
+	return rec
+}
+
+func (f *fixture) wantFeePosts(n int) {
+	f.t.Helper()
+	f.fees.mu.Lock()
+	defer f.fees.mu.Unlock()
+	if len(f.fees.posts) != n {
+		f.t.Fatalf("fee posts = %d (%v), want %d", len(f.fees.posts), f.fees.posts, n)
+	}
 }
 
 func usd(n int64) paymentswitch.Money {
@@ -435,7 +554,8 @@ func TestFlow_PartialCapture(t *testing.T) {
 	}
 }
 
-// C2: the capture claim is exclusive; a second capture while one is in flight is refused unless it is the same retry.
+// C2, R1: the capture claim is exclusive; any second capture while one is in flight is a conflict, and the
+// reconciler resolves the first with Sync after the lease.
 func TestCapture_ClaimIsExclusiveAndRetriesReuseTheKey(t *testing.T) {
 	f := newFixture(t)
 	in := f.create(paymentswitch.CreateCommand{CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioCaptureTimeoutLand), Confirm: true})
@@ -457,19 +577,84 @@ func TestCapture_ClaimIsExclusiveAndRetriesReuseTheKey(t *testing.T) {
 	if _, err := f.svc.Cancel(f.ctx, merchant, in.ID, paymentswitch.CancelCommand{}); !errors.Is(err, paymentswitch.ErrInvalidTransition) {
 		t.Fatalf("cancel while capture is in flight err = %v", err)
 	}
-	retried, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{Amount: &forty})
-	if err != nil {
-		t.Fatalf("retry: %v", err)
+	if _, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{Amount: &forty}); !errors.Is(err, paymentswitch.ErrInvalidTransition) {
+		t.Fatalf("same amount while in flight is a conflict too, err = %v", err)
 	}
-	f.wantStatus(retried, paymentswitch.IntentPartiallyCaptured)
-	if f.mock.Calls("capture") != 2 {
-		t.Fatalf("capture calls = %d, want 2 (one timed out, one retry under the same key)", f.mock.Calls("capture"))
+	f.reconcile()
+	f.wantAttempt(in.ID, paymentswitch.AttemptCaptureInitiated)
+	f.advance(3 * time.Minute)
+	f.reconcile()
+	f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentPartiallyCaptured)
+	if f.mock.Calls("capture") != 1 {
+		t.Fatalf("capture calls = %d, want 1 (the landed call, resolved by Sync)", f.mock.Calls("capture"))
 	}
 	a = f.wantAttempt(in.ID, paymentswitch.AttemptPartialCharged)
-	if !a.AmountCaptured.Equal(forty) {
-		t.Fatalf("captured = %s, want 40", a.AmountCaptured)
+	if !a.AmountCaptured.Equal(forty) || a.ClaimedUntil != nil {
+		t.Fatalf("captured = %s claimed_until = %v", a.AmountCaptured, a.ClaimedUntil)
 	}
 	f.wantPayments(1)
+	f.wantFeePosts(1)
+}
+
+// R1 probe: a reconciler tick while the capture call is blocked at the connector must not roll the attempt back,
+// a merchant capture meanwhile is refused, and the connector sees exactly one capture call.
+func TestCapture_ReconcilerDuringTheCallNeverRollsBack(t *testing.T) {
+	f := newFixture(t)
+	in := f.create(paymentswitch.CreateCommand{CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	gate, began := make(chan struct{}), make(chan struct{})
+	f.flaky.mu.Lock()
+	f.flaky.captureGate, f.flaky.captureBegan = gate, began
+	f.flaky.mu.Unlock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{})
+		done <- err
+	}()
+	<-began
+	a := f.wantAttempt(in.ID, paymentswitch.AttemptCaptureInitiated)
+	if a.ClaimedUntil == nil || !a.ClaimedUntil.After(f.clock()) {
+		t.Fatalf("a claim must carry a live lease, got %v", a.ClaimedUntil)
+	}
+	f.reconcile()
+	f.wantAttempt(in.ID, paymentswitch.AttemptCaptureInitiated)
+	f.sync(merchant, in.ID)
+	f.wantAttempt(in.ID, paymentswitch.AttemptCaptureInitiated)
+	forty := decimal.NewFromInt(40)
+	if _, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{Amount: &forty}); !errors.Is(err, paymentswitch.ErrInvalidTransition) {
+		t.Fatalf("second capture during the call err = %v", err)
+	}
+	close(gate)
+	if err := <-done; err != nil {
+		t.Fatalf("first capture: %v", err)
+	}
+	f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentSucceeded)
+	if f.mock.Calls("capture") != 1 {
+		t.Fatalf("connector capture calls = %d, want exactly 1", f.mock.Calls("capture"))
+	}
+	f.wantPayments(1)
+	if !f.get(in.ID).Attempts[0].AmountCaptured.Equal(decimal.NewFromInt(100)) {
+		t.Fatal("the first caller's 100 must not become the second caller's 40")
+	}
+}
+
+// R1: a manual sync never rolls a claim back; the reconciler does, after the lease, with connector evidence.
+func TestSync_RollbackOnlyByReconcilerAfterLease(t *testing.T) {
+	f := newFixture(t)
+	in := f.create(paymentswitch.CreateCommand{CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioCaptureTimeoutLost), Confirm: true})
+	if _, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{}); err != nil {
+		t.Fatal(err)
+	}
+	f.sync(merchant, in.ID)
+	f.wantAttempt(in.ID, paymentswitch.AttemptCaptureInitiated)
+	f.reconcile()
+	f.wantAttempt(in.ID, paymentswitch.AttemptCaptureInitiated)
+	f.advance(3 * time.Minute)
+	f.sync(merchant, in.ID)
+	f.wantAttempt(in.ID, paymentswitch.AttemptCaptureInitiated)
+	f.advance(10 * time.Minute)
+	f.reconcile()
+	f.wantAttempt(in.ID, paymentswitch.AttemptAuthorized)
+	f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentRequiresCapture)
 }
 
 // C1: a capture that landed at the connector but errored on the way back is recovered by Sync, with one journal.
@@ -524,8 +709,9 @@ func TestCapture_TimeoutLostThenSyncRestoresAuthorizationAndCaptureSucceeds(t *t
 		t.Fatalf("Capture: %v", err)
 	}
 	f.wantAttempt(in.ID, paymentswitch.AttemptCaptureInitiated)
-	synced := f.sync(merchant, in.ID)
-	f.wantStatus(synced, paymentswitch.IntentRequiresCapture)
+	f.advance(3 * time.Minute)
+	f.reconcile()
+	f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentRequiresCapture)
 	f.wantAttempt(in.ID, paymentswitch.AttemptAuthorized)
 	f.wantPayments(0)
 	again, err := f.svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{})
@@ -534,6 +720,7 @@ func TestCapture_TimeoutLostThenSyncRestoresAuthorizationAndCaptureSucceeds(t *t
 	}
 	f.wantStatus(again, paymentswitch.IntentSucceeded)
 	f.wantPayments(1)
+	f.wantFeePosts(1)
 }
 
 func TestCapture_TimeoutLandedThenSyncCharges(t *testing.T) {
@@ -556,8 +743,12 @@ func TestCancel_VoidTimeoutLostThenSyncThenCancelAgain(t *testing.T) {
 	}
 	f.wantStatus(got, paymentswitch.IntentProcessing)
 	f.wantAttempt(in.ID, paymentswitch.AttemptVoidInitiated)
-	synced := f.sync(merchant, in.ID)
-	f.wantStatus(synced, paymentswitch.IntentRequiresCapture)
+	if _, err := f.svc.Cancel(f.ctx, merchant, in.ID, paymentswitch.CancelCommand{}); !errors.Is(err, paymentswitch.ErrInvalidTransition) {
+		t.Fatalf("cancel while a void is in flight err = %v", err)
+	}
+	f.advance(3 * time.Minute)
+	f.reconcile()
+	f.wantStatus(f.get(in.ID).Intent, paymentswitch.IntentRequiresCapture)
 	f.wantAttempt(in.ID, paymentswitch.AttemptAuthorized)
 	again, err := f.svc.Cancel(f.ctx, merchant, in.ID, paymentswitch.CancelCommand{})
 	if err != nil {
@@ -567,20 +758,17 @@ func TestCancel_VoidTimeoutLostThenSyncThenCancelAgain(t *testing.T) {
 	f.wantAttempt(in.ID, paymentswitch.AttemptVoided)
 }
 
-func TestCancel_VoidTimeoutLandedThenRetryReusesKey(t *testing.T) {
+func TestCancel_VoidTimeoutLandedIsResolvedBySyncWithoutASecondCall(t *testing.T) {
 	f := newFixture(t)
 	in := f.create(paymentswitch.CreateCommand{CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioVoidTimeoutLand), Confirm: true})
 	if _, err := f.svc.Cancel(f.ctx, merchant, in.ID, paymentswitch.CancelCommand{}); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 	f.wantAttempt(in.ID, paymentswitch.AttemptVoidInitiated)
-	again, err := f.svc.Cancel(f.ctx, merchant, in.ID, paymentswitch.CancelCommand{})
-	if err != nil {
-		t.Fatalf("retry cancel: %v", err)
-	}
-	f.wantStatus(again, paymentswitch.IntentCancelled)
-	if f.mock.Calls("void") != 2 {
-		t.Fatalf("void calls = %d", f.mock.Calls("void"))
+	synced := f.sync(merchant, in.ID)
+	f.wantStatus(synced, paymentswitch.IntentCancelled)
+	if f.mock.Calls("void") != 1 {
+		t.Fatalf("void calls = %d, want 1", f.mock.Calls("void"))
 	}
 }
 
@@ -720,13 +908,17 @@ func TestFlow_RefundUnknownOutcomeHoldsBalanceAndResolves(t *testing.T) {
 		t.Fatalf("an initiated refund must hold the balance, err = %v", err)
 	}
 	again, err := f.svc.Refund(f.ctx, merchant, in.ID, paymentswitch.RefundCommand{IdempotencyKey: "r1", Amount: &sixty, Reason: mock.ScenarioRefundErrorLand})
-	if err != nil || again.ID != r.ID || again.Status != paymentswitch.RefundSucceeded {
-		t.Fatalf("retry under the same key = %+v, %v", again, err)
+	if err != nil || again.ID != r.ID || again.Status != paymentswitch.RefundInitiated {
+		t.Fatalf("replay reports the initiated refund as it is: %+v, %v", again, err)
 	}
-	if f.mock.Calls("refund") != 2 {
-		t.Fatalf("refund calls = %d", f.mock.Calls("refund"))
+	f.sync(merchant, in.ID)
+	if f.mock.Calls("refund") != 1 {
+		t.Fatalf("refund calls = %d, want 1 (resolved by SyncRefund)", f.mock.Calls("refund"))
 	}
 	f.wantRefundJournals(1)
+	if got := f.get(in.ID).Refunds[0]; got.Status != paymentswitch.RefundSucceeded {
+		t.Fatalf("refund after sync = %s", got.Status)
+	}
 
 	r2, err := f.svc.Refund(f.ctx, merchant, in.ID, paymentswitch.RefundCommand{IdempotencyKey: "r3", Reason: mock.ScenarioRefundTimeoutLand})
 	if err != nil || r2.Status != paymentswitch.RefundInitiated {
@@ -874,7 +1066,7 @@ func TestWebhook_CapturedAfterVoidIsAnAnomaly(t *testing.T) {
 	if len(an) != 1 || an[0].Kind != paymentswitch.AnomalyEvidenceAfterTerminal || !strings.Contains(an[0].Detail, "captured") {
 		t.Fatalf("anomalies = %+v", an)
 	}
-	if !strings.Contains(strings.Join(f.logs, "\n"), "ERROR anomaly") {
+	if !strings.Contains(f.logText(), "ERROR anomaly") {
 		t.Fatal("anomaly must be logged at error level")
 	}
 	got, err := f.svc.Anomalies(f.ctx, merchant, in.ID)
@@ -1201,8 +1393,12 @@ func TestReconciler_SyncsInFlightRowsAndFlagsStaleOnes(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := paymentswitch.NewReconciler(f.svc)
-	f.db.Model(&paymentswitch.AttemptRow{}).Where("intent_id = ?", in.ID).Update("next_sync_at", nil)
 	n, err := rec.RunOnce(f.ctx)
+	if err != nil || n != 0 {
+		t.Fatalf("nothing is due inside the lease: RunOnce = %d, %v", n, err)
+	}
+	f.advance(3 * time.Minute)
+	n, err = rec.RunOnce(f.ctx)
 	if err != nil || n != 2 {
 		t.Fatalf("RunOnce = %d, %v", n, err)
 	}
@@ -1218,7 +1414,7 @@ func TestReconciler_SyncsInFlightRowsAndFlagsStaleOnes(t *testing.T) {
 	if err := f.mock.SettleRefund(r.ConnectorRefundID, mock.RefundDone); err != nil {
 		t.Fatal(err)
 	}
-	f.db.Model(&paymentswitch.RefundRow{}).Where("id = ?", r.ID).Update("next_sync_at", nil)
+	f.advance(5 * time.Minute)
 	if _, err := rec.RunOnce(f.ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -1226,9 +1422,13 @@ func TestReconciler_SyncsInFlightRowsAndFlagsStaleOnes(t *testing.T) {
 		t.Fatalf("refund after reconcile = %s", got.Status)
 	}
 
+	// Stale age is measured from the last status change, not from creation: an old authorization captured today is fresh.
+	oldAuth := f.create(paymentswitch.CreateCommand{CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioCaptureTimeoutLand), Confirm: true})
 	stuck := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioAsync), Confirm: true})
-	old := time.Now().Add(-48 * time.Hour)
-	f.db.Model(&paymentswitch.AttemptRow{}).Where("intent_id = ?", stuck.ID).Updates(map[string]any{"created_at": old, "next_sync_at": nil})
+	f.advance(48 * time.Hour)
+	if _, err := f.svc.Capture(f.ctx, merchant, oldAuth.ID, paymentswitch.CaptureCommand{}); err != nil {
+		t.Fatal(err)
+	}
 	rec.MaxAge = 24 * time.Hour
 	if _, err := rec.RunOnce(f.ctx); err != nil {
 		t.Fatal(err)
@@ -1238,7 +1438,257 @@ func TestReconciler_SyncsInFlightRowsAndFlagsStaleOnes(t *testing.T) {
 	if len(an) != 1 || an[0].Kind != paymentswitch.AnomalyStaleInFlight {
 		t.Fatalf("stale anomaly = %+v", an)
 	}
-	if !strings.Contains(strings.Join(f.logs, "\n"), "stale_in_flight") {
+	for _, a := range f.anomalies(oldAuth.ID) {
+		if a.Kind == paymentswitch.AnomalyStaleInFlight {
+			t.Fatalf("a capture claimed 25h ago on a 73h-old authorization is stale, one claimed today is not: %+v", a)
+		}
+	}
+	if !strings.Contains(f.logText(), "stale_in_flight") {
 		t.Fatal("stale rows must be logged at error level")
+	}
+}
+
+// R2: a started attempt (crash between the confirm claim and the apply) is reconciled: resolved by Sync when the
+// connector knows it, failed when the connector has no record after the lease, stale past max age; Cancel waits.
+func TestReconciler_ResolvesStartedAttempts(t *testing.T) {
+	f := newFixture(t)
+	landed := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	f.db.Model(&paymentswitch.AttemptRow{}).Where("intent_id = ?", landed.ID).Updates(map[string]any{"status": "started", "connector_transaction_id": nil, "amount_captured": 0})
+	f.db.Model(&paymentswitch.IntentRow{}).Where("id = ?", landed.ID).Updates(map[string]any{"status": "processing", "amount_captured": 0})
+	f.db.Where("journal_id > 0").Delete(&ledger.LineRow{})
+	f.db.Where("id > 0").Delete(&ledger.JournalRow{})
+	f.ledger.posts = nil
+	if _, err := f.svc.Cancel(f.ctx, merchant, landed.ID, paymentswitch.CancelCommand{}); !errors.Is(err, paymentswitch.ErrInvalidTransition) {
+		t.Fatalf("cancel on a started attempt before sync err = %v", err)
+	}
+	f.advance(3 * time.Minute)
+	f.reconcile()
+	f.wantStatus(f.get(landed.ID).Intent, paymentswitch.IntentSucceeded)
+	f.wantPayments(1)
+
+	never := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess)})
+	lease := f.clock().Add(2 * time.Minute)
+	f.db.Create(&paymentswitch.AttemptRow{ID: "pa_never", IntentID: never.ID, MerchantID: merchant, ConnectorCode: mock.Code, Status: paymentswitch.AttemptStarted, Amount: decimal.NewFromInt(100), Asset: "USD", ClaimedUntil: &lease, StatusChangedAt: f.clock(), CreatedAt: f.clock(), UpdatedAt: f.clock()})
+	f.db.Model(&paymentswitch.IntentRow{}).Where("id = ?", never.ID).Updates(map[string]any{"status": "processing", "active_attempt_id": "pa_never", "connector_code": "mock"})
+	f.reconcile()
+	f.wantAttempt(never.ID, paymentswitch.AttemptStarted)
+	f.advance(3 * time.Minute)
+	f.reconcile()
+	a := f.wantAttempt(never.ID, paymentswitch.AttemptFailure)
+	if a.ErrorCode != paymentswitch.ErrorCodeNotFound {
+		t.Fatalf("error code = %s", a.ErrorCode)
+	}
+	f.wantStatus(f.get(never.ID).Intent, paymentswitch.IntentFailed)
+	cancelled, err := f.svc.Cancel(f.ctx, merchant, never.ID, paymentswitch.CancelCommand{})
+	if err != nil {
+		t.Fatalf("cancel after sync proved no authorization: %v", err)
+	}
+	f.wantStatus(cancelled, paymentswitch.IntentCancelled)
+
+	stale := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess)})
+	f.db.Create(&paymentswitch.AttemptRow{ID: "pa_stale", IntentID: stale.ID, MerchantID: merchant, ConnectorCode: chaindeposit.Code, Status: paymentswitch.AttemptStarted, Amount: decimal.NewFromInt(100), Asset: "USD", StatusChangedAt: f.clock().Add(-48 * time.Hour), CreatedAt: f.clock().Add(-48 * time.Hour), UpdatedAt: f.clock()})
+	f.db.Model(&paymentswitch.IntentRow{}).Where("id = ?", stale.ID).Updates(map[string]any{"status": "processing", "active_attempt_id": "pa_stale", "connector_code": "chaindeposit"})
+	f.reconcile()
+	if an := f.anomalies(stale.ID); len(an) != 1 || an[0].Kind != paymentswitch.AnomalyStaleInFlight {
+		t.Fatalf("stale started attempt must raise an anomaly: %+v", an)
+	}
+}
+
+// R3 probe: a deposit confirmed after the request was cancelled is booked to unallocated receipts with an anomaly.
+func TestChainDeposit_LateMoneyAfterCancelIsBookedAndFlagged(t *testing.T) {
+	f := newFixture(t)
+	in := f.createChain(100)
+	a := f.wantAttemptAs(chainMerchant, in.ID, paymentswitch.AttemptAuthenticationPending)
+	if _, err := f.svc.Cancel(f.ctx, chainMerchant, in.ID, paymentswitch.CancelCommand{}); err != nil {
+		t.Fatal(err)
+	}
+	f.wantAttemptAs(chainMerchant, in.ID, paymentswitch.AttemptVoided)
+	if err := f.chain.Deposit(a.ConnectorTransactionID, decimal.NewFromInt(100)); err != nil {
+		t.Fatal(err)
+	}
+	f.sync(chainMerchant, in.ID)
+	v := f.getAs(chainMerchant, in.ID)
+	f.wantStatus(v.Intent, paymentswitch.IntentCancelled)
+	if v.Attempts[0].Status != paymentswitch.AttemptVoided || v.Attempts[0].AmountReceived == nil || !v.Attempts[0].AmountReceived.Equal(decimal.NewFromInt(100)) {
+		t.Fatalf("attempt = %+v", v.Attempts[0])
+	}
+	f.wantPayments(1)
+	j := f.ledger.ofKind(ledger.KindPayment)[0]
+	if j.Lines[1].Account.OwnerType != ledger.OwnerPlatform || j.Lines[1].Account.OwnerID != paymentswitch.UnallocatedReceiptsOwner || j.Lines[1].Account.Asset != "USDC.ETH" || !j.Lines[0].Amount.Equal(decimal.NewFromInt(100)) {
+		t.Fatalf("late money must go to unallocated receipts: %+v", j.Lines)
+	}
+	an := f.anomalies(in.ID)
+	if len(an) != 1 || an[0].Kind != paymentswitch.AnomalyLateReceipt {
+		t.Fatalf("anomalies = %+v, want one late_receipt", an)
+	}
+	if v.Intent.AmountCaptured.IsPositive() {
+		t.Fatal("late money is not the merchant's captured amount")
+	}
+	f.sync(chainMerchant, in.ID)
+	f.wantPayments(1)
+	if len(f.anomalies(in.ID)) != 1 {
+		t.Fatal("a repeated sync of the same total must not add anomalies")
+	}
+	// The reconciler's late lane finds it too, and stops after the retention window.
+	f.advance(2 * time.Minute)
+	if err := f.chain.Deposit(a.ConnectorTransactionID, decimal.NewFromInt(5)); err != nil {
+		t.Fatal(err)
+	}
+	f.reconcile()
+	f.wantPayments(2)
+	f.advance(31 * 24 * time.Hour)
+	if err := f.chain.Deposit(a.ConnectorTransactionID, decimal.NewFromInt(5)); err != nil {
+		t.Fatal(err)
+	}
+	f.reconcile()
+	f.wantPayments(2)
+}
+
+// A fill that beats the void is reported as filled by the re-read and settles normally.
+func TestChainDeposit_FillWinningTheCancelRaceIsCharged(t *testing.T) {
+	f := newFixture(t)
+	in := f.createChain(100)
+	a := f.wantAttemptAs(chainMerchant, in.ID, paymentswitch.AttemptAuthenticationPending)
+	if err := f.chain.Deposit(a.ConnectorTransactionID, decimal.NewFromInt(100)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.svc.Cancel(f.ctx, chainMerchant, in.ID, paymentswitch.CancelCommand{})
+	if err != nil {
+		t.Fatalf("cancel racing a fill: %v", err)
+	}
+	f.wantStatus(got, paymentswitch.IntentProcessing)
+	f.sync(chainMerchant, in.ID)
+	f.wantStatus(f.getAs(chainMerchant, in.ID).Intent, paymentswitch.IntentSucceeded)
+	f.wantAttemptAs(chainMerchant, in.ID, paymentswitch.AttemptCharged)
+	f.wantPayments(1)
+	if len(f.anomalies(in.ID)) != 0 {
+		t.Fatalf("a fill that beat the void is not an anomaly: %+v", f.anomalies(in.ID))
+	}
+}
+
+// R4 probe: 40, 30, 40, 50: custody ends at 50 with one received_decreased anomaly and no conflict.
+func TestChainDeposit_ReceivedIsMonotonic(t *testing.T) {
+	f := newFixture(t)
+	in := f.createChain(100)
+	a := f.wantAttemptAs(chainMerchant, in.ID, paymentswitch.AttemptAuthenticationPending)
+	report := func(total int64) {
+		t.Helper()
+		f.chain.SetReceived(a.ConnectorTransactionID, decimal.NewFromInt(total))
+		f.sync(chainMerchant, in.ID)
+	}
+	report(40)
+	f.wantPayments(1)
+	report(30)
+	v := f.getAs(chainMerchant, in.ID)
+	if !v.Attempts[0].AmountReceived.Equal(decimal.NewFromInt(40)) || !v.Intent.AmountCaptured.Equal(decimal.NewFromInt(40)) {
+		t.Fatalf("a decrease must change nothing: %+v", v.Attempts[0])
+	}
+	f.wantPayments(1)
+	report(40)
+	f.wantPayments(1)
+	report(50)
+	f.wantPayments(2)
+	v = f.getAs(chainMerchant, in.ID)
+	if !v.Attempts[0].AmountReceived.Equal(decimal.NewFromInt(50)) {
+		t.Fatalf("received = %s", v.Attempts[0].AmountReceived)
+	}
+	bal, err := f.ledger.inner.Balances(f.ctx, ledger.OwnerPlatform, "crypto_assets")
+	if err != nil || !bal["USDC.ETH"].Equal(decimal.NewFromInt(50)) {
+		t.Fatalf("custody = %v, %v; want 50", bal, err)
+	}
+	an := f.anomalies(in.ID)
+	if len(an) != 1 || an[0].Kind != paymentswitch.AnomalyReceivedDecreased {
+		t.Fatalf("anomalies = %+v, want one received_decreased", an)
+	}
+}
+
+// Fees: one snapshot at attempt creation, one fee posting in the money transaction, a missing rule refuses the confirm.
+func TestFees_SnapshotAtAttemptAndFeePostedOnceWithThePaymentJournal(t *testing.T) {
+	f := newFixture(t)
+	in := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	f.wantStatus(in, paymentswitch.IntentSucceeded)
+	f.fees.mu.Lock()
+	snaps, posts := f.fees.snapshots, f.fees.posts
+	f.fees.mu.Unlock()
+	if len(snaps) != 1 || snaps[0].Method != "card" || snaps[0].Currency != "USD" || snaps[0].Connector != "mock" {
+		t.Fatalf("snapshots = %+v", snaps)
+	}
+	if len(posts) != 1 || !posts[0].Equal(decimal.NewFromInt(100)) {
+		t.Fatalf("fee posts = %v", posts)
+	}
+	f.sync(merchant, in.ID)
+	f.wantFeePosts(1)
+	f.wantPayments(1)
+
+	chain := f.createChain(100)
+	f.fees.mu.Lock()
+	last := f.fees.snapshots[len(f.fees.snapshots)-1]
+	f.fees.mu.Unlock()
+	if last.Method != "crypto" || last.Currency != "USDC" || last.Chain != "ETH" {
+		t.Fatalf("chain snapshot = %+v", last)
+	}
+	ca := f.wantAttemptAs(chainMerchant, chain.ID, paymentswitch.AttemptAuthenticationPending)
+	if err := f.chain.Deposit(ca.ConnectorTransactionID, decimal.NewFromInt(40)); err != nil {
+		t.Fatal(err)
+	}
+	f.sync(chainMerchant, chain.ID)
+	f.wantFeePosts(1)
+	if err := f.chain.Deposit(ca.ConnectorTransactionID, decimal.NewFromInt(60)); err != nil {
+		t.Fatal(err)
+	}
+	f.sync(chainMerchant, chain.ID)
+	f.wantFeePosts(2)
+
+	// The fee is in the same transaction as the money: a fee failure leaves no payment journal behind.
+	rows := func() int64 {
+		var n int64
+		f.db.Model(&ledger.JournalRow{}).Where("kind = ?", ledger.KindPayment).Count(&n)
+		return n
+	}
+	before := rows()
+	f.fees.postErr = errors.New("fees: database down")
+	broken := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess)})
+	if _, err := f.svc.Confirm(f.ctx, merchant, broken.ID, paymentswitch.ConfirmCommand{}); err == nil {
+		t.Fatal("a fee posting failure must fail the apply")
+	}
+	if rows() != before {
+		t.Fatalf("payment journal rows = %d after a fee failure, want %d (same transaction)", rows(), before)
+	}
+	f.wantFeePosts(2)
+	f.fees.postErr = nil
+
+	// A second successful attempt on one payment: the money is booked, the fee refusal is an anomaly.
+	f.fees.postErr = fmt.Errorf("%w: attempt x", paymentswitch.ErrFeeAlreadyPosted)
+	dup := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	f.wantStatus(dup, paymentswitch.IntentSucceeded)
+	if rows() != before+1 {
+		t.Fatalf("payment journal rows = %d, want %d", rows(), before+1)
+	}
+	if an := f.anomalies(dup.ID); len(an) != 1 || an[0].Kind != paymentswitch.AnomalyFeeAlreadyPosted {
+		t.Fatalf("anomalies = %+v", an)
+	}
+	f.fees.postErr = nil
+
+	f.fees.noRule = true
+	noRule, err := f.svc.Create(f.ctx, paymentswitch.CreateCommand{MerchantID: merchant, Money: usd(5), PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	if !errors.Is(err, paymentswitch.ErrFeeRuleMissing) || noRule.ID == "" {
+		t.Fatalf("no rule = %+v, %v", noRule, err)
+	}
+	f.wantStatus(f.get(noRule.ID).Intent, paymentswitch.IntentRequiresConfirmation)
+	if n := len(f.get(noRule.ID).Attempts); n != 0 {
+		t.Fatalf("attempts = %d; the snapshot failure must roll the claim back", n)
+	}
+}
+
+// The reconciler leaves rows of a connector that cannot Sync alone, so they never fill the batch.
+func TestReconciler_SkipsConnectorsWithoutSync(t *testing.T) {
+	f := newFixture(t)
+	in := f.create(paymentswitch.CreateCommand{PaymentMethod: card(mock.ScenarioSuccess)})
+	f.db.Create(&paymentswitch.AttemptRow{ID: "pa_nosync", IntentID: in.ID, MerchantID: merchant, ConnectorCode: "nosync", Status: paymentswitch.AttemptPending, Amount: decimal.NewFromInt(1), Asset: "USD", StatusChangedAt: f.clock(), CreatedAt: f.clock(), UpdatedAt: f.clock()})
+	f.advance(3 * time.Minute)
+	rec := paymentswitch.NewReconciler(f.svc)
+	n, err := rec.RunOnce(f.ctx)
+	if err != nil || n != 0 {
+		t.Fatalf("RunOnce = %d, %v; a connector without Sync must not be selected", n, err)
 	}
 }

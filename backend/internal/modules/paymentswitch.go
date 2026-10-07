@@ -12,24 +12,10 @@ import (
 	"github.com/payminto/payminto/backend/internal/connectors"
 	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
 	"github.com/payminto/payminto/backend/internal/connectors/mock"
-	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/paymentswitch"
-	"gorm.io/gorm"
 )
 
 var ErrMockInDeployment = errors.New("modules: the mock connector cannot run in a deployment environment")
-
-// Deps is what every Wire<Module> may draw on; modules take what they need.
-type Deps struct {
-	DB          *gorm.DB
-	Config      *config.Config
-	Ledger      *ledger.Service
-	Environment string
-	// ChainDeposit is the Payminto deposit flow the chaindeposit connector drives; nil disables that connector.
-	ChainDeposit chaindeposit.Backend
-	// Events receives the switch's domain events; nil drops them (tests, tools).
-	Events paymentswitch.Events
-}
 
 type PaymentSwitchModule struct {
 	Service    *paymentswitch.Service
@@ -66,7 +52,7 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 	if deps.DB == nil || deps.Ledger == nil || deps.Config == nil {
 		return nil, fmt.Errorf("modules: paymentswitch needs DB, Ledger and Config")
 	}
-	deployment := deps.Environment == config.EnvironmentProduction || deps.Environment == config.EnvironmentStaging
+	deployment := deps.Config.Server.Environment == config.EnvironmentProduction || deps.Config.Server.Environment == config.EnvironmentStaging
 	registry := connectors.NewRegistry()
 	var enabled []connectors.Code
 	for _, raw := range deps.Config.Switch.Connectors {
@@ -78,7 +64,7 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 		switch code {
 		case mock.Code:
 			if deployment {
-				return nil, fmt.Errorf("%w: %s", ErrMockInDeployment, deps.Environment)
+				return nil, fmt.Errorf("%w: %s", ErrMockInDeployment, deps.Config.Server.Environment)
 			}
 			c = mock.New(mock.WithSecret(deps.Config.Switch.MockWebhookSecret))
 		case chaindeposit.Code:
@@ -102,6 +88,16 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 	if deps.Events != nil {
 		opts = append(opts, paymentswitch.WithEvents(deps.Events))
 	}
+	if deps.Fees != nil {
+		records := deps.Records
+		if records == nil {
+			records = PaymintoPaymentRecords{DB: deps.DB}
+		}
+		opts = append(opts, paymentswitch.WithFees(deps.Fees, records))
+	} else if deployment {
+		return nil, fmt.Errorf("modules: paymentswitch needs the fees module in %s", deps.Config.Server.Environment)
+	}
+	opts = append(opts, paymentswitch.WithLease(deps.Config.Switch.ClaimLease), paymentswitch.WithLateReceiptRetention(deps.Config.Switch.LateReceiptRetention))
 	svc := paymentswitch.New(deps.DB, registry, selector, deps.Ledger, opts...)
 	return &PaymentSwitchModule{
 		Service:    svc,

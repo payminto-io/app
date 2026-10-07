@@ -9,8 +9,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField, TextInput } from "@/components/ui/form-field";
+import { CurrencyDisplay } from "@/components/currency-display";
+import { chainName } from "@/lib/chains";
 import { Button } from "@/components/ui/button";
 import { useResolveMissedDeposit } from "@/lib/query/hooks/use-admin";
 import type { MissedDeposit } from "@/lib/query/hooks/use-admin";
@@ -37,28 +38,24 @@ export function ResolveDialog({
   return (
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent>
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>Resolve Missed Deposit</DialogTitle>
+            <DialogTitle>Resolve deposit</DialogTitle>
             <DialogDescription>
-              Deposit of{" "}
-              <span className="font-medium tabular-nums">{deposit.amount}</span>{" "}
-              {deposit.currencyCode} on {deposit.blockchainCode}
+              <CurrencyDisplay amount={deposit.amount} currency={deposit.currencyCode} size="sm" /> on{" "}
+              {chainName(deposit.blockchainCode)}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2">
-            <Label htmlFor="resolve-ref">Payment Reference ID</Label>
-            <Input
+          <FormField label="Payment reference" htmlFor="resolve-ref" hint="Optional. Links the deposit to that payment.">
+            <TextInput
               id="resolve-ref"
               value={paymentRef}
               onChange={(e) => setPaymentRef(e.target.value)}
               placeholder="pay_abc123"
+              className="font-mono"
             />
-            <p className="text-[11px] text-muted-foreground">
-              Optional. Link this deposit to an existing payment.
-            </p>
-          </div>
+          </FormField>
 
           <DialogFooter>
             <Button variant="outline" type="button" onClick={onClose}>

@@ -1,20 +1,19 @@
 "use client";
 
+/** Cold wallets receive swept deposits; only the public address is stored. Backed by GET/POST /wallets/cold. */
+
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
-import { ChevronRight, Shield, Snowflake, Plus, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import {
   useColdWallets,
   useConfigureColdWallet,
   type ColdWallet,
   type ConfigureColdWalletInput,
 } from "@/lib/query/hooks/use-wallets";
-import { ErrorState, EmptyState } from "@/components/ui/states";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/page-header";
+import { CopyField } from "@/components/copy-field";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
-import { BlockchainIcon } from "@/components/blockchain-icon";
-import { CopyButton } from "@/components/copy-button";
 import {
   Dialog,
   DialogContent,
@@ -31,29 +30,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { BlockchainNetwork } from "@/lib/types";
+import { ErrorState } from "@/components/ui/states";
+import { chainName } from "@/lib/chains";
+import { WalletTabs } from "../_components/wallet-tabs";
 
 /* ── Chain metadata ────────────────────────────────────── */
 
-interface ChainMeta {
-  name: string;
-  network: BlockchainNetwork;
-}
-
-const CHAIN_META: Record<string, ChainMeta> = {
-  ETH: { name: "Ethereum", network: "ethereum" },
-  BASE: { name: "Base", network: "base" },
-  POLYGON: { name: "Polygon", network: "polygon" },
-  BTC: { name: "Bitcoin", network: "bitcoin" },
-  TRX: { name: "Tron", network: "tron" },
-};
 
 const CHAIN_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "ETH", label: "Ethereum (ETH)" },
-  { value: "BASE", label: "Base (BASE)" },
-  { value: "POLYGON", label: "Polygon (POLYGON)" },
-  { value: "BTC", label: "Bitcoin (BTC)" },
-  { value: "TRX", label: "Tron (TRX)" },
+  { value: "ETH", label: "Ethereum" },
+  { value: "BASE", label: "Base" },
+  { value: "POLYGON", label: "Polygon" },
+  { value: "BTC", label: "Bitcoin" },
+  { value: "TRX", label: "Tron" },
 ];
 
 /** Truncate long addresses for display: 0x1234…abcd */
@@ -98,151 +87,57 @@ function validateAddress(
 
 /* ── Page ──────────────────────────────────────────────── */
 
+const COLUMNS: DataTableColumn<ColdWallet>[] = [
+  { key: "name", stack: "lead", header: "Name", className: "font-medium", cell: (w) => w.name || null },
+  {
+    key: "chain", stack: "trail",
+    header: "Chain",
+    cell: (w) => (
+      <span className="inline-flex items-baseline gap-1.5">
+        <span className="text-ink">{chainName(w.blockchainCode)}</span>
+        <span className="font-mono text-label text-ink-soft">{w.blockchainCode}</span>
+      </span>
+    ),
+  },
+  {
+    key: "address", stack: "meta",
+    header: "Address",
+    cell: (w) => (
+      <CopyField value={w.address} display={truncateAddress(w.address)} boxed={false} className="max-w-[240px]" />
+    ),
+  },
+];
+
 export default function ColdWalletsPage() {
-  const { data, isLoading, error, refetch } = useColdWallets();
+  const { data, error, refetch } = useColdWallets();
   const [addOpen, setAddOpen] = useState(false);
 
-  const coldWallets: ColdWallet[] = data?.coldWallets ?? [];
-
   return (
-    <div className="space-y-6">
-      {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-        <Link
-          href="/dashboard"
-          className="hover:text-foreground transition-colors"
-        >
-          Dashboard
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <Link
-          href="/dashboard/wallets"
-          className="hover:text-foreground transition-colors"
-        >
-          Wallets
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <span className="text-foreground font-medium">Cold Wallets</span>
-      </nav>
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Cold Wallet</h1>
-          <p className="text-[13px] text-muted-foreground mt-0.5">
-            Configure secure offline wallets that receive swept funds from
-            customer deposits
-          </p>
-        </div>
-        <Button
-          size="sm"
-          className="h-9 rounded-lg"
-          onClick={() => setAddOpen(true)}
-        >
-          <Plus className="size-4" />
-          Add Cold Wallet
+    <div className="space-y-5">
+      <PageHeader title="Wallets">
+        <Button onClick={() => setAddOpen(true)}>
+          <Plus />
+          Add cold wallet
         </Button>
-      </div>
+      </PageHeader>
+      <WalletTabs />
 
-      {/* Info banner */}
-      <div className="flex items-start gap-3 rounded-lg border border-[var(--pm-primary)]/20 bg-[var(--pm-primary)]/5 p-4">
-        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--pm-primary)]/10 text-[var(--pm-primary)]">
-          <Shield className="size-4" />
-        </div>
-        <div className="space-y-1">
-          <h3 className="text-[13px] font-semibold text-foreground">
-            What is a cold wallet?
-          </h3>
-          <p className="text-[12px] text-muted-foreground leading-relaxed">
-            A cold wallet is an offline wallet where swept funds are stored for
-            security. SmartSweep automatically transfers deposits from customer
-            addresses to your cold wallet. Use a hardware wallet (Ledger,
-            Trezor) or an air-gapped device &mdash; never a hot wallet.
-          </p>
-        </div>
-      </div>
-
-      {error ? <ErrorState message={error.message} retry={refetch} /> : null}
-
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-xl" />
-          ))}
-        </div>
-      ) : coldWallets.length === 0 ? (
-        <EmptyState
-          title="No cold wallet configured"
-          description="Add your first cold wallet to enable automatic fund consolidation from customer deposit addresses."
-          icon={<Snowflake className="size-5" />}
-          action={
+      {error ? (
+        <ErrorState message={error.message} retry={refetch} />
+      ) : (
+        <DataTable
+          columns={COLUMNS}
+          rows={data?.coldWallets ?? []}
+          loading={!data}
+          getRowId={(w) => `${w.blockchainCode}-${w.address}`}
+          emptyTitle="No cold wallets yet."
+          emptyDescription="Sweeps send deposits to the cold wallet of each chain."
+          emptyAction={
             <Button size="sm" onClick={() => setAddOpen(true)}>
-              <Plus className="size-4" />
-              Add Cold Wallet
+              Add cold wallet
             </Button>
           }
         />
-      ) : (
-        <div className="space-y-3">
-          {coldWallets.map((wallet) => {
-            const meta = CHAIN_META[wallet.blockchainCode];
-            return (
-              <Card
-                key={`${wallet.blockchainCode}-${wallet.address}`}
-                className="border-border shadow-sm"
-              >
-                <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-4 min-w-0">
-                    <BlockchainIcon
-                      blockchain={meta?.network ?? "ethereum"}
-                      size="lg"
-                    />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-[14px] font-semibold">
-                          {meta?.name ?? wallet.blockchainCode}
-                        </h3>
-                        <span className="pm-label">
-                          {wallet.blockchainCode}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 text-[12px] text-muted-foreground truncate">
-                        {wallet.name}
-                      </p>
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <code
-                          className="font-mono text-[12px] text-foreground/90"
-                          title={wallet.address}
-                        >
-                          {truncateAddress(wallet.address)}
-                        </code>
-                        <CopyButton
-                          value={wallet.address}
-                          label=""
-                          size="icon"
-                          variant="ghost"
-                          className="size-7"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled
-                      title="Coming soon"
-                      className="h-8 gap-1.5 text-[12px]"
-                    >
-                      <Trash2 className="size-3.5" />
-                      Remove
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
       )}
 
       <AddColdWalletDialog open={addOpen} onOpenChange={setAddOpen} />
@@ -300,11 +195,11 @@ function AddColdWalletDialog({
     setSubmitError(null);
 
     if (!blockchainCode) {
-      setSubmitError("Please select a blockchain");
+      setSubmitError("Choose a chain.");
       return;
     }
     if (!name.trim()) {
-      setSubmitError("Wallet name is required");
+      setSubmitError("Enter a name.");
       return;
     }
     const addrErr = validateAddress(blockchainCode, address);
@@ -325,7 +220,7 @@ function AddColdWalletDialog({
       onOpenChange(false);
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Failed to configure cold wallet"
+        err instanceof Error ? err.message : "The cold wallet could not be added."
       );
     }
   }
@@ -335,14 +230,11 @@ function AddColdWalletDialog({
       <DialogContent className="sm:max-w-md">
         <form onSubmit={handleSubmit} className="space-y-5">
           <DialogHeader>
-            <DialogTitle>Add Cold Wallet</DialogTitle>
-            <DialogDescription>
-              Configure a cold wallet for a blockchain. Swept funds will be
-              sent here automatically.
-            </DialogDescription>
+            <DialogTitle>Add cold wallet</DialogTitle>
+            <DialogDescription>Swept deposits on this chain go to this address.</DialogDescription>
           </DialogHeader>
 
-          <FormField label="Blockchain" htmlFor="cw-blockchain">
+          <FormField label="Chain" htmlFor="cw-blockchain">
             <Select
               value={blockchainCode}
               onValueChange={(v) => handleBlockchainChange(v ?? "")}
@@ -351,35 +243,26 @@ function AddColdWalletDialog({
                 id="cw-blockchain"
                 className="w-full justify-between"
               >
-                <SelectValue placeholder="Select a blockchain" />
+                <SelectValue placeholder="Choose a chain" />
               </SelectTrigger>
               <SelectContent>
-                {CHAIN_OPTIONS.map((opt) => {
-                  const meta = CHAIN_META[opt.value];
-                  return (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      <span className="flex items-center gap-2">
-                        <BlockchainIcon
-                          blockchain={meta?.network ?? "ethereum"}
-                          size="sm"
-                        />
-                        {opt.label}
-                      </span>
-                    </SelectItem>
-                  );
-                })}
+                {CHAIN_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </FormField>
 
           <FormField
-            label="Wallet Address"
+            label="Address"
             htmlFor="cw-address"
             error={addressError ?? undefined}
             hint={
               blockchainCode
                 ? undefined
-                : "Select a blockchain first to validate the address format"
+                : "Choose a chain first"
             }
           >
             <TextInput
@@ -392,7 +275,7 @@ function AddColdWalletDialog({
                   ? "T..."
                   : blockchainCode
                   ? "0x..."
-                  : "Paste your cold wallet address"
+                  : ""
               }
               value={address}
               onChange={(e) => handleAddressChange(e.target.value)}
@@ -400,18 +283,18 @@ function AddColdWalletDialog({
             />
           </FormField>
 
-          <FormField label="Wallet Name" htmlFor="cw-name">
+          <FormField label="Name" htmlFor="cw-name">
             <TextInput
               id="cw-name"
               required
-              placeholder="e.g. Main Cold Storage"
+              placeholder="Main cold storage"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </FormField>
 
           {submitError ? (
-            <p role="alert" className="text-xs text-destructive">
+            <p role="alert" className="text-body-sm text-bad">
               {submitError}
             </p>
           ) : null}
@@ -426,7 +309,7 @@ function AddColdWalletDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={configure.isPending}>
-              {configure.isPending ? "Saving..." : "Add Cold Wallet"}
+              {configure.isPending ? "Adding..." : "Add cold wallet"}
             </Button>
           </DialogFooter>
         </form>

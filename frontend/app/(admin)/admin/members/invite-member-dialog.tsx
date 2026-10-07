@@ -9,8 +9,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField, TextInput } from "@/components/ui/form-field";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -74,29 +73,18 @@ export function InviteMemberDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
-            <DialogTitle>Invite Team Member</DialogTitle>
-            <DialogDescription>
-              Add a new member to the platform. They will receive access
-              immediately.
-            </DialogDescription>
+            <DialogTitle>Invite member</DialogTitle>
+            <DialogDescription>They can sign in as soon as you send this.</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2">
-            <Label htmlFor="inv-name">Full Name</Label>
-            <Input
-              id="inv-name"
-              required
-              placeholder="Jane Doe"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
+          <FormField label="Name" htmlFor="inv-name">
+            <TextInput id="inv-name" required placeholder="Jane Doe" value={name} onChange={(e) => setName(e.target.value)} />
+          </FormField>
 
-          <div className="space-y-2">
-            <Label htmlFor="inv-email">Email</Label>
-            <Input
+          <FormField label="Email" htmlFor="inv-email">
+            <TextInput
               id="inv-email"
               type="email"
               required
@@ -104,25 +92,24 @@ export function InviteMemberDialog({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
-          </div>
+          </FormField>
 
-          <div className="space-y-2">
-            <Label htmlFor="inv-password">Password</Label>
-            <Input
+          <FormField label="Password" htmlFor="inv-password" hint="At least 8 characters">
+            <TextInput
               id="inv-password"
               type="password"
               required
               minLength={8}
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-          </div>
+          </FormField>
 
-          <div className="space-y-2">
-            <Label>Role</Label>
+          <FormField label="Role" htmlFor="inv-role">
             <Select value={memberType} onValueChange={(v) => setMemberType(v ?? "")}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a role" />
+              <SelectTrigger id="inv-role" className="w-full">
+                <SelectValue placeholder="Choose a role" />
               </SelectTrigger>
               <SelectContent>
                 {MEMBER_TYPES.map((t) => (
@@ -132,10 +119,10 @@ export function InviteMemberDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </FormField>
 
           {error ? (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-body-sm text-bad">
               {error}
             </p>
           ) : null}
@@ -149,7 +136,7 @@ export function InviteMemberDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={invite.isPending}>
-              {invite.isPending ? "Inviting..." : "Send Invite"}
+              {invite.isPending ? "Inviting..." : "Send invite"}
             </Button>
           </DialogFooter>
         </form>

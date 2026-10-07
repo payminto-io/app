@@ -29,9 +29,9 @@ type stubAdapter struct {
 	parseBlockFn func(ctx context.Context, blockNumber uint64, watched map[string]blockchain.WatchedAddressInfo) ([]blockchain.Transaction, error)
 }
 
-func (s *stubAdapter) Name() string    { return "stub" }
-func (s *stubAdapter) Code() string    { return "STUB" }
-func (s *stubAdapter) IsMainnet() bool { return false }
+func (s *stubAdapter) Name() string                           { return "stub" }
+func (s *stubAdapter) Code() string                           { return "STUB" }
+func (s *stubAdapter) IsMainnet() bool                        { return false }
 func (s *stubAdapter) GenerateAddress(uint32) (string, error) { return "", nil }
 func (s *stubAdapter) GetBalance(context.Context, string, string) (*big.Int, error) {
 	return big.NewInt(0), nil
@@ -273,7 +273,7 @@ func TestBlockchainProcessor_HandleExtractedDeposit_DustIgnored(t *testing.T) {
 
 	tx := blockchain.Transaction{
 		TxHash:      "0xdust",
-		ToAddress:   "0xdust_addr", // lowercase normalised (ETH chain)
+		ToAddress:   "0xdust_addr",               // lowercase normalised (ETH chain)
 		Amount:      decimal.NewFromFloat(0.001), // below min
 		BlockNumber: 300,
 	}

@@ -33,7 +33,7 @@ export function CopyButton({
       toast.success(successMessage)
       setTimeout(() => setCopied(false), 1600)
     } catch {
-      toast.error("Failed to copy")
+      toast.error("Could not copy")
     }
   }
 
@@ -43,6 +43,7 @@ export function CopyButton({
       size={size}
       variant={variant}
       onClick={handleCopy}
+      aria-label={label === "" ? (copied ? "Copied" : "Copy") : undefined}
       className={cn("gap-1.5", className)}
     >
       {copied ? (
