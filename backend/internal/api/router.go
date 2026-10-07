@@ -6,6 +6,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/api/middleware"
 	"github.com/payminto/payminto/backend/internal/blockchain"
 	"github.com/payminto/payminto/backend/internal/constants"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/payminto/payminto/backend/internal/service"
@@ -76,6 +77,9 @@ type RouterConfig struct {
 	// AdapterReg gives handlers read access to chain adapters (e.g. hot-wallet
 	// balance lookups).
 	AdapterReg *blockchain.AdapterRegistry
+
+	// Fees is the fee rules module (internal/fees); nil leaves its routes unmounted.
+	Fees *modules.FeesModule
 }
 
 // NewRouter constructs and returns a configured Gin engine.
@@ -412,6 +416,15 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 				mdGrp.POST("/:id/resolve", mdH.Resolve)
 			}
 		}
+	}
+
+	// ---- Fee rules: preview for merchants, management behind system.admin ----
+	if cfg.Fees != nil && cfg.AuthSvc != nil {
+		var adminGuard gin.HandlerFunc
+		if cfg.MEPRoleSvc != nil {
+			adminGuard = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
+		}
+		RegisterFeesRoutes(v1.Group("", middleware.JWTOrAPIKey(cfg.AuthSvc)), cfg.Fees, adminGuard)
 	}
 
 	return r

@@ -13,6 +13,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/email/transport"
 	"github.com/payminto/payminto/backend/internal/ledger"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -116,6 +117,7 @@ type ServiceRegistry struct {
 
 	// Phase F: Sweep + ledger services
 	ledgerService               *LedgerService
+	feesModule                  *modules.FeesModule
 	sweepService                *SweepService
 	sweepTransactionService     *SweepTransactionService
 	utxoService                 *UTXOService
@@ -359,6 +361,11 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 
 	// Phase F.1: LedgerService (depends on accountRepo); dual-writes into internal/ledger
 	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db), currencyAssetResolver(r.currencyRepo)))
+	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: ledger.New(db)})
+	if err != nil {
+		return nil, fmt.Errorf("wire fees: %w", err)
+	}
+	r.feesModule = feesModule
 
 	// Phase F.2: SweepTransactionService (depends on ledgerService)
 	r.sweepTransactionService = NewSweepTransactionService(
@@ -539,6 +546,9 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 
 // NetworkType returns the current boot-mode network (testnet|mainnet).
 func (r *ServiceRegistry) NetworkType() string { return r.networkType }
+
+// FeesModule returns the wired fee rules module.
+func (r *ServiceRegistry) FeesModule() *modules.FeesModule { return r.feesModule }
 
 // DB returns the underlying *gorm.DB for services that need it directly.
 // Should be used sparingly — prefer repositories.
