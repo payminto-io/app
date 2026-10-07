@@ -13,7 +13,7 @@ export default function SweepsPage() {
     <div className="space-y-5">
       <PageHeader title="Sweeps" />
       <EmptyState
-        title="Sweep reporting for this account is not available yet."
+        title="No sweep report for this account yet."
         description="Deposits are swept to the cold wallet once a hot wallet can pay the gas. Per-asset sweep totals will appear here when the API reports them for this account."
       />
     </div>

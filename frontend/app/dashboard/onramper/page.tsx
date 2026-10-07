@@ -27,7 +27,7 @@ const columns: DataTableColumn<OnramperSession>[] = [
     cell: (r) => <CurrencyDisplay amount={r.fiatAmount} currency={r.fiatCurrency} size="sm" />,
   },
   {
-    key: "crypto", stack: "meta",
+    key: "crypto", stack: "detail",
     header: "Received",
     align: "right",
     className: "w-0",

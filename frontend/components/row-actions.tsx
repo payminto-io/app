@@ -15,7 +15,7 @@ export function RowActions({ children, label = "Row actions" }: { children: Reac
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-sm" className="-my-1.5" aria-label={label} onClick={(e) => e.stopPropagation()} />}
+        render={<Button variant="ghost" size="icon-sm" className="-my-1.5 -mr-2" aria-label={label} onClick={(e) => e.stopPropagation()} />}
       >
         <MoreHorizontal />
       </DropdownMenuTrigger>

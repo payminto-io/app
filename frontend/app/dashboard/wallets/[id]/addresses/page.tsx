@@ -40,7 +40,7 @@ const COLUMNS: DataTableColumn<AddressPoolItem>[] = [
       <CopyField value={a.address} display={truncateMiddle(a.address, 10, 8)} boxed={false} className="max-w-[280px]" />
     ),
   },
-  { key: "index", stack: "meta", header: "Index", align: "right", className: "text-ink-soft", cell: (a) => a.pathIndex },
+  { key: "index", stack: "detail", header: "Index", align: "right", className: "text-ink-soft", cell: (a) => a.pathIndex },
   { key: "status", stack: "trail", header: "Status", cell: (a) => <StatusBadge status={a.status} /> },
   {
     key: "created", stack: "meta",

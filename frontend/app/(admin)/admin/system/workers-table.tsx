@@ -12,7 +12,7 @@ export function WorkersTable() {
     { key: "name", stack: "lead", header: "Worker", cell: (w) => <span className="font-mono text-label font-medium">{w.name}</span> },
     { key: "status", stack: "trail", header: "Status", cell: (w) => <StatusBadge status={w.running ? "running" : "stopped"} /> },
     {
-      key: "started", stack: "meta",
+      key: "started", stack: "detail",
       header: "Last started",
       className: "text-ink-soft",
       cell: (w) => <DateTime value={w.lastStartedAt} />,
@@ -22,7 +22,7 @@ export function WorkersTable() {
       header: "Last error",
       cell: (w) =>
         w.lastError ? (
-          <span className="block max-w-xs truncate text-body-sm text-bad" title={w.lastError}>
+          <span className="text-body-sm text-bad lg:block lg:max-w-xs lg:truncate" title={w.lastError}>
             {w.lastError}
           </span>
         ) : null,

@@ -40,7 +40,7 @@ export function DashboardCharts({ volume, isLoading }: DashboardChartsProps) {
               <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} minTickGap={16} />
               <YAxis tickLine={false} axisLine={false} tickMargin={8} width={32} allowDecimals={false} />
               <ChartTooltip cursor={{ fill: "var(--surface-sunken)" }} content={<ChartTooltipContent />} />
-              <Bar dataKey="count" fill="var(--color-count)" radius={[2, 2, 0, 0]} maxBarSize={28} />
+              <Bar dataKey="count" fill="var(--color-count)" radius={[2, 2, 0, 0]} maxBarSize={28} isAnimationActive={false} />
             </BarChart>
           </ChartContainer>
         ) : (

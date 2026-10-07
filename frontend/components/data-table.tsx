@@ -76,8 +76,6 @@ export function DataTable<T>({
   total,
   footer,
 }: DataTableProps<T>) {
-  const [scrolled, setScrolled] = React.useState(false)
-
   if (loading) {
     return <LoadingRows rows={5} />
   }
@@ -121,35 +119,34 @@ export function DataTable<T>({
               <div className="flex min-h-6 items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2 text-body font-medium text-ink">
                   {lead.map((c) => (
-                    <div key={c.key} className="min-w-0 truncate">
+                    <div key={c.key} className="min-w-0 [overflow-wrap:anywhere]">
                       {c.cell(row)}
                     </div>
                   ))}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {trail.map((c) => (
-                    <div key={c.key}>{c.cell(row)}</div>
-                  ))}
-                  {action.map((c) => (
-                    <div key={c.key}>{c.cell(row)}</div>
-                  ))}
+                  {[...trail, ...action].map((c) => {
+                    const v = c.cell(row)
+                    if (isBlank(v)) return null
+                    return <div key={c.key}>{v}</div>
+                  })}
                 </div>
               </div>
               {metaCells.length ? (
                 <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-body-sm text-ink-soft">
                   {metaCells.map(([c, v]) => (
-                    <div key={c.key} className="min-w-0 max-w-full truncate">
+                    <div key={c.key} className="min-w-0 max-w-full [overflow-wrap:anywhere]">
                       {v}
                     </div>
                   ))}
                 </div>
               ) : null}
               {detailCells.length ? (
-                <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 text-body-sm">
+                <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1 text-body-sm">
                   {detailCells.map(([c, v]) => (
                     <React.Fragment key={c.key}>
                       <dt className="text-ink-soft">{c.header}</dt>
-                      <dd className="min-w-0 truncate text-right text-ink">{v}</dd>
+                      <dd className="flex min-w-0 justify-end text-right text-ink [overflow-wrap:anywhere]">{v}</dd>
                     </React.Fragment>
                   ))}
                 </dl>
@@ -160,57 +157,7 @@ export function DataTable<T>({
       </ul>
 
       <div className="hidden lg:block">
-        <Table
-          containerProps={{
-            className: "group/scroll",
-            onScroll: (e) => setScrolled(e.currentTarget.scrollLeft > 0),
-            ...{ "data-scrolled": scrolled ? "true" : undefined },
-          }}
-        >
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              {columns.map((col, ci) => (
-                <TableHead
-                  key={col.key}
-                  className={cn(
-                    col.align === "right" && "text-right",
-                    col.align === "center" && "text-center",
-                    ci === 0 && STICKY_HEAD,
-                    col.className
-                  )}
-                >
-                  {col.header}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row, i) => {
-              const id = getRowId ? getRowId(row, i) : i
-              return (
-                <TableRow
-                  key={id}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  className={cn("group/row", onRowClick && "cursor-pointer")}
-                >
-                  {columns.map((col, ci) => (
-                    <TableCell
-                      key={col.key}
-                      className={cn(
-                        col.align === "right" && "num text-right",
-                        col.align === "center" && "text-center",
-                        ci === 0 && STICKY_CELL,
-                        col.className
-                      )}
-                    >
-                      {col.cell(row)}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+        <WideTable columns={columns} rows={rows} onRowClick={onRowClick} getRowId={getRowId} />
       </div>
       {footer !== null ? (
         <div className="num border-t border-line px-3 py-2 text-caption text-ink-soft">
@@ -221,11 +168,103 @@ export function DataTable<T>({
   )
 }
 
-/* Sticky first column for wide tables (DESIGN.md section 11); fills are opaque mixes of the translucent row and header tints. */
+/**
+ * The table at 1024px and up. When it is wider than its card it scrolls, and
+ * the first column turns sticky (DESIGN.md section 11).
+ */
+function WideTable<T>({
+  columns,
+  rows,
+  onRowClick,
+  getRowId,
+}: Pick<DataTableProps<T>, "columns" | "rows" | "onRowClick" | "getRowId">) {
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [overflows, setOverflows] = React.useState(false)
+  const [scrolled, setScrolled] = React.useState(false)
+
+  React.useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const measure = () => setOverflows(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => ro.disconnect()
+  }, [])
+
+  return (
+    <Table
+      containerProps={{
+        ref: containerRef,
+        className: cn("group/scroll", HEADER_BAND),
+        onScroll: (e) => setScrolled(e.currentTarget.scrollLeft > 0),
+        ...{
+          "data-overflow": overflows ? "true" : undefined,
+          "data-scrolled": scrolled ? "true" : undefined,
+        },
+      }}
+    >
+      <TableHeader className="bg-transparent">
+        <TableRow className="hover:bg-transparent">
+          {columns.map((col, ci) => (
+            <TableHead
+              key={col.key}
+              className={cn(
+                col.align === "right" && "text-right",
+                col.align === "center" && "text-center",
+                ci === 0 && STICKY_HEAD,
+                col.className
+              )}
+            >
+              {col.header}
+            </TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row, i) => {
+          const id = getRowId ? getRowId(row, i) : i
+          return (
+            <TableRow
+              key={id}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              className={cn("group/row", onRowClick && "cursor-pointer")}
+            >
+              {columns.map((col, ci) => (
+                <TableCell
+                  key={col.key}
+                  className={cn(
+                    col.align === "right" && "num text-right",
+                    col.align === "center" && "text-center",
+                    ci === 0 && STICKY_CELL,
+                    col.className
+                  )}
+                >
+                  {col.cell(row)}
+                </TableCell>
+              ))}
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+}
+
+/* The header fill is one band behind the table, not a thead background: Chrome paints that per cell and seams it at fractional cell edges. */
+const HEADER_BAND =
+  "bg-[linear-gradient(to_bottom,color-mix(in_srgb,var(--surface-sunken)_70%,var(--surface))_36px,transparent_36px)] bg-local"
+
+/* Fills are opaque mixes of the translucent header and row-hover tints, so scrolled cells do not show through. */
 const STICKY_BASE =
-  "sticky left-0 z-[1] group-data-[scrolled=true]/scroll:shadow-[inset_-1px_0_0_var(--line)]"
-const STICKY_HEAD = cn(STICKY_BASE, "bg-[color-mix(in_srgb,var(--surface-sunken)_70%,var(--surface))]")
+  "group-data-[overflow=true]/scroll:sticky group-data-[overflow=true]/scroll:left-0 group-data-[overflow=true]/scroll:z-[1] group-data-[scrolled=true]/scroll:shadow-[inset_-1px_0_0_var(--line)]"
+const STICKY_HEAD = cn(
+  STICKY_BASE,
+  "group-data-[overflow=true]/scroll:bg-[color-mix(in_srgb,var(--surface-sunken)_70%,var(--surface))]"
+)
 const STICKY_CELL = cn(
   STICKY_BASE,
-  "bg-surface group-hover/row:bg-[color-mix(in_srgb,var(--surface-sunken)_60%,var(--surface))]"
+  "group-data-[overflow=true]/scroll:bg-surface group-data-[overflow=true]/scroll:group-hover/row:bg-[color-mix(in_srgb,var(--surface-sunken)_60%,var(--surface))]"
 )

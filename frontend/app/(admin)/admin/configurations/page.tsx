@@ -50,7 +50,7 @@ export default function ConfigurationsPage() {
   const columns: DataTableColumn<Configuration>[] = [
     { key: "key", stack: "lead", header: "Key", cell: (r) => <span className="font-mono text-label font-medium">{r.key}</span> },
     {
-      key: "value", stack: "meta",
+      key: "value", stack: "detail",
       header: "Value",
       cell: (r) => (
         <span className="block max-w-xs truncate font-mono text-label text-ink-soft" title={r.value}>
