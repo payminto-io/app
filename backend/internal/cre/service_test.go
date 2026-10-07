@@ -39,6 +39,8 @@ func newPollService(t *testing.T, f *fixture, att *scriptedAttester) (*Service, 
 	return svc, store
 }
 
+func depositScope() CursorScope { return CursorScope{Chain: "test-chain", Kind: KindDepositFinality} }
+
 func (f *fixture) depositRaw(t *testing.T, block uint64, final bool, slot uint64) RawAttestation {
 	t.Helper()
 	it, _ := DepositItemFromSubject(DepositSubject(f.deposit(), f.now))
@@ -56,14 +58,14 @@ func TestPollCursorWaitsForFinality(t *testing.T) {
 	ctx := context.Background()
 	att := &scriptedAttester{next: Cursor{Block: 111}}
 	svc, store := newPollService(t, f, att)
-	_ = store.SetCursor(ctx, KindDepositFinality, Cursor{Block: 90})
+	_ = store.SetCursor(ctx, depositScope(), Cursor{Block: 90})
 	att.raws = []RawAttestation{f.depositRaw(t, 100, true, 1), f.depositRaw(t, 105, false, 2)}
 
 	n, err := svc.Poll(ctx, KindDepositFinality)
 	if n != 1 || !errors.Is(err, ErrUnconfirmed) {
 		t.Fatalf("first pass: recorded %d err %v", n, err)
 	}
-	cur, _ := store.GetCursor(ctx, KindDepositFinality)
+	cur, _ := store.GetCursor(ctx, depositScope())
 	if cur.Block != 105 {
 		t.Fatalf("cursor advanced past an unconfirmed block: %+v", cur)
 	}
@@ -72,7 +74,7 @@ func TestPollCursorWaitsForFinality(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("second pass: recorded %d err %v", n, err)
 	}
-	cur, _ = store.GetCursor(ctx, KindDepositFinality)
+	cur, _ = store.GetCursor(ctx, depositScope())
 	rows, _ := store.ListAttestations(ctx, ProviderChainlink, KindDepositFinality, 10)
 	if cur.Block != 111 || len(rows) != 2 {
 		t.Fatalf("after second pass: cursor %+v rows %d", cur, len(rows))
@@ -85,11 +87,11 @@ func TestPollCursorOnErrorsAndRefusals(t *testing.T) {
 	ctx := context.Background()
 	att := &scriptedAttester{err: errors.New("Post \"https://rpc.example/v2/8f3a1c9d2e7b4a6f5c8d9e0f1a2b3c4d\": timeout")}
 	svc, store := newPollService(t, f, att)
-	_ = store.SetCursor(ctx, KindDepositFinality, Cursor{Block: 90})
+	_ = store.SetCursor(ctx, depositScope(), Cursor{Block: 90})
 	if _, err := svc.Poll(ctx, KindDepositFinality); !errors.Is(err, ErrNotFinal) || IsRejection(err) {
 		t.Fatalf("rpc error must be retryable: %v", err)
 	}
-	if cur, _ := store.GetCursor(ctx, KindDepositFinality); cur.Block != 90 {
+	if cur, _ := store.GetCursor(ctx, depositScope()); cur.Block != 90 {
 		t.Fatalf("cursor moved on an RPC error: %+v", cur)
 	}
 
@@ -100,7 +102,7 @@ func TestPollCursorOnErrorsAndRefusals(t *testing.T) {
 	if n, err := svc.Poll(ctx, KindDepositFinality); err != nil || n != 0 {
 		t.Fatalf("forged pass: %d %v", n, err)
 	}
-	cur, _ := store.GetCursor(ctx, KindDepositFinality)
+	cur, _ := store.GetCursor(ctx, depositScope())
 	rows, _ := store.ListAttestations(ctx, ProviderChainlink, KindDepositFinality, 10)
 	if cur.Block != 111 || len(rows) != 1 || rows[0].Status != StatusFailed || rows[0].SubjectType != "report" {
 		t.Fatalf("refusal not recorded: cursor %+v rows %+v", cur, rows)
@@ -173,5 +175,84 @@ func TestLiabilitiesPublicReadNeverWrites(t *testing.T) {
 	}
 	if _, has := CheckpointJSON(pub, true)["max_journal_id"]; !has {
 		t.Fatal("authenticated body lacks the journal counter")
+	}
+}
+
+// N1: a refusal caused by this gateway's own configuration is retryable: nothing is stored, the cursor stays,
+// and once the binding is corrected the same on-chain report is recorded exactly once.
+func TestPollConfigurationMismatchIsRetryable(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	att := &scriptedAttester{next: Cursor{Block: 111}}
+	svc, store := newPollService(t, f, att)
+	_ = store.SetCursor(ctx, depositScope(), Cursor{Block: 90})
+	raw := f.depositRaw(t, 100, true, 7)
+	att.raws = []RawAttestation{raw}
+
+	good := f.bindings[KindDepositFinality]
+	typo := good
+	typo.Name = KeystoneName("deposit-finaltiy")
+	svc.verifier.Bindings[KindDepositFinality] = typo
+	n, err := svc.Poll(ctx, KindDepositFinality)
+	if n != 0 || !errors.Is(err, ErrWrongName) || IsRejection(err) == false || !IsConfigurationMismatch(err) {
+		t.Fatalf("mistyped binding: recorded %d err %v", n, err)
+	}
+	if cur, _ := store.GetCursor(ctx, depositScope()); cur.Block != 100 {
+		t.Fatalf("cursor passed a configuration refusal: %+v", cur)
+	}
+	if rows, _ := store.ListAttestations(ctx, ProviderChainlink, KindDepositFinality, 10); len(rows) != 0 {
+		t.Fatalf("a configuration refusal stored rows: %+v", rows)
+	}
+	// Clock ahead of the DON beyond tolerance is the same class.
+	svc.verifier.Bindings[KindDepositFinality] = good
+	late := f.now
+	svc.verifier.Now = func() time.Time { return late.Add(-time.Hour) }
+	if _, err := svc.Poll(ctx, KindDepositFinality); !errors.Is(err, ErrClockAhead) || !IsConfigurationMismatch(err) {
+		t.Fatalf("clock: %v", err)
+	}
+	svc.verifier.Now = func() time.Time { return late }
+
+	// Fix the binding, rewind, re-poll: accepted once; a second re-poll is a replay of a stored attestation.
+	_ = store.SetCursor(ctx, depositScope(), Cursor{Block: 90})
+	n, err = svc.Poll(ctx, KindDepositFinality)
+	if err != nil || n != 1 {
+		t.Fatalf("after the fix: recorded %d err %v", n, err)
+	}
+	cur, _ := store.GetCursor(ctx, depositScope())
+	rows, _ := store.ListAttestations(ctx, ProviderChainlink, KindDepositFinality, 10)
+	if cur.Block != 111 || len(rows) != 1 || rows[0].Status != StatusAttested {
+		t.Fatalf("after the fix: cursor %+v rows %+v", cur, rows)
+	}
+	_ = store.SetCursor(ctx, depositScope(), Cursor{Block: 90})
+	if n, err := svc.Poll(ctx, KindDepositFinality); err != nil || n != 0 {
+		t.Fatalf("re-poll of a stored report: %d %v", n, err)
+	}
+	if rows, _ := store.ListAttestations(ctx, ProviderChainlink, KindDepositFinality, 10); len(rows) != 1 {
+		t.Fatal("re-poll duplicated the row")
+	}
+}
+
+// A stored refusal row never counts for replay, and refusals of undecodable calldata are keyed per log.
+func TestRefusalRowsNeverBlockRecording(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	att := &scriptedAttester{next: Cursor{Block: 111}}
+	svc, store := newPollService(t, f, att)
+	_ = store.SetCursor(ctx, depositScope(), Cursor{Block: 90})
+	a := f.depositRaw(t, 100, true, 8)
+	a.Report, a.Evidence.ReportHash = nil, [32]byte{}
+	b := f.depositRaw(t, 101, true, 9)
+	b.Report, b.Evidence.ReportHash, b.Evidence.LogIndex = nil, [32]byte{}, 3
+	att.raws = []RawAttestation{a, b}
+	if n, err := svc.Poll(ctx, KindDepositFinality); err != nil || n != 0 {
+		t.Fatalf("undecodable: %d %v", n, err)
+	}
+	rows, _ := store.ListAttestations(ctx, ProviderChainlink, KindDepositFinality, 10)
+	if len(rows) != 2 || rows[0].SubjectType != "report" || string(rows[0].PayloadHash) == string(rows[1].PayloadHash) {
+		t.Fatalf("refusal rows = %+v", rows)
+	}
+	seen, _ := store.Seen(ctx, ProviderChainlink, PayloadHash(nil))
+	if seen {
+		t.Fatal("a refusal row counted as seen")
 	}
 }

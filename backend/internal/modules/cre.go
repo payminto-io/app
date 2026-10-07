@@ -143,7 +143,7 @@ func WireCRE(deps Deps, opts CREOptions) (*CREModule, error) {
 			workflowIDs[k] = b.ID
 		}
 		attester = chainlink.New(chainlink.Config{
-			GatewayURL: cfg.GatewayURL, WorkflowIDs: workflowIDs, KeyRef: cfg.TriggerSigner, Consumer: sc.ConsumerAddress, GatewayID: sc.GatewayID,
+			GatewayURL: cfg.GatewayURL, WorkflowIDs: workflowIDs, KeyRef: cfg.TriggerSigner, Consumer: sc.ConsumerAddress, GatewayID: sc.GatewayID, StartBlock: cfg.StartBlock,
 		}, opts.Signer, reader)
 	default:
 		return nil, fmt.Errorf("modules: unknown CRE provider %q", provider)

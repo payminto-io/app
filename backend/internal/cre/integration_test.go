@@ -119,18 +119,29 @@ func TestIntegration_SchemaConvergesAndStoreRoundTrips(t *testing.T) {
 	if !ok || run.ExecutionID != "e1" {
 		t.Fatalf("run = %+v", run)
 	}
-	if err := store.SetCursor(ctx, cre.KindSolvency, cre.Cursor{Block: 5, Seq: 9}); err != nil {
+	scope := cre.CursorScope{Chain: "base-sepolia", Consumer: "0x1111", Kind: cre.KindSolvency}
+	if err := store.SetCursor(ctx, scope, cre.Cursor{Block: 5, Seq: 9}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetCursor(ctx, cre.KindSolvency, cre.Cursor{Block: 6, Seq: 10}); err != nil {
+	if err := store.SetCursor(ctx, scope, cre.Cursor{Block: 6, Seq: 10}); err != nil {
 		t.Fatal(err)
 	}
-	cur, _ := store.GetCursor(ctx, cre.KindSolvency)
+	cur, _ := store.GetCursor(ctx, scope)
 	if cur != (cre.Cursor{Block: 6, Seq: 10}) {
 		t.Fatalf("cursor = %+v", cur)
 	}
-	if cur, _ := store.GetCursor(ctx, cre.KindConversionReference); cur != (cre.Cursor{}) {
-		t.Fatalf("fresh cursor = %+v", cur)
+	// A height means nothing on another chain or consumer: those scopes start fresh.
+	if cur, _ := store.GetCursor(ctx, cre.CursorScope{Chain: "base", Consumer: "0x1111", Kind: cre.KindSolvency}); cur != (cre.Cursor{}) {
+		t.Fatalf("other chain cursor = %+v", cur)
+	}
+	if cur, _ := store.GetCursor(ctx, cre.CursorScope{Chain: "base-sepolia", Consumer: "0x2222", Kind: cre.KindSolvency}); cur != (cre.Cursor{}) {
+		t.Fatalf("other consumer cursor = %+v", cur)
+	}
+	// Uniqueness is per provider, like Seen: the same bytes under another provider insert their own row.
+	other := row
+	other.ID, other.Provider = "3e5f7a9b-2c4d-4e6f-8a0b-1c3d5e7f9a1b", cre.ProviderChainlink
+	if ins, err := store.SaveAttestations(ctx, []cre.Attestation{other}); err != nil || len(ins) != 1 {
+		t.Fatalf("other provider insert: %d %v", len(ins), err)
 	}
 }
 

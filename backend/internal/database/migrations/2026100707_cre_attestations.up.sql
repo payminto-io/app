@@ -23,8 +23,8 @@ CREATE TABLE IF NOT EXISTS cre_attestations (
     item jsonb NOT NULL,
     execution_id varchar(128) NOT NULL DEFAULT '',
     item_index smallint NOT NULL DEFAULT 0,
-    -- One row per item per report; a replayed report is refused before it gets here.
-    CONSTRAINT cre_attestations_payload_item_key UNIQUE (payload_hash, item_index)
+    -- One row per item per report per provider; replay (Seen) is scoped the same way.
+    CONSTRAINT cre_attestations_provider_payload_item_key UNIQUE (provider, payload_hash, item_index)
 );
 CREATE INDEX IF NOT EXISTS cre_attestations_kind_subject_idx ON cre_attestations (kind, subject_id);
 CREATE INDEX IF NOT EXISTS cre_attestations_status_recorded_idx ON cre_attestations (status, recorded_at);
@@ -53,9 +53,9 @@ CREATE TABLE IF NOT EXISTS cre_runs (
 );
 CREATE INDEX IF NOT EXISTS cre_runs_kind_started_idx ON cre_runs (kind, started_at DESC);
 
--- Poll position per workflow.
+-- Poll position per chain, consumer contract and workflow: "<chain>/<consumer>/<kind>".
 CREATE TABLE IF NOT EXISTS cre_cursors (
-    kind varchar(32) PRIMARY KEY CHECK (kind IN ('solvency', 'deposit_finality', 'conversion_reference')),
+    scope varchar(192) PRIMARY KEY,
     block_number bigint NOT NULL DEFAULT 0,
     seq bigint NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()

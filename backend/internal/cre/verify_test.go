@@ -254,8 +254,8 @@ func TestVerify_OldReportsRecordAndFutureOnesDoNot(t *testing.T) {
 		t.Fatalf("old report refused: %v", err)
 	}
 	future, _ := EncodeReport(Report{Kind: KindDepositFinality, GatewayID: f.gateway, ObservedAt: f.now.Add(time.Hour), Items: []DepositItem{item}})
-	if _, err := f.verifier(ProviderChainlink).Verify(context.Background(), f.onChain(KindDepositFinality, future)); !errors.Is(err, ErrInvalidReport) {
-		t.Fatalf("future: err = %v", err)
+	if _, err := f.verifier(ProviderChainlink).Verify(context.Background(), f.onChain(KindDepositFinality, future)); !errors.Is(err, ErrClockAhead) || IsRejection(err) {
+		t.Fatalf("future: err = %v (must be retryable, the clock is suspect)", err)
 	}
 }
 
@@ -323,10 +323,10 @@ func TestVerify_SolvencyAndConversionFactsMustMatchWhatWasServed(t *testing.T) {
 		{CheckpointHash: cp.Hash, Asset: LabelKey("USDC.SOLANA"), Liabilities: big.NewInt(101), Reserves: big.NewInt(150), Decimals: 6},
 		{CheckpointHash: cp.Hash, Asset: LabelKey("USDC.SOLANA"), Liabilities: big.NewInt(100), Reserves: big.NewInt(150), Decimals: 2},
 		{CheckpointHash: cp.Hash, Asset: LabelKey("BTC"), Liabilities: big.NewInt(1), Reserves: big.NewInt(1), Decimals: 8},
-		{CheckpointHash: SubjectKey("not-published"), Asset: LabelKey("SOL"), Liabilities: big.NewInt(7), Reserves: big.NewInt(1), Decimals: 9},
+		{CheckpointHash: SubjectKey("not-published"), Asset: LabelKey("ETH"), Liabilities: big.NewInt(7), Reserves: big.NewInt(1), Decimals: 18},
 	}})
 	raw := f.onChain(KindSolvency, sol)
-	raw.Ignored = [][32]byte{LabelKey("SOL")}
+	raw.Ignored = [][32]byte{LabelKey("SOL")} // SOL occurs once: its only item is the superseded one
 	rows, err := f.verifier(ProviderChainlink).Verify(context.Background(), raw)
 	if err != nil || len(rows) != 6 {
 		t.Fatalf("rows = %+v err %v", rows, err)
@@ -411,5 +411,34 @@ func TestVerify_SimulatorIdentityIsSimulatedAndRefusedInLive(t *testing.T) {
 	v2.Live = true
 	if _, err := v2.Verify(context.Background(), f2.onChain(KindDepositFinality, f2.depositReport(t, []DepositItem{f2.confirmedItem(t)}))); !errors.Is(err, ErrSimulated) {
 		t.Fatalf("live simulation forwarder: %v", err)
+	}
+}
+
+// M1: a duplicate asset inside one batch follows the contract: the first item stands, later duplicates are ignored;
+// when the contract ignored every occurrence (stale), all are ignored.
+func TestVerify_DuplicateAssetInOneBatchMatchesTheContract(t *testing.T) {
+	f := newFixture(t)
+	cp := Checkpoint{ID: "cp-1", TakenAt: f.now.Add(-time.Minute), MaxJournalID: 9, Assets: []AssetTotal{{Asset: "USDC", Liabilities: big.NewInt(100), Decimals: 6}}}
+	cp.Hash = CheckpointHash(cp)
+	_ = f.subjects.RememberSubjects(context.Background(), []Subject{CheckpointSubject(cp)})
+	item := SolvencyItem{CheckpointHash: cp.Hash, Asset: LabelKey("USDC"), Liabilities: big.NewInt(100), Reserves: big.NewInt(1), Decimals: 6}
+	report, _ := EncodeReport(Report{Kind: KindSolvency, GatewayID: f.gateway, ObservedAt: f.now, Items: []SolvencyItem{item, item}})
+
+	raw := f.onChain(KindSolvency, report)
+	raw.Ignored = [][32]byte{LabelKey("USDC")} // one SolvencyIgnored: the duplicate
+	rows, err := f.verifier(ProviderChainlink).Verify(context.Background(), raw)
+	if err != nil || rows[0].Status != StatusAttested || rows[1].Status != StatusIgnored {
+		t.Fatalf("one marker: %s/%s err %v", rows[0].Status, rows[1].Status, err)
+	}
+	f.seen = map[string]bool{}
+	raw.Ignored = [][32]byte{LabelKey("USDC"), LabelKey("USDC")} // stale report: both ignored
+	rows, err = f.verifier(ProviderChainlink).Verify(context.Background(), raw)
+	if err != nil || rows[0].Status != StatusIgnored || rows[1].Status != StatusIgnored {
+		t.Fatalf("two markers: %s/%s err %v", rows[0].Status, rows[1].Status, err)
+	}
+	raw.Ignored = nil
+	rows, _ = f.verifier(ProviderChainlink).Verify(context.Background(), raw)
+	if rows[0].Status != StatusAttested || rows[1].Status != StatusAttested {
+		t.Fatalf("no markers: %s/%s", rows[0].Status, rows[1].Status)
 	}
 }

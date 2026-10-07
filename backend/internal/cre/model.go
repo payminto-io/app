@@ -46,7 +46,8 @@ type Store interface {
 	SubjectIndex
 	// SaveAttestations inserts rows and returns only those actually inserted (a concurrent duplicate inserts none).
 	SaveAttestations(ctx context.Context, rows []Attestation) ([]Attestation, error)
-	// Seen is scoped by provider so rows from a previous provider never block the active one.
+	// Seen is scoped by provider so rows from a previous provider never block the active one; refusal rows
+	// (subject_type "report") never count, so a report refused by configuration can still be recorded later.
 	Seen(ctx context.Context, provider string, payloadHash []byte) (bool, error)
 	ListAttestations(ctx context.Context, provider string, kind Kind, limit int) ([]Attestation, error)
 	GetAttestation(ctx context.Context, id string) (Attestation, bool, error)
@@ -55,6 +56,6 @@ type Store interface {
 	LatestSubject(ctx context.Context, kind Kind) (Subject, bool, error)
 	RecordRun(ctx context.Context, run Run) error
 	LatestRun(ctx context.Context, kind Kind) (Run, bool, error)
-	GetCursor(ctx context.Context, kind Kind) (Cursor, error)
-	SetCursor(ctx context.Context, kind Kind, c Cursor) error
+	GetCursor(ctx context.Context, scope CursorScope) (Cursor, error)
+	SetCursor(ctx context.Context, scope CursorScope, c Cursor) error
 }

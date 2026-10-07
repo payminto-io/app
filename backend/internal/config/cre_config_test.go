@@ -28,6 +28,7 @@ func setChainlinkKeys(t *testing.T) {
 	t.Setenv("CRE_TRIGGER_SIGNER", "keyring://cre-trigger")
 	t.Setenv("CRE_PUBLIC_BASE_URL", "https://pay.example.test")
 	t.Setenv("CRE_READ_TOKEN_SOLVENCY", strings.Repeat("s", 64))
+	t.Setenv("CRE_START_BLOCK", "12345")
 }
 
 func liveEnv(t *testing.T) {
@@ -294,5 +295,21 @@ func TestCRE_LiveRefusesSimulatorIdentities(t *testing.T) {
 	cfg, err := Load()
 	if err != nil || !cfg.CRE.ForwarderSimulated {
 		t.Fatalf("development simulate tier refused: %v", err)
+	}
+}
+
+func TestCRE_ChainlinkNeedsAStartBlock(t *testing.T) {
+	clearCRE(t)
+	liveEnv(t)
+	t.Setenv("CRE_ENABLED", "true")
+	t.Setenv("CRE_PROVIDER", "chainlink")
+	setChainlinkKeys(t)
+	t.Setenv("CRE_START_BLOCK", "")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "CRE_START_BLOCK") {
+		t.Fatalf("chainlink without a start block booted in live: %v", err)
+	}
+	t.Setenv("CRE_START_BLOCK", "0")
+	if _, err := Load(); err == nil {
+		t.Fatal("start block 0 accepted")
 	}
 }

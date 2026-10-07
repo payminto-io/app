@@ -296,7 +296,7 @@ func (s *Service) Poll(ctx context.Context, kind Kind) (int, error) {
 	if !s.Enabled() {
 		return 0, ErrDisabled
 	}
-	cursor, err := s.store.GetCursor(ctx, kind)
+	cursor, err := s.store.GetCursor(ctx, s.cursorScope(kind))
 	if err != nil {
 		return 0, err
 	}
@@ -321,6 +321,17 @@ func (s *Service) Poll(ctx context.Context, kind Kind) (int, error) {
 			recorded++
 		case errors.Is(err, ErrReplayed):
 			// Already recorded (a re-read after a partial pass); nothing to do.
+		case s.cfg.Provider == ProviderChainlink && IsConfigurationMismatch(err):
+			// The contract accepted this report under its owner's binding; what disagrees is our CRE_WORKFLOW_*
+			// keys or our clock. Raise it and come back once configuration is fixed; never pass the block.
+			observability.Logger().Error("cre: report refused by this gateway's configuration; fix the binding or clock, the report will be re-read", "kind", kind, "block", raw.Evidence.BlockNumber, "tx", common.Bytes2Hex(raw.Evidence.TxHash), "reason", Sanitize(err.Error()))
+			if raw.Evidence.BlockNumber > 0 && raw.Evidence.BlockNumber < next.Block {
+				next.Block = raw.Evidence.BlockNumber
+			}
+			if err := s.store.SetCursor(ctx, s.cursorScope(kind), next); err != nil {
+				return recorded, err
+			}
+			return recorded, err
 		case IsRejection(err):
 			if s.cfg.Provider == ProviderChainlink {
 				s.recordRefusal(ctx, raw, err)
@@ -333,26 +344,37 @@ func (s *Service) Poll(ctx context.Context, kind Kind) (int, error) {
 			if raw.Evidence.BlockNumber == 0 {
 				next = cursor
 			}
-			if err := s.store.SetCursor(ctx, kind, next); err != nil {
+			if err := s.store.SetCursor(ctx, s.cursorScope(kind), next); err != nil {
 				return recorded, err
 			}
 			return recorded, err
 		}
 	}
 	if next != cursor {
-		if err := s.store.SetCursor(ctx, kind, next); err != nil {
+		if err := s.store.SetCursor(ctx, s.cursorScope(kind), next); err != nil {
 			return recorded, err
 		}
 	}
 	return recorded, nil
 }
 
+// cursorScope keys the poll position by chain, consumer and kind (a height means nothing across chains).
+func (s *Service) cursorScope(kind Kind) CursorScope {
+	consumer := ""
+	if s.cfg.ConsumerAddress != (common.Address{}) {
+		consumer = s.cfg.ConsumerAddress.Hex()
+	}
+	return CursorScope{Chain: s.cfg.Chain, Consumer: consumer, Kind: kind}
+}
+
 // recordRefusal keeps a definitively refused on-chain report visible to operators as a failed row.
 func (s *Service) recordRefusal(ctx context.Context, raw RawAttestation, cause error) {
 	meta, _ := DecodeMetadata(raw.Metadata)
+	// Keyed by transaction and log index, so refusals of undecodable calldata never collapse into one row.
+	key := PayloadHash(append(append([]byte{}, raw.Evidence.TxHash...), byte(raw.Evidence.LogIndex>>24), byte(raw.Evidence.LogIndex>>16), byte(raw.Evidence.LogIndex>>8), byte(raw.Evidence.LogIndex)))
 	row := Attestation{
 		ID: uuid.NewString(), Kind: raw.Kind, SubjectType: "report", SubjectID: "0x" + common.Bytes2Hex(raw.Evidence.TxHash),
-		PayloadHash: PayloadHash(raw.Report), Payload: raw.Report, Chain: s.cfg.Chain, TxHash: raw.Evidence.TxHash, BlockNumber: raw.Evidence.BlockNumber,
+		PayloadHash: key, Payload: raw.Report, Chain: s.cfg.Chain, TxHash: raw.Evidence.TxHash, BlockNumber: raw.Evidence.BlockNumber,
 		WorkflowID: meta.WorkflowID, WorkflowOwner: meta.Owner, ReportID: meta.ReportID, RecordedAt: s.now(), Status: StatusFailed, Provider: s.cfg.Provider,
 		Reason: Sanitize(cause.Error()), Item: map[string]any{"refused": true},
 	}

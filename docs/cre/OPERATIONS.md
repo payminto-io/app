@@ -59,6 +59,7 @@ Every step is yours. No agent or script in this repository logs in, deploys, cre
    CRE_WORKFLOW_NAME_SOLVENCY=solvency                 # the workflow.yaml names; Keystone's name is derived
    CRE_WORKFLOW_NAME_DEPOSIT_FINALITY=deposit-finality
    CRE_WORKFLOW_NAME_CONVERSION_REFERENCE=conversion-reference
+   CRE_START_BLOCK=<consumer deployment block>         # a fresh cursor reads from here, never from the head
    CRE_VERIFY_CONFIRMATIONS=12                         # fallback when the RPC lacks the finalized tag; 0 is refused in live
    CRE_TRIGGER_SIGNER=keyring://cre-trigger
    CRE_PUBLIC_BASE_URL=https://pay.example.com
@@ -86,7 +87,14 @@ Every record, mock or chainlink, passes `verify.go` and mirrors the audited cont
 - every item is matched to a subject the gateway served: a deposit's token, amount and destination must equal what was credited; a solvency item's liabilities and decimals must equal the checkpoint's figures for that asset; a conversion's pair must be the trade's base/quote. A difference is stored as `mismatch` and raised as an anomaly, never shown as attested. A solvency item the contract recorded as superseded (`SolvencyIgnored`) is stored as `ignored`.
 
 A record is `simulated` when its workflow identity is the CRE simulator's fixed identity or `CRE_FORWARDER_SIMULATED=true`; the dashboard labels it and the public page answers `independently_signed: false`. Live refuses both the flag and those identities at boot, and the verifier refuses such a report in live.
-A report refused for a definitive reason (forged, wrong workflow, malformed) is kept as a `failed` row so an operator can see it; the poll cursor then passes it.
+A report refused for a definitive reason (forged, malformed, another gateway's) is kept as a `failed` row, keyed by transaction and log index, so an operator can see it; the poll cursor then passes it. Such rows never count for replay.
+A refusal caused by this gateway's own configuration (a `CRE_WORKFLOW_ID_*`, `CRE_WORKFLOW_OWNER*` or `CRE_WORKFLOW_NAME_*` that disagrees with the contract's binding, or a gateway clock more than five minutes behind the DON) is raised as an error-level anomaly and the cursor stops at that block: fix the key or the clock and the report is recorded on the next poll, exactly once.
+Within one solvency batch a duplicate asset follows the contract: the first item stands, later duplicates are `ignored`.
+The poll cursor is keyed by chain, consumer contract and workflow (`cre_cursors.scope`), so changing `CRE_CHAIN` or `CRE_CONSUMER_ADDRESS` starts a fresh cursor at `CRE_START_BLOCK`.
+
+### The checkpoint watermark
+
+`max_journal_id` is the highest journal id visible to the repeatable-read snapshot that also summed the lines; the hash commits to exactly the lines that snapshot saw. It is a visibility watermark, not a commit watermark: a journal that took a lower id but committed after the snapshot is not in the hashed sum. An auditor replaying a checkpoint must therefore replay the lines of journals with `id <= max_journal_id` that were committed before `taken_at` (the journal row carries `posting_started_at`), not merely `id <= max_journal_id`.
 RPC and provider errors are sanitized (URLs and token-shaped strings stripped) before they reach health, the status page or a log line.
 
 ## Turning it off

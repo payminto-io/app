@@ -12,7 +12,7 @@ if ! command -v cre >/dev/null 2>&1; then
   echo "[cre-simulator] cre CLI not found on PATH; the image build did not install it" >&2
   exit 1
 fi
-cre version || true
+cre version || true  # pinned release, checksum-verified at image build
 
 while true; do
   if [ ! -d "${WORKFLOWS_DIR}" ] || [ -z "$(ls -A "${WORKFLOWS_DIR}" 2>/dev/null)" ]; then

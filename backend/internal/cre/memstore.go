@@ -12,11 +12,11 @@ type MemoryStore struct {
 	rows     []Attestation
 	subjects map[Kind]map[[32]byte]Subject
 	runs     []Run
-	cursors  map[Kind]Cursor
+	cursors  map[string]Cursor
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{subjects: map[Kind]map[[32]byte]Subject{}, cursors: map[Kind]Cursor{}}
+	return &MemoryStore{subjects: map[Kind]map[[32]byte]Subject{}, cursors: map[string]Cursor{}}
 }
 
 var _ Store = (*MemoryStore)(nil)
@@ -46,7 +46,7 @@ func (m *MemoryStore) Seen(_ context.Context, provider string, payloadHash []byt
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range m.rows {
-		if r.Provider == provider && string(r.PayloadHash) == string(payloadHash) {
+		if r.Provider == provider && r.SubjectType != "report" && string(r.PayloadHash) == string(payloadHash) {
 			return true, nil
 		}
 	}
@@ -155,15 +155,15 @@ func (m *MemoryStore) LatestRun(_ context.Context, kind Kind) (Run, bool, error)
 	return Run{}, false, nil
 }
 
-func (m *MemoryStore) GetCursor(_ context.Context, kind Kind) (Cursor, error) {
+func (m *MemoryStore) GetCursor(_ context.Context, scope CursorScope) (Cursor, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.cursors[kind], nil
+	return m.cursors[scope.String()], nil
 }
 
-func (m *MemoryStore) SetCursor(_ context.Context, kind Kind, c Cursor) error {
+func (m *MemoryStore) SetCursor(_ context.Context, scope CursorScope, c Cursor) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.cursors[kind] = c
+	m.cursors[scope.String()] = c
 	return nil
 }

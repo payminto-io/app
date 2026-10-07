@@ -190,7 +190,7 @@ func newHarness(t *testing.T) *harness {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ACCEPTED", "workflow_execution_id": "exec-" + req.Params.Workflow.WorkflowID[:8]})
 	}))
 	t.Cleanup(h.server.Close)
-	h.provider = New(Config{GatewayURL: h.server.URL, WorkflowIDs: h.wfIDs, KeyRef: "keyring://cre-trigger", Consumer: h.consumer, GatewayID: h.gateway, ChunkBlocks: 7}, h.signer, h.chain)
+	h.provider = New(Config{GatewayURL: h.server.URL, WorkflowIDs: h.wfIDs, KeyRef: "keyring://cre-trigger", Consumer: h.consumer, GatewayID: h.gateway, ChunkBlocks: 7, StartBlock: 1}, h.signer, h.chain)
 	return h
 }
 
@@ -414,5 +414,21 @@ func TestForwarderCalldataRoundTrip(t *testing.T) {
 	}
 	if _, _, _, err := DecodeForwarderCall(append([]byte{1, 2, 3, 4}, input[4:]...)); err == nil {
 		t.Fatal("other selector decoded")
+	}
+}
+
+// A fresh cursor reads from the configured start block, so reports delivered before enabling are not skipped.
+func TestPollFreshCursorStartsAtTheStartBlock(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	report, meta := solvencyReport(h, time.Now(), "USDC")
+	h.chain.emit(t, h.consumer, meta, report) // delivered before the module polls for the first time
+	raws, next, err := h.provider.Poll(ctx, cre.KindSolvency, cre.Cursor{})
+	if err != nil || len(raws) != 1 || next.Block != h.chain.head+1 {
+		t.Fatalf("fresh cursor: raws %d next %+v err %v", len(raws), next, err)
+	}
+	unconfigured := New(Config{WorkflowIDs: h.wfIDs, Consumer: h.consumer, GatewayID: h.gateway}, nil, h.chain)
+	if _, _, err := unconfigured.Poll(ctx, cre.KindSolvency, cre.Cursor{}); err == nil {
+		t.Fatal("fresh cursor without CRE_START_BLOCK polled")
 	}
 }

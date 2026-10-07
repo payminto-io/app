@@ -152,6 +152,8 @@ type Config struct {
 	GatewayID   [32]byte
 	// ChunkBlocks bounds one eth_getLogs range; public RPCs often cap it.
 	ChunkBlocks uint64
+	// StartBlock is where a fresh cursor begins (the consumer's deployment block), so pre-enable history is read.
+	StartBlock uint64
 	// TokenTTL is the JWT lifetime; the CRE gateway accepts at most five minutes.
 	TokenTTL time.Duration
 }
@@ -421,8 +423,11 @@ func (p *Provider) Poll(ctx context.Context, kind cre.Kind, cursor cre.Cursor) (
 	}
 	from := cursor.Block
 	if from == 0 {
-		// A fresh cursor starts at the bound: history before the module was turned on is not replayed.
-		return nil, cre.Cursor{Block: bound + 1}, nil
+		// A fresh cursor starts at the configured start block, never at the head: history is read.
+		from = p.cfg.StartBlock
+		if from == 0 {
+			return nil, cursor, fmt.Errorf("%w: CRE_START_BLOCK is not configured", cre.ErrUnsupported)
+		}
 	}
 	if from > bound {
 		return nil, cursor, nil

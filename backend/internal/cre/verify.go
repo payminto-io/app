@@ -97,7 +97,7 @@ func (v *Verifier) Verify(ctx context.Context, raw RawAttestation) ([]Attestatio
 	}
 	now := v.now()
 	if report.ObservedAt.Sub(now) > v.skew() {
-		return nil, fmt.Errorf("%w: observed_at %s is in the future", ErrInvalidReport, report.ObservedAt.Format(time.RFC3339))
+		return nil, fmt.Errorf("%w: observed_at %s, gateway clock %s", ErrClockAhead, report.ObservedAt.Format(time.RFC3339), now.Format(time.RFC3339))
 	}
 	hash := PayloadHash(raw.Report)
 	if v.Seen != nil {
@@ -194,9 +194,23 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 		WorkflowID: meta.WorkflowID, WorkflowOwner: meta.Owner, ReportID: meta.ReportID,
 		ObservedAt: report.ObservedAt, RecordedAt: now, Provider: v.Provider, Simulated: raw.Simulated,
 	}
-	ignored := map[[32]byte]bool{}
+	// SolvencyIgnored markers are consumed per asset from the last occurrence backwards, exactly as the contract
+	// stores the first item for an asset and ignores later duplicates (and ignores all of them when stale).
+	markers := map[[32]byte]int{}
 	for _, k := range raw.Ignored {
-		ignored[k] = true
+		markers[k]++
+	}
+	occurrences := map[[32]byte]int{}
+	if items, ok := report.Items.([]SolvencyItem); ok {
+		for _, it := range items {
+			occurrences[it.Asset]++
+		}
+	}
+	seenAsset := map[[32]byte]int{}
+	ignoredItem := func(asset [32]byte) bool {
+		k := seenAsset[asset]
+		seenAsset[asset]++
+		return k >= occurrences[asset]-markers[asset]
 	}
 	var out []Attestation
 	// check returns (status, reason) for a found subject; attested means every served fact matches.
@@ -217,7 +231,7 @@ func (v *Verifier) rows(ctx context.Context, report Report, meta Metadata, raw R
 		default:
 			row.SubjectID = subject.ID
 			row.Status, row.Reason = check(subject)
-			if row.Status == StatusAttested && ignored[itemKey] {
+			if row.Status == StatusAttested && report.Kind == KindSolvency && ignoredItem(itemKey) {
 				row.Status = StatusIgnored
 				row.Reason = "superseded on chain: a newer snapshot for this asset was already stored"
 			}
@@ -349,6 +363,17 @@ func CheckpointSubject(cp Checkpoint) Subject {
 // IsRejection says whether an error is a definitive verdict on the report (the cursor may pass it).
 func IsRejection(err error) bool {
 	for _, target := range []error{ErrInvalidReport, ErrForged, ErrReplayed, ErrWrongWorkflow, ErrWrongOwner, ErrWrongName, ErrWrongGateway, ErrWrongEmitter, ErrSimulated, ErrDisabled, ErrUnsupported} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsConfigurationMismatch says whether a refusal is the gateway's own configuration or clock disagreeing with a
+// report the contract already accepted under the owner's binding; such a refusal is retryable, not terminal.
+func IsConfigurationMismatch(err error) bool {
+	for _, target := range []error{ErrWrongWorkflow, ErrWrongOwner, ErrWrongName, ErrClockAhead} {
 		if errors.Is(err, target) {
 			return true
 		}

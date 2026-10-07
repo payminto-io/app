@@ -47,6 +47,8 @@ type CREConfig struct {
 	PollInterval          time.Duration
 	VerifyConfirmations   uint64
 
+	// StartBlock is the consumer contract's deployment block; a fresh poll cursor starts there. Required for chainlink.
+	StartBlock uint64
 	// ForwarderSimulated marks CRE_FORWARDER_ADDRESS as a mock or simulation forwarder; refused in live.
 	ForwarderSimulated  bool
 	PublicVerifyEnabled bool
@@ -82,6 +84,10 @@ func loadCRE() (CREConfig, error) {
 		return CREConfig{}, err
 	}
 	forwarderSimulated, err := envBoolStrict("CRE_FORWARDER_SIMULATED", false)
+	if err != nil {
+		return CREConfig{}, err
+	}
+	startBlock, _, err := envUint64Opt("CRE_START_BLOCK")
 	if err != nil {
 		return CREConfig{}, err
 	}
@@ -129,6 +135,7 @@ func loadCRE() (CREConfig, error) {
 		VerifyConfirmations:              confirmations,
 		PublicVerifyEnabled:              publicVerify,
 		ForwarderSimulated:               forwarderSimulated,
+		StartBlock:                       startBlock,
 		PublicBaseURL:                    strings.TrimRight(strings.TrimSpace(envStr("CRE_PUBLIC_BASE_URL", "")), "/"),
 		ReadTokenSolvency:                strings.TrimSpace(envStr("CRE_READ_TOKEN_SOLVENCY", "")),
 		ReadTokenDepositFinality:         strings.TrimSpace(envStr("CRE_READ_TOKEN_DEPOSIT_FINALITY", "")),
@@ -149,6 +156,7 @@ func (c CREConfig) chainlinkMissing() []string {
 		{"CRE_WORKFLOW_ID_CONVERSION_REFERENCE", c.WorkflowIDConversionReference},
 		{"CRE_TRIGGER_SIGNER", c.TriggerSigner},
 		{"CRE_PUBLIC_BASE_URL", c.PublicBaseURL},
+		{"CRE_START_BLOCK", startBlockString(c.StartBlock)},
 	}
 	var missing []string
 	for _, r := range required {
@@ -248,6 +256,13 @@ func envDuration(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a positive duration such as 60s or 1h; got %q", key, raw)
 	}
 	return d, nil
+}
+
+func startBlockString(n uint64) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprint(n)
 }
 
 // minReadTokenLength keeps a workflow credential at 32 bytes of hex or better; it is only ever compared by hash.

@@ -166,6 +166,15 @@ type Cursor struct {
 	Seq   uint64
 }
 
+// CursorScope keys a cursor: a block height means nothing outside one chain, one consumer and one kind.
+type CursorScope struct {
+	Chain    string
+	Consumer string
+	Kind     Kind
+}
+
+func (c CursorScope) String() string { return c.Chain + "/" + c.Consumer + "/" + string(c.Kind) }
+
 // HealthStatus is a coarse provider state for the dashboard.
 type HealthStatus string
 
@@ -194,21 +203,23 @@ type Attester interface {
 }
 
 var (
-	ErrDisabled        = errors.New("cre: attestation module is off")
-	ErrUnsupported     = errors.New("cre: provider does not support this operation")
-	ErrNotFound        = errors.New("cre: not found")
-	ErrUnauthorized    = errors.New("cre: unauthorized")
-	ErrInvalidReport   = errors.New("cre: invalid report")
-	ErrForged          = errors.New("cre: report evidence does not verify")
-	ErrReplayed        = errors.New("cre: report already recorded")
-	ErrWrongWorkflow   = errors.New("cre: report from an unexpected workflow")
-	ErrWrongOwner      = errors.New("cre: report from an unexpected workflow owner")
-	ErrWrongGateway    = errors.New("cre: report for another gateway")
-	ErrWrongEmitter    = errors.New("cre: log emitted by an unexpected contract")
-	ErrUnconfirmed     = errors.New("cre: log is not yet confirmed")
-	ErrStale           = errors.New("cre: report is too old")
-	ErrWrongName       = errors.New("cre: report from an unexpected workflow name")
-	ErrSimulated       = errors.New("cre: simulated attestation refused in live")
+	ErrDisabled      = errors.New("cre: attestation module is off")
+	ErrUnsupported   = errors.New("cre: provider does not support this operation")
+	ErrNotFound      = errors.New("cre: not found")
+	ErrUnauthorized  = errors.New("cre: unauthorized")
+	ErrInvalidReport = errors.New("cre: invalid report")
+	ErrForged        = errors.New("cre: report evidence does not verify")
+	ErrReplayed      = errors.New("cre: report already recorded")
+	ErrWrongWorkflow = errors.New("cre: report from an unexpected workflow")
+	ErrWrongOwner    = errors.New("cre: report from an unexpected workflow owner")
+	ErrWrongGateway  = errors.New("cre: report for another gateway")
+	ErrWrongEmitter  = errors.New("cre: log emitted by an unexpected contract")
+	ErrUnconfirmed   = errors.New("cre: log is not yet confirmed")
+	ErrStale         = errors.New("cre: report is too old")
+	ErrWrongName     = errors.New("cre: report from an unexpected workflow name")
+	ErrSimulated     = errors.New("cre: simulated attestation refused in live")
+	// ErrClockAhead: the DON observed_at is ahead of this gateway's clock beyond tolerance; the clock, not the report, is suspect.
+	ErrClockAhead      = errors.New("cre: report observed_at is ahead of the gateway clock")
 	ErrNotFinal        = errors.New("cre: provider error; retry later")
 	ErrUnknownSubject  = errors.New("cre: report names a subject the gateway never asked about")
 	ErrSubjectMismatch = errors.New("cre: attested facts differ from what the gateway credited")

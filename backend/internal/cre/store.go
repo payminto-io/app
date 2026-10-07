@@ -71,7 +71,7 @@ type runRow struct {
 func (runRow) TableName() string { return "cre_runs" }
 
 type cursorRow struct {
-	Kind        string `gorm:"primaryKey;type:varchar(32)"`
+	Scope       string `gorm:"primaryKey;type:varchar(192)"`
 	BlockNumber int64
 	Seq         int64
 	UpdatedAt   time.Time
@@ -172,7 +172,7 @@ func (s *PostgresStore) SaveAttestations(ctx context.Context, rows []Attestation
 
 func (s *PostgresStore) Seen(ctx context.Context, provider string, payloadHash []byte) (bool, error) {
 	var n int64
-	if err := s.db.WithContext(ctx).Model(&attestationRow{}).Where("provider = ? AND payload_hash = ?", provider, payloadHash).Count(&n).Error; err != nil {
+	if err := s.db.WithContext(ctx).Model(&attestationRow{}).Where("provider = ? AND payload_hash = ? AND subject_type <> ?", provider, payloadHash, "report").Count(&n).Error; err != nil {
 		return false, fmt.Errorf("cre: seen: %w", err)
 	}
 	return n > 0, nil
@@ -296,9 +296,9 @@ func (s *PostgresStore) LatestRun(ctx context.Context, kind Kind) (Run, bool, er
 	return Run{Kind: Kind(r.Kind), Provider: r.Provider, ExecutionID: r.ExecutionID, Status: r.Status, Detail: r.Detail, StartedAt: r.StartedAt.UTC()}, true, nil
 }
 
-func (s *PostgresStore) GetCursor(ctx context.Context, kind Kind) (Cursor, error) {
+func (s *PostgresStore) GetCursor(ctx context.Context, scope CursorScope) (Cursor, error) {
 	var r cursorRow
-	err := s.db.WithContext(ctx).Where("kind = ?", string(kind)).First(&r).Error
+	err := s.db.WithContext(ctx).Where("scope = ?", scope.String()).First(&r).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return Cursor{}, nil
 	}
@@ -308,9 +308,9 @@ func (s *PostgresStore) GetCursor(ctx context.Context, kind Kind) (Cursor, error
 	return Cursor{Block: uint64(r.BlockNumber), Seq: uint64(r.Seq)}, nil
 }
 
-func (s *PostgresStore) SetCursor(ctx context.Context, kind Kind, c Cursor) error {
-	row := cursorRow{Kind: string(kind), BlockNumber: int64(c.Block), Seq: int64(c.Seq), UpdatedAt: time.Now().UTC()}
-	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "kind"}}, DoUpdates: clause.AssignmentColumns([]string{"block_number", "seq", "updated_at"})}).Create(&row).Error
+func (s *PostgresStore) SetCursor(ctx context.Context, scope CursorScope, c Cursor) error {
+	row := cursorRow{Scope: scope.String(), BlockNumber: int64(c.Block), Seq: int64(c.Seq), UpdatedAt: time.Now().UTC()}
+	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "scope"}}, DoUpdates: clause.AssignmentColumns([]string{"block_number", "seq", "updated_at"})}).Create(&row).Error
 	if err != nil {
 		return fmt.Errorf("cre: set cursor: %w", err)
 	}
