@@ -1,0 +1,27 @@
+{
+  "mode": "staging",
+  "schedule": "0 0 * * * *",
+  "authorizedKeys": [],
+  "gateway": {
+    "apiBaseUrl": "http://localhost:8090",
+    "publicBaseUrl": "http://localhost:8090"
+  },
+  "reserves": {
+    "evm": [
+      {
+        "asset": "USDC",
+        "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+        "token": "0x0000000000000000000000000000000000000000",
+        "custodyAddress": "0x0000000000000000000000000000000000000000",
+        "decimals": 6
+      }
+    ],
+    "solana": null,
+    "custodian": null
+  },
+  "attestation": {
+    "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+    "consumerAddress": "0x0000000000000000000000000000000000000000",
+    "gasLimit": "2500000"
+  }
+}

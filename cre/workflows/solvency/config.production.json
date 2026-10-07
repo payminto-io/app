@@ -1,0 +1,31 @@
+{
+  "mode": "production",
+  "schedule": "0 0 * * * *",
+  "authorizedKeys": [],
+  "gateway": {
+    "apiBaseUrl": "https://pay.example.com",
+    "publicBaseUrl": "https://pay.example.com"
+  },
+  "reserves": {
+    "evm": [
+      {
+        "asset": "USDC",
+        "chainSelectorName": "ethereum-mainnet-base-1",
+        "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "custodyAddress": "0x0000000000000000000000000000000000000000",
+        "decimals": 6
+      }
+    ],
+    "solana": {
+      "rpcUrls": ["https://api.mainnet-beta.solana.com", "https://solana-rpc.publicnode.com"],
+      "slotWindow": 1000,
+      "accounts": []
+    },
+    "custodian": null
+  },
+  "attestation": {
+    "chainSelectorName": "ethereum-mainnet-base-1",
+    "consumerAddress": "0x0000000000000000000000000000000000000000",
+    "gasLimit": "2500000"
+  }
+}
