@@ -49,7 +49,12 @@ func (p PaymintoPaymentRecords) Open(_ context.Context, tx *gorm.DB, rec payment
 		return 0, err
 	}
 	invoice := rec.IntentID
-	row := models.PaymentRequest{ReferenceID: rec.IntentID, AmountInUSD: rec.Money.Amount, State: models.PaymentStateOpen, InvoiceID: &invoice, MemberID: member, ExternalPlatformID: platform}
+	expires := rec.ExpiresAt
+	if expires.IsZero() {
+		return 0, fmt.Errorf("payment record for intent %s has no expiry", rec.IntentID)
+	}
+	// expires_at lets Payminto's expiry worker close the OPEN anchor row with the intent instead of leaving it forever.
+	row := models.PaymentRequest{ReferenceID: rec.IntentID, AmountInUSD: rec.Money.Amount, State: models.PaymentStateOpen, InvoiceID: &invoice, ExpiresAt: &expires, MemberID: member, ExternalPlatformID: platform}
 	if err := tx.Create(&row).Error; err != nil {
 		return 0, err
 	}

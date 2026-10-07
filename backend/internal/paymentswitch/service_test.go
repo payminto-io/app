@@ -106,7 +106,12 @@ func (f *flaky) Capture(ctx context.Context, req connectors.CaptureRequest) (con
 	f.mu.Unlock()
 	if gate != nil {
 		close(began)
-		<-gate
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			// The switch's call budget expired: the provider never received the request.
+			return connectors.CaptureResponse{}, ctx.Err()
+		}
 	}
 	return f.Connector.Capture(ctx, req)
 }
@@ -1737,5 +1742,88 @@ func TestEnvironment_RowsCarryTheProcessEnvironmentAndMismatchIsRefused(t *testi
 	f.db.Model(&paymentswitch.IntentRow{}).Where("id = ?", in.ID).Update("environment", environment.Live)
 	if _, err := f.svc.Get(f.ctx, merchant, in.ID); !errors.Is(err, paymentswitch.ErrNotFound) {
 		t.Fatalf("a live row must not exist for a test process, err = %v", err)
+	}
+}
+
+// F2 probe: a capture call that would outlive the lease is cut off by the call budget, the reconciler rolls the
+// claim back after the lease with the connector's word, the merchant's second capture is the only call that
+// reaches the connector: exactly one connector capture call.
+func TestCapture_CallCannotOutliveTheLease(t *testing.T) {
+	f := newFixture(t)
+	reg := connectors.NewRegistry()
+	if err := reg.Register(f.flaky); err != nil {
+		t.Fatal(err)
+	}
+	svc := paymentswitch.New(f.db, reg, paymentswitch.FirstEnabledSelector{Merchants: paymentswitch.StaticMerchantConnectors{mock.Code}, Connectors: reg}, f.ledger,
+		paymentswitch.WithFees(f.fees, &memoryRecords{}), paymentswitch.WithClock(f.clock), paymentswitch.WithLease(300*time.Millisecond), paymentswitch.WithLogger(func(string, ...any) {}))
+	in, err := svc.Create(f.ctx, paymentswitch.CreateCommand{MerchantID: merchant, Money: usd(100), CaptureMethod: connectors.CaptureManual, PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	if err != nil || in.Status != paymentswitch.IntentRequiresCapture {
+		t.Fatalf("create = %+v, %v", in, err)
+	}
+	gate, began := make(chan struct{}), make(chan struct{})
+	f.flaky.mu.Lock()
+	f.flaky.captureGate, f.flaky.captureBegan = gate, began
+	f.flaky.mu.Unlock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{})
+		done <- err
+	}()
+	<-began
+	if err := <-done; err != nil {
+		t.Fatalf("the budgeted call must return as outcome unknown, not an error: %v", err)
+	}
+	v, _ := svc.Get(f.ctx, merchant, in.ID)
+	if v.Attempts[0].Status != paymentswitch.AttemptCaptureInitiated || v.Attempts[0].ErrorCode != paymentswitch.ErrorCodeTimeout {
+		t.Fatalf("after the budget = %+v", v.Attempts[0])
+	}
+	f.advance(3 * time.Minute)
+	rec := paymentswitch.NewReconciler(svc)
+	if _, err := rec.RunOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = svc.Get(f.ctx, merchant, in.ID)
+	if v.Attempts[0].Status != paymentswitch.AttemptAuthorized {
+		t.Fatalf("after the lease the connector's word (authorized) must be applied: %+v", v.Attempts[0])
+	}
+	forty := decimal.NewFromInt(40)
+	close(gate)
+	got, err := svc.Capture(f.ctx, merchant, in.ID, paymentswitch.CaptureCommand{Amount: &forty})
+	if err != nil || got.Status != paymentswitch.IntentPartiallyCaptured {
+		t.Fatalf("second capture = %+v, %v", got, err)
+	}
+	if f.mock.Calls("capture") != 1 {
+		t.Fatalf("connector capture calls = %d, want exactly 1", f.mock.Calls("capture"))
+	}
+	f.wantPayments(1)
+	if !f.get(in.ID).Attempts[0].AmountCaptured.Equal(forty) {
+		t.Fatal("the one call that reached the connector is the one the switch recorded")
+	}
+}
+
+// F1 at unit level: a switch wired to a live guard but a test-environment ledger cannot post, which is why
+// WirePaymentSwitch refuses that pairing; with a ledger bound to the same environment the money posts.
+func TestLedgerEnvironmentMustMatchTheGuard(t *testing.T) {
+	f := newFixture(t)
+	liveGuard, _ := environment.NewGuard(environment.Live)
+	reg := connectors.NewRegistry()
+	if err := reg.Register(mock.New()); err != nil {
+		t.Fatal(err)
+	}
+	selector := paymentswitch.FirstEnabledSelector{Merchants: paymentswitch.StaticMerchantConnectors{mock.Code}, Connectors: reg}
+	liveCtx := environment.WithContext(f.ctx, environment.Live)
+	bare := paymentswitch.New(f.db, reg, selector, ledger.New(f.db), paymentswitch.WithGuard(liveGuard), paymentswitch.WithFees(f.fees, &memoryRecords{}), paymentswitch.WithLogger(func(string, ...any) {}))
+	if _, err := bare.Create(liveCtx, paymentswitch.CreateCommand{MerchantID: merchant, Money: usd(100), PaymentMethod: card(mock.ScenarioSuccess), Confirm: true}); !errors.Is(err, environment.ErrMismatch) {
+		t.Fatalf("bare test ledger under a live guard err = %v, want ErrMismatch (the reviewer's probe)", err)
+	}
+	bound := paymentswitch.New(f.db, reg, selector, ledger.New(f.db, ledger.WithEnvironment(environment.Live), ledger.WithGuard(liveGuard)), paymentswitch.WithGuard(liveGuard), paymentswitch.WithFees(f.fees, &memoryRecords{}), paymentswitch.WithLogger(func(string, ...any) {}))
+	in, err := bound.Create(liveCtx, paymentswitch.CreateCommand{MerchantID: merchant, Money: usd(100), PaymentMethod: card(mock.ScenarioSuccess), Confirm: true})
+	if err != nil || in.Status != paymentswitch.IntentSucceeded || in.Environment != environment.Live {
+		t.Fatalf("bound live ledger = %+v, %v", in, err)
+	}
+	var n int64
+	f.db.Model(&ledger.AccountRow{}).Where("environment = ?", environment.Live).Count(&n)
+	if n == 0 {
+		t.Fatal("the live journal must land in live accounts")
 	}
 }

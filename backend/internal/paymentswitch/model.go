@@ -65,6 +65,7 @@ type IntentRow struct {
 	LastErrorMessage  string                   `gorm:"type:text;not null;default:''"`
 	ConfirmRequested  bool                     `gorm:"not null;default:false"`
 	PaymentRecordID   uint                     `gorm:"not null;default:0"`
+	ExpiresAt         time.Time                `gorm:"not null"`
 	Version           int64                    `gorm:"not null;default:0"`
 	CreatedAt         time.Time                `gorm:"not null"`
 	UpdatedAt         time.Time                `gorm:"not null"`
@@ -196,6 +197,7 @@ func (r IntentRow) toIntent() Intent {
 		NextAction:        nextActionFrom(r.NextAction),
 		LastErrorCode:     r.LastErrorCode,
 		LastErrorMessage:  r.LastErrorMessage,
+		ExpiresAt:         r.ExpiresAt,
 		CreatedAt:         r.CreatedAt,
 		UpdatedAt:         r.UpdatedAt,
 	}

@@ -156,6 +156,7 @@ type Intent struct {
 	NextAction        *connectors.NextAction
 	LastErrorCode     string
 	LastErrorMessage  string
+	ExpiresAt         time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
@@ -283,6 +284,8 @@ type PaymentRecord struct {
 	PlatformID  string
 	Money       Money
 	Description string
+	// ExpiresAt is the intent's expiry; the record carries it so Payminto's expiry worker closes it with the intent.
+	ExpiresAt time.Time
 }
 
 // PaymentRecords opens that row in the intent's creating transaction and returns its id.

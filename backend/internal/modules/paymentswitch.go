@@ -83,7 +83,14 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 	}
 	registry := connectors.NewRegistry()
 	var enabled []connectors.Code
-	for _, raw := range DefaultConnectors(guard.Current(), deps.Config) {
+	codes := DefaultConnectors(guard.Current(), deps.Config)
+	if len(codes) == 0 {
+		// The environment contract: a slot that resolves to nothing is refused in live (test may run without connectors).
+		if err := guard.(*environment.ProcessGuard).RequireProvider(ConnectorsSlot, ""); err != nil {
+			return nil, err
+		}
+	}
+	for _, raw := range codes {
 		code := connectors.Code(strings.ToLower(strings.TrimSpace(raw)))
 		if code == "" || slices.Contains(enabled, code) {
 			continue
@@ -112,6 +119,10 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 		}
 		enabled = append(enabled, code)
 	}
+	// The ledger handle must be bound to the same environment, or every live journal fails after the connector charged (F1).
+	if deps.Ledger.Environment() != guard.Current() {
+		return nil, fmt.Errorf("%w: the switch's ledger is bound to %s but the process is %s", environment.ErrMismatch, deps.Ledger.Environment(), guard.Current())
+	}
 	selector := paymentswitch.FirstEnabledSelector{Merchants: paymentswitch.StaticMerchantConnectors(enabled), Connectors: registry}
 	var opts []paymentswitch.Option
 	if deps.Events != nil {
@@ -126,7 +137,7 @@ func WirePaymentSwitch(deps Deps) (*PaymentSwitchModule, error) {
 	} else if deployment {
 		return nil, fmt.Errorf("modules: paymentswitch needs the fees module in %s", deps.Config.Server.Environment)
 	}
-	opts = append(opts, paymentswitch.WithGuard(guard), paymentswitch.WithLease(deps.Config.Switch.ClaimLease), paymentswitch.WithLateReceiptRetention(deps.Config.Switch.LateReceiptRetention))
+	opts = append(opts, paymentswitch.WithGuard(guard), paymentswitch.WithLease(deps.Config.Switch.ClaimLease), paymentswitch.WithLateReceiptRetention(deps.Config.Switch.LateReceiptRetention), paymentswitch.WithIntentTTL(deps.Config.Switch.IntentTTL))
 	svc := paymentswitch.New(deps.DB, registry, selector, deps.Ledger, opts...)
 	return &PaymentSwitchModule{
 		Service:    svc,

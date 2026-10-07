@@ -38,6 +38,8 @@ type SwitchConfig struct {
 	ClaimLease time.Duration
 	// LateReceiptRetention is how long terminal chain-deposit attempts keep being synced for late money.
 	LateReceiptRetention time.Duration
+	// IntentTTL is how long an unconfirmed intent and its payment record stay open.
+	IntentTTL time.Duration
 }
 
 // FeesConfig holds FEES_* keys; internal/fees/README.md "Configuration" documents them.
@@ -228,6 +230,7 @@ func Load() (*Config, error) {
 			MockWebhookSecret:    envStr("SWITCH_MOCK_WEBHOOK_SECRET", "mock-webhook-secret"),
 			ClaimLease:           envDuration("SWITCH_CLAIM_LEASE", 2*time.Minute),
 			LateReceiptRetention: envDuration("SWITCH_LATE_RECEIPT_RETENTION", 30*24*time.Hour),
+			IntentTTL:            envDuration("SWITCH_INTENT_TTL", 30*time.Minute),
 		},
 		Gateway: GatewayConfig{
 			Environment:      envStr("GATEWAY_ENVIRONMENT", string(environmentpkg.Test)),

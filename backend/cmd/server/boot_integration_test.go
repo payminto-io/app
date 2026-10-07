@@ -264,6 +264,8 @@ func liveProcessEnv(cfg config.DatabaseConfig) map[string]string {
 	env["POSTGRES_ALLOW_INSECURE_LOCAL"] = "true"
 	env["JWT_SECRET"] = "a-strong-jwt-secret-value-with-32-plus-chars"
 	env["BLOCKCHAIN_NETWORK_TYPE"] = "mainnet"
+	// Connectors are a slot: live refuses to boot with none resolved, and never the mock.
+	env["CONNECTORS_PROVIDER"] = "chaindeposit"
 	return env
 }
 

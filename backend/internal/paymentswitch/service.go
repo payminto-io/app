@@ -41,6 +41,7 @@ type Service struct {
 	guard      environment.Guard
 	lease      time.Duration
 	retention  time.Duration
+	intentTTL  time.Duration
 	now        func() time.Time
 	newID      func(prefix string) string
 	logf       func(format string, args ...any)
@@ -49,6 +50,10 @@ type Service struct {
 const (
 	defaultLease     = 2 * time.Minute
 	defaultRetention = 30 * 24 * time.Hour
+	// defaultIntentTTL matches Payminto's payment request window.
+	defaultIntentTTL = 30 * time.Minute
+	// minLease keeps the call budget meaningful: a tenth is the margin, the rest the connector's.
+	minLease = 100 * time.Millisecond
 )
 
 type Option func(*Service)
@@ -75,11 +80,27 @@ func WithFees(f Fees, r PaymentRecords) Option {
 	return func(s *Service) { s.fees, s.records = f, r }
 }
 
-// WithLease sets how long a claimed connector operation is trusted before Sync may roll it back.
+// WithLease sets how long a claimed connector operation is trusted before Sync may roll it back. Every
+// connector call is bounded by the lease minus leaseMargin, so a call can never outlive its own claim (F2).
 func WithLease(d time.Duration) Option {
 	return func(s *Service) {
-		if d > 0 {
+		if d >= minLease {
 			s.lease = d
+		}
+	}
+}
+
+// callContext bounds one connector call so it cannot outlive the claim lease; what the call did after the
+// deadline is unknown and the reconciler resolves it under the same key, never by a second call.
+func (s *Service) callContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, s.lease-s.lease/10)
+}
+
+// WithIntentTTL sets how long an unconfirmed intent, and the payment record it is priced against, stays open.
+func WithIntentTTL(d time.Duration) Option {
+	return func(s *Service) {
+		if d > 0 {
+			s.intentTTL = d
 		}
 	}
 }
@@ -105,6 +126,7 @@ func New(db *gorm.DB, lookup connectors.Lookup, selector ConnectorSelector, ledg
 		events:     NoEvents{},
 		lease:      defaultLease,
 		retention:  defaultRetention,
+		intentTTL:  defaultIntentTTL,
 		now:        func() time.Time { return time.Now().UTC() },
 		newID:      func(prefix string) string { return prefix + "_" + strings.ReplaceAll(uuid.NewString(), "-", "") },
 		logf:       log.Printf,
@@ -298,6 +320,7 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error)
 		ReturnURL:        cmd.ReturnURL,
 		Metadata:         jsonMapOfStrings(cmd.Metadata),
 		ConfirmRequested: cmd.Confirm,
+		ExpiresAt:        now.Add(s.intentTTL),
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -329,7 +352,7 @@ func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Intent, error)
 			return nil
 		}
 		if s.records != nil {
-			id, err := s.records.Open(ctx, tx, PaymentRecord{IntentID: row.ID, MerchantID: row.MerchantID, PlatformID: row.PlatformID, Money: Money{Amount: row.Amount, Asset: row.Asset}, Description: row.Description})
+			id, err := s.records.Open(ctx, tx, PaymentRecord{IntentID: row.ID, MerchantID: row.MerchantID, PlatformID: row.PlatformID, Money: Money{Amount: row.Amount, Asset: row.Asset}, Description: row.Description, ExpiresAt: row.ExpiresAt})
 			if err != nil {
 				return fmt.Errorf("%w: %v", ErrPaymentRecord, err)
 			}

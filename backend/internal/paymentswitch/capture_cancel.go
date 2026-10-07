@@ -112,12 +112,14 @@ func (s *Service) Capture(ctx context.Context, merchantID, intentID string, cmd 
 		return Intent{}, fmt.Errorf("%w: attempt %s is %s, capture needs an authorization", ErrInvalidTransition, attempt.ID, attempt.Status)
 	}
 
-	resp, callErr := conn.Capture(ctx, connectors.CaptureRequest{
+	callCtx, cancelCall := s.callContext(ctx)
+	resp, callErr := conn.Capture(callCtx, connectors.CaptureRequest{
 		AttemptID:              attempt.ID,
 		ConnectorTransactionID: *attempt.ConnectorTransactionID,
 		Money:                  Money{Amount: amount, Asset: attempt.Asset},
 		IdempotencyKey:         attempt.ID + ".capture",
 	})
+	cancelCall()
 	var update attemptUpdate
 	switch {
 	case callErr == nil:
@@ -229,12 +231,14 @@ func (s *Service) Cancel(ctx context.Context, merchantID, intentID string, cmd C
 	if err := s.claimAttempt(ctx, intent, attempt, AttemptVoidInitiated, nil, reason); err != nil {
 		return Intent{}, err
 	}
-	resp, callErr := conn.Void(ctx, connectors.VoidRequest{
+	callCtx, cancelCall := s.callContext(ctx)
+	resp, callErr := conn.Void(callCtx, connectors.VoidRequest{
 		AttemptID:              attempt.ID,
 		ConnectorTransactionID: *attempt.ConnectorTransactionID,
 		Reason:                 cmd.Reason,
 		IdempotencyKey:         attempt.ID + ".void",
 	})
+	cancelCall()
 	var update attemptUpdate
 	switch {
 	case callErr == nil:

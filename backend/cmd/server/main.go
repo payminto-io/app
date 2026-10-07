@@ -14,7 +14,6 @@ import (
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/connectors/chaindeposit"
 	"github.com/payminto/payminto/backend/internal/database"
-	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/observability"
 	"github.com/payminto/payminto/backend/internal/realtime"
@@ -199,7 +198,7 @@ func main() {
 	paymentSwitch, err := modules.WirePaymentSwitch(modules.Deps{
 		DB:           db,
 		Config:       cfg,
-		Ledger:       ledger.New(db),
+		Ledger:       reg.Journal(),
 		ChainDeposit: chaindeposit.NewPaymintoBackend(openPayminto(reg.PaymentService()), reg.PaymentRepo(), reg.DepositRepo(), db),
 		Events:       modules.EmitterEvents{Emitter: reg.EventEmitterService()},
 		Fees:         modules.FeesAdapter{Port: reg.FeesModule().Port},

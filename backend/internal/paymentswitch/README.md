@@ -39,7 +39,7 @@ An unmapped raw status is `ErrUnmappedStatus`, never a guess, and `CheckStatusMa
 ## Flows
 
 Every command is claim, call, apply: an exclusive compare-and-set moves the row into an in-flight status (`started` with a new attempt, `capture_initiated`, `void_initiated`, refund `initiated`; a same-status transition is a conflict), the connector is called outside any transaction, then a second transaction applies the mapped result.
-Every claim takes a lease (`claimed_until = now + SWITCH_CLAIM_LEASE`, default two minutes). A rollback edge (`capture_initiated`/`void_initiated -> authorized`, "the operation never landed") is applied only by the reconciler, only after the lease expired, and only with the connector's word; a merchant's `GET ?sync=true` and webhooks never roll back. A second Capture or Cancel while one is in flight is a conflict; the reconciler resolves the first.
+Every claim takes a lease (`claimed_until = now + SWITCH_CLAIM_LEASE`, default two minutes), and every connector call runs under `context.WithTimeout` of the lease minus a tenth, so a call cannot outlive its own claim: a call cut off by the budget is an unknown outcome the reconciler resolves under the same key, never a second call. A rollback edge (`capture_initiated`/`void_initiated -> authorized`, "the operation never landed") is applied only by the reconciler, only after the lease expired, and only with the connector's word; a merchant's `GET ?sync=true` and webhooks never roll back. A second Capture or Cancel while one is in flight is a conflict; the reconciler resolves the first.
 Two confirms, two captures or two cancels on one intent cannot both win; the loser sees `ErrInvalidTransition`.
 
 Only a typed `connectors.ErrDeclined` is terminal. Any other error is "outcome unknown": the attempt stays in flight with a typed error code and a redacted message (the raw error goes to the transition reason and the log), no new attempt opens, a retry of the same operation re-sends with the same connector idempotency key and amount, and the reconciler resolves it with `Sync`/`SyncRefund`.
@@ -71,7 +71,7 @@ Domain events `switch.payment.succeeded.v1`, `switch.payment.failed.v1` and `swi
 
 ## Environment (ticket 13)
 
-The service is bound to the process environment through `WithGuard` (`environment.Guard`): every write calls `guard.Require(ctx, "")` first (a request tagged for the other environment is `environment.ErrMismatch`), intents, attempts and refunds carry `environment` (`test`/`live`, CHECKed), reads never return the other environment's rows, and every ledger line names the environment.
+The service is bound to the process environment through `WithGuard` (`environment.Guard`), and `WirePaymentSwitch` refuses a ledger handle whose `Environment()` differs from the guard (main passes the registry's guarded `Journal()`): every write calls `guard.Require(ctx, "")` first (a request tagged for the other environment is `environment.ErrMismatch`), intents, attempts and refunds carry `environment` (`test`/`live`, CHECKed), reads never return the other environment's rows, and every ledger line names the environment.
 Connectors are a slot (`environment.KnownSlots` has `connectors`): `WirePaymentSwitch` calls `guard.RequireProvider("connectors", code)` for every enabled code, so a live process refuses `mock` with `environment.ErrProvider` before any registration.
 
 ## Development fee seed
@@ -80,7 +80,7 @@ A fresh install has no fee rule and the switch refuses a confirm without one (`n
 
 ## Config
 
-`SWITCH_CONNECTORS` (unset follows the environment contract: `mock,chaindeposit` in test, `CONNECTORS_PROVIDER` or nothing in live), `SWITCH_MOCK_WEBHOOK_SECRET`, `SWITCH_CLAIM_LEASE` (default `2m`), `SWITCH_LATE_RECEIPT_RETENTION` (default `720h`); see `internal/modules/paymentswitch.go`.
+`SWITCH_CONNECTORS` (unset follows the environment contract: `mock,chaindeposit` in test, `CONNECTORS_PROVIDER` in live; a live process with no connector resolved refuses to boot), `SWITCH_INTENT_TTL` (default `30m`, also the expiry of the Payminto payment record an intent is priced against), `SWITCH_MOCK_WEBHOOK_SECRET`, `SWITCH_CLAIM_LEASE` (default `2m`), `SWITCH_LATE_RECEIPT_RETENTION` (default `720h`); see `internal/modules/paymentswitch.go`.
 The mock refuses to wire in staging and production.
 
 ## Routes

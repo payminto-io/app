@@ -123,11 +123,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: ledger.New(db), LedgerAsset: service.LedgerAssetResolver()})
+	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: ledger.New(db, ledger.WithEnvironment(envModule.Environment), ledger.WithGuard(envModule.Guard)), LedgerAsset: service.LedgerAssetResolver()})
 	if err != nil {
 		log.Fatalf("fees: %v", err)
 	}
-	seeded, err := modules.SeedDevelopmentFeeRules(ctx, envModule.Environment, feesModule.Port, modules.DevFeeMethods(cfg.Switch.Connectors))
+	seeded, err := modules.SeedDevelopmentFeeRules(ctx, envModule.Environment, feesModule.Port, modules.DevFeeMethods(modules.DefaultConnectors(envModule.Environment, cfg)))
 	if err != nil {
 		log.Fatalf("fee seed: %v", err)
 	}

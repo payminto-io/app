@@ -142,7 +142,8 @@ func (s *Service) Refund(ctx context.Context, merchantID, intentID string, cmd R
 // sendRefund calls the connector with the refund's own id as the key and applies the outcome; an unknown outcome
 // leaves the row initiated for the reconciler.
 func (s *Service) sendRefund(ctx context.Context, conn connectors.Connector, row RefundRow, attempt AttemptRow) (Refund, error) {
-	resp, callErr := conn.Refund(ctx, connectors.RefundRequest{
+	callCtx, cancelCall := s.callContext(ctx)
+	resp, callErr := conn.Refund(callCtx, connectors.RefundRequest{
 		RefundID:               row.ID,
 		AttemptID:              attempt.ID,
 		ConnectorTransactionID: *attempt.ConnectorTransactionID,
@@ -150,6 +151,7 @@ func (s *Service) sendRefund(ctx context.Context, conn connectors.Connector, row
 		Reason:                 row.Reason,
 		IdempotencyKey:         row.ID,
 	})
+	cancelCall()
 	var update refundUpdate
 	switch {
 	case callErr == nil:

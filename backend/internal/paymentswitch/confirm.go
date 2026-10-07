@@ -106,7 +106,8 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 		return Intent{}, err
 	}
 
-	resp, callErr := conn.Authorize(ctx, connectors.AuthorizeRequest{
+	callCtx, cancelCall := s.callContext(ctx)
+	resp, callErr := conn.Authorize(callCtx, connectors.AuthorizeRequest{
 		AttemptID:      attempt.ID,
 		IntentID:       intent.ID,
 		MerchantID:     merchantID,
@@ -119,6 +120,7 @@ func (s *Service) Confirm(ctx context.Context, merchantID, intentID string, cmd 
 		IdempotencyKey: attempt.ID,
 		Metadata:       stringMap(intent.Metadata),
 	})
+	cancelCall()
 	update, err := s.authorizeOutcome(sel.Code, resp, callErr)
 	if err != nil {
 		return Intent{}, err

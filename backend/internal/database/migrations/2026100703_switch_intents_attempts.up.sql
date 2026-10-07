@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS switch_payment_intents (
     last_error_message text NOT NULL DEFAULT '',
     confirm_requested boolean NOT NULL DEFAULT false,
     payment_record_id bigint NOT NULL DEFAULT 0,
+    expires_at timestamptz NOT NULL DEFAULT clock_timestamp() + interval '30 minutes',
     version bigint NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
