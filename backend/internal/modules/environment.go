@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/payminto/payminto/backend/internal/environment"
+	"github.com/payminto/payminto/backend/internal/models"
 	"gorm.io/gorm"
 )
 
@@ -19,6 +21,7 @@ type EnvironmentModule struct {
 	databaseHost string
 	testDatabase string
 	allowName    string
+	networkType  string
 }
 
 // WireEnvironment runs the boot gate against the configuration and returns the process guard.
@@ -42,6 +45,7 @@ func WireEnvironment(deps Deps) (*EnvironmentModule, error) {
 		databaseHost: facts.DatabaseHost,
 		testDatabase: facts.TestDatabaseName,
 		allowName:    facts.TestDatabaseAllowName,
+		networkType:  strings.ToLower(strings.TrimSpace(facts.NetworkType)),
 	}, nil
 }
 
@@ -101,42 +105,77 @@ func (m *EnvironmentModule) VerifySchema(ctx context.Context, db *gorm.DB) error
 	return nil
 }
 
-// dataTables are the tables whose rows prove a database already served money before it was stamped.
-var dataTables = []string{"ledger_accounts", "api_keys", "payment_requests"}
+// dataTables are the tables whose rows prove a database already holds merchant or money data; any
+// row in any of them means a process must not decide what the database is. One list, tested.
+var dataTables = []string{
+	"members", "external_platforms", "api_keys",
+	"payment_requests", "deposits", "deposit_addresses", "withdrawals", "sweeps",
+	"wallets", "address_pools", "secrets_vaults",
+	"ledger_accounts", "ledger_journals", "fee_rules",
+}
 
-// Stamp is the last boot step: it records the process environment on an empty, unstamped database.
-// An unstamped database that already holds data is never stamped by a process; only the explicit
-// adoption commands may decide what it is. A stamp that disagrees refuses.
+// DataTables lists the tables Stamp refuses to overlook.
+func DataTables() []string { return append([]string(nil), dataTables...) }
+
+// modeKey is the configurations row the blockchain network mode is stamped under (config.EnforceModeMatch).
+const modeKey = "mode"
+
+// Stamp records the process environment on an empty, unstamped database. An unstamped database that
+// already holds data is never stamped by a process; only the adoption commands decide what it is.
 func (m *EnvironmentModule) Stamp(ctx context.Context, db *gorm.DB) error {
+	return m.Finalize(ctx, db, "")
+}
+
+// Finalize is the last boot step and the first write: in one transaction it checks the network-mode
+// row against networkType (writing it when absent and networkType is set) and stamps an empty,
+// unstamped database. Nothing is written when any check refuses.
+func (m *EnvironmentModule) Finalize(ctx context.Context, db *gorm.DB, networkType string) error {
+	if db == nil {
+		return errors.New("environment: database is nil")
+	}
 	if !db.Migrator().HasTable(&environment.StampRow{}) {
 		return fmt.Errorf("%w: gateway_environment is missing; apply migration 2026100705_environment_isolation", environment.ErrBoot)
 	}
-	stamp, err := m.readStamp(ctx, db)
-	if err != nil {
-		return err
-	}
-	if stamp == m.Environment {
+	networkType = strings.ToLower(strings.TrimSpace(networkType))
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		stamp, err := m.readStamp(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if stamp != "" && stamp != m.Environment {
+			return fmt.Errorf("%w: database is stamped %s, this process is %s", environment.ErrBoot, stamp, m.Environment)
+		}
+		mode, err := readMode(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if networkType != "" && mode != "" && mode != networkType {
+			return fmt.Errorf("%w: network mode mismatch: database is stamped as %q but BLOCKCHAIN_NETWORK_TYPE=%q; redeploy with a fresh database to switch modes", environment.ErrBoot, mode, networkType)
+		}
+		if stamp == "" {
+			name, err := m.reportedDatabaseName(ctx, tx)
+			if err != nil {
+				return err
+			}
+			populated, err := holdsData(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if populated != "" {
+				return fmt.Errorf("%w: database %q holds %s rows but carries no environment stamp; a process never decides what existing data is. Adopt it explicitly: go run ./cmd/migrate adopt-live --confirm-adopt-live=%s (or adopt-test --confirm-adopt-test=%s)", environment.ErrBoot, name, populated, name, name)
+			}
+			row := environment.StampRow{ID: environment.StampID, Environment: m.Environment, StampedAt: time.Now().UTC()}
+			if err := tx.Create(&row).Error; err != nil {
+				return fmt.Errorf("environment: stamp database: %w", err)
+			}
+		}
+		if networkType != "" && mode == "" && tx.Migrator().HasTable(&models.Configuration{}) {
+			if err := tx.Create(&models.Configuration{Key: modeKey, Value: networkType, Category: "system"}).Error; err != nil {
+				return fmt.Errorf("environment: stamp network mode: %w", err)
+			}
+		}
 		return nil
-	}
-	if stamp != "" {
-		return fmt.Errorf("%w: database is stamped %s, this process is %s", environment.ErrBoot, stamp, m.Environment)
-	}
-	name, err := m.reportedDatabaseName(ctx, db)
-	if err != nil {
-		return err
-	}
-	populated, err := holdsData(ctx, db)
-	if err != nil {
-		return err
-	}
-	if populated != "" {
-		return fmt.Errorf("%w: database %q holds %s rows but carries no environment stamp; a process never decides what existing data is. Adopt it explicitly: go run ./cmd/migrate adopt-live --confirm-adopt-live=%s (or adopt-test --confirm-adopt-test=%s)", environment.ErrBoot, name, populated, name, name)
-	}
-	row := environment.StampRow{ID: environment.StampID, Environment: m.Environment, StampedAt: time.Now().UTC()}
-	if err := db.WithContext(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("environment: stamp database: %w", err)
-	}
-	return nil
+	})
 }
 
 // holdsData names the first data table with rows, or "" when every one is empty or absent.
@@ -154,6 +193,22 @@ func holdsData(ctx context.Context, db *gorm.DB) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// readMode returns the stamped network mode, or "" when the configurations table or row is absent.
+func readMode(ctx context.Context, db *gorm.DB) (string, error) {
+	if !db.Migrator().HasTable(&models.Configuration{}) {
+		return "", nil
+	}
+	var row models.Configuration
+	err := db.WithContext(ctx).Where("key = ?", modeKey).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("environment: read network mode: %w", err)
+	}
+	return strings.ToLower(strings.TrimSpace(row.Value)), nil
 }
 
 // adoptionManualStep is what an operator runs when the migration could not hand the relabel function to the ledger owner.
@@ -239,6 +294,16 @@ func (m *EnvironmentModule) AdoptLive(ctx context.Context, db *gorm.DB, confirm 
 		if stamped && (stamp.Environment != environment.Test || stamp.AdoptedFrom != nil) {
 			return fmt.Errorf("%w: database is stamped %s (adopted from %v); adoption happens once", environment.ErrBoot, stamp.Environment, stamp.AdoptedFrom)
 		}
+		mode, err := readMode(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if mode == "" {
+			mode = m.networkType
+		}
+		if mode != "mainnet" {
+			return fmt.Errorf("%w: live money is mainnet; this database's network mode is %q, so its rows are testnet money and cannot be adopted as live", environment.ErrBoot, mode)
+		}
 		if tx.Migrator().HasTable("ledger_accounts") {
 			var counts struct {
 				Accounts int64
@@ -310,6 +375,13 @@ func (m *EnvironmentModule) AdoptTest(ctx context.Context, db *gorm.DB, confirm 
 			return fmt.Errorf("%w: database is already stamped %s; adopt-test is for an unstamped database", environment.ErrBoot, stamp.Environment)
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("environment: read stamp: %w", err)
+		}
+		mode, err := readMode(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if mode == "mainnet" {
+			return fmt.Errorf("%w: this database's network mode is mainnet; its rows are live money and cannot be stamped test", environment.ErrBoot)
 		}
 		row := environment.StampRow{ID: environment.StampID, Environment: environment.Test, StampedAt: time.Now().UTC()}
 		if err := tx.Create(&row).Error; err != nil {

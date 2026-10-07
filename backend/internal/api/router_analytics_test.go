@@ -1,11 +1,11 @@
 package api
 
 import (
-	"github.com/payminto/payminto/backend/internal/environment"
-	"github.com/payminto/payminto/backend/internal/modules"
 	"strings"
 	"testing"
 
+	"github.com/payminto/payminto/backend/internal/environment"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/service"
 )
 

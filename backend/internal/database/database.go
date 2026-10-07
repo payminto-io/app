@@ -48,7 +48,7 @@ func VerifiedDSN(cfg config.DatabaseConfig) (string, error) {
 		return "", fmt.Errorf("database: connection parameters changed when parsed back (host, port, user, password or dbname); refusing to connect")
 	}
 	if len(parsed.RuntimeParams) != 0 {
-		return "", fmt.Errorf("database: connection parameters carry runtime settings %v; refusing to connect", parsed.RuntimeParams)
+		return "", fmt.Errorf("database: connection carries runtime settings %v; they come from PGAPPNAME, PGOPTIONS or a PGSERVICE file in this process environment, which the gateway refuses (unset them; docs/OPERATIONS.md, Environments)", parsed.RuntimeParams)
 	}
 	return dsn, nil
 }

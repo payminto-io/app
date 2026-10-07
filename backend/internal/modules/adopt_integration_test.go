@@ -71,7 +71,7 @@ func TestIntegration_AdoptLiveRelabelsAPopulatedTestDatabaseOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto_prod", databaseHost: cfg.Host, testDatabase: "payminto_test"}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto_prod", databaseHost: cfg.Host, testDatabase: "payminto_test", networkType: "mainnet"}
 	if _, err := live.AdoptLive(ctx, prod, "payminto_test"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "confirm-adopt-live") {
 		t.Fatalf("confirmation naming another database accepted: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestIntegration_RemotePreTicketDatabaseIsRefusedUntilAdoptedLive(t *testing
 	if err := testProc.VerifyDatabase(ctx, db); !environment.IsBootRefusal(err) {
 		t.Fatalf("a test process opened the remote production database: %v", err)
 	}
-	liveProc := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: remote.Host, testDatabase: "payminto_test"}
+	liveProc := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto", databaseHost: remote.Host, testDatabase: "payminto_test", networkType: "mainnet"}
 	if err := liveProc.VerifyDatabase(ctx, db); err != nil {
 		t.Fatalf("live VerifyDatabase on the unstamped database: %v", err)
 	}
@@ -254,5 +254,96 @@ func TestIntegration_RemotePreTicketDatabaseIsRefusedUntilAdoptedLive(t *testing
 	}
 	if err := testProc.VerifyDatabase(ctx, db); !environment.IsBootRefusal(err) {
 		t.Fatalf("test process accepted the adopted live database: %v", err)
+	}
+}
+
+func TestIntegration_AdoptionRefusesTheWrongNetworkMode(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := database.NewTestDB(t)
+	defer cleanup()
+	if _, err := database.ApplyMigrations(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	testLedger := ledger.New(db, ledger.WithEnvironment(environment.Test))
+	amount := decimal.RequireFromString("5")
+	if _, err := testLedger.Post(ctx, ledger.Journal{
+		Kind: ledger.KindPayment, Reference: ledger.Reference{Type: "payment", ID: "p1"}, IdempotencyKey: "p1",
+		Lines: []ledger.Line{
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "hot", Asset: "USDC", Kind: ledger.KindAsset}, Amount: amount},
+			{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: "m1", Asset: "USDC", Kind: ledger.KindLiability}, Amount: amount.Neg()},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.Configuration{Key: "mode", Value: "testnet"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// The container database is named payminto_test; live adoption needs a live-acceptable name, so test
+	// on the mode alone through a module whose policy sees a plain name while Postgres reports the real one.
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto_test", databaseHost: "localhost", testDatabase: "other_test", networkType: "mainnet"}
+	if _, err := live.AdoptLive(ctx, db, "payminto_test"); !environment.IsBootRefusal(err) {
+		t.Fatalf("adopt-live on a *_test name = %v, want refusal", err)
+	}
+	test := &EnvironmentModule{Environment: environment.Test, databaseName: "payminto_test", databaseHost: "localhost", testDatabase: "payminto_test", networkType: "testnet"}
+	db.Model(&models.Configuration{}).Where("key = ?", "mode").Update("value", "mainnet")
+	if _, err := test.AdoptTest(ctx, db, "payminto_test"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "mainnet") {
+		t.Fatalf("adopt-test on a mainnet database = %v, want refusal", err)
+	}
+	var stamps int64
+	db.Model(&environment.StampRow{}).Count(&stamps)
+	if stamps != 0 {
+		t.Fatal("a refused adoption wrote a stamp")
+	}
+	db.Model(&models.Configuration{}).Where("key = ?", "mode").Update("value", "testnet")
+	if _, err := test.AdoptTest(ctx, db, "payminto_test"); err != nil {
+		t.Fatalf("adopt-test on a testnet database: %v", err)
+	}
+}
+
+func TestIntegration_AdoptLiveRefusesATestnetDatabaseWithALiveName(t *testing.T) {
+	ctx := context.Background()
+	cfg, stop := database.NewTestDBConfig(t)
+	defer stop()
+	admin, err := database.Connect(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec(`CREATE DATABASE payminto_prod`).Error; err != nil {
+		t.Fatal(err)
+	}
+	prodCfg := cfg
+	prodCfg.Database = "payminto_prod"
+	prod, err := database.Connect(prodCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(prod); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateExpandSchema(prod); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ApplyMigrations(ctx, prod); err != nil {
+		t.Fatal(err)
+	}
+	if err := prod.Create(&models.Configuration{Key: "mode", Value: "testnet"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	platform := models.ExternalPlatform{Name: "merchant"}
+	if err := prod.Create(&platform).Error; err != nil {
+		t.Fatal(err)
+	}
+	live := &EnvironmentModule{Environment: environment.Live, databaseName: "payminto_prod", databaseHost: cfg.Host, testDatabase: "payminto_test", networkType: "mainnet"}
+	if _, err := live.AdoptLive(ctx, prod, "payminto_prod"); !environment.IsBootRefusal(err) || !strings.Contains(err.Error(), "network mode") {
+		t.Fatalf("adopt-live on a testnet database = %v, want refusal naming the network mode", err)
+	}
+	var stamps int64
+	prod.Model(&environment.StampRow{}).Count(&stamps)
+	if stamps != 0 {
+		t.Fatal("a refused adoption wrote a stamp")
+	}
+	prod.Model(&models.Configuration{}).Where("key = ?", "mode").Update("value", "mainnet")
+	if _, err := live.AdoptLive(ctx, prod, "payminto_prod"); err != nil {
+		t.Fatalf("adopt-live on a mainnet database: %v", err)
 	}
 }

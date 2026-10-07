@@ -144,6 +144,21 @@ that may does so:
 ALTER FUNCTION ledger_adopt_environment(text) OWNER TO ledger_owner;
 GRANT EXECUTE ON FUNCTION ledger_adopt_environment(text) TO <migrator role>;
 ```
+
+Adoption checks the network-mode row (`configurations.mode`, written by the first boot of any
+process): `adopt-live` refuses unless it is `mainnet` (or, when no row exists yet, unless
+`BLOCKCHAIN_NETWORK_TYPE=mainnet`), and `adopt-test` refuses a `mainnet` database. A process
+writes nothing, the mode row included, until every boot check has passed; the stamp and the mode
+row are then written together in one transaction.
+
+The `cmd/migrate up` that stopped at the adoption refusal exited before `--ledger-app-role` ran,
+so after `adopt-live` or `adopt-test` rerun `cmd/migrate up` to narrow the application role; a
+live boot refuses until it is narrowed.
+
+`database.Connect` renders every connection parameter quoted and parses the DSN back; any runtime
+setting the environment adds through `PGAPPNAME`, `PGOPTIONS` or a `PGSERVICE` file is refused with
+a message naming them, so unset those for the gateway's processes.
+
 ### Fee rules
 
 Migration `2026100702` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`, which backs the
