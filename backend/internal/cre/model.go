@@ -1,0 +1,57 @@
+package cre
+
+import (
+	"context"
+	_ "embed"
+	"fmt"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+//go:embed schema.sql
+var schemaSQL string
+
+// SchemaSQL is the DDL; migration 2026100707_cre_attestations repeats it verbatim (schema_test.go).
+func SchemaSQL() string { return schemaSQL }
+
+// Migrate installs the tables for development and test databases; production applies the migration.
+func Migrate(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	if err := db.Exec(schemaSQL).Error; err != nil {
+		return fmt.Errorf("cre: migrate: %w", err)
+	}
+	return nil
+}
+
+// Run is one trigger of a workflow.
+type Run struct {
+	Kind        Kind
+	Provider    string
+	ExecutionID string
+	Status      string
+	Detail      string
+	StartedAt   time.Time
+}
+
+const (
+	RunAccepted = "accepted"
+	RunFailed   = "failed"
+)
+
+// Store is what the service persists through; PostgresStore is the implementation, MemoryStore the test double.
+type Store interface {
+	SubjectIndex
+	SaveAttestations(ctx context.Context, rows []Attestation) error
+	Seen(ctx context.Context, payloadHash []byte) (bool, error)
+	ListAttestations(ctx context.Context, kind Kind, limit int) ([]Attestation, error)
+	GetAttestation(ctx context.Context, id string) (Attestation, bool, error)
+	LatestAttestation(ctx context.Context, kind Kind) (Attestation, bool, error)
+	LatestSubject(ctx context.Context, kind Kind) (Subject, bool, error)
+	RecordRun(ctx context.Context, run Run) error
+	LatestRun(ctx context.Context, kind Kind) (Run, bool, error)
+	GetCursor(ctx context.Context, kind Kind) (Cursor, error)
+	SetCursor(ctx context.Context, kind Kind, c Cursor) error
+}
