@@ -1,4 +1,6 @@
-[
+// Generated from contracts/src/cre/GatewayAttestations.sol with `forge inspect GatewayAttestations abi --json`.
+// Regenerate after any contract change; do not edit by hand.
+export const gatewayAttestationsAbi = [
   {
     "type": "constructor",
     "inputs": [
@@ -1035,3 +1037,6 @@
     "inputs": []
   }
 ]
+ as const;
+
+export type GatewayAttestationsAbi = typeof gatewayAttestationsAbi;
