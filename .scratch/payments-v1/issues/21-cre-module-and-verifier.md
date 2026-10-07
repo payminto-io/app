@@ -1,6 +1,6 @@
 # 21 CRE module: port, service, none and mock providers, verifier, storage, routes
 
-Status: ready-for-agent
+Status: done
 Owner: Chainlink engineer (Fable)
 Blocked by: 01, 20
 
@@ -24,3 +24,5 @@ Unit tests for the verifier reject: wrong emitter, wrong forwarder path (contrac
 ## Comments
 
 Ruling 2026-10-07 (coordinator): unblocked from 11 by moving the settlement gate (`require_attestation_above` enforcement inside settlement) to ticket 21b, blocked by 11. This ticket ships the module, providers none/mock/chainlink, verifier, storage, routes and a `SettlementGate` port with a no-op default.
+
+Done 2026-10-07 (Chainlink engineer, branch `cre-module`): commits c6088c3 (port, codec, verifier), 06a8dd4 (storage, service, providers, conformance), e6f5c8e (merge main, cre as an environment slot), c5346ea (wiring, routes, worker, migration, ledger read), fd599f5 (contract track encoding, ReportAccepted reader, item index). Module per SPEC under `backend/internal/cre/` (README there): port, service, verifier with the six checks plus report-hash and strictly-newer `observedAt` from the contract track, storage (`2026100707_cre_attestations`, one row per report item), providers none/mock/chainlink, conformance suite, routes with per-workflow bearer credentials and payload-hash replay refusal, `SettlementGate` with `NoopGate`, `PolicyMayRequireAttestation()` for 21b. Encoding and ABI follow ticket 22 (`abi/GatewayAttestations.json` byte-identical with `cre-contract`). Signer is a port (`chainlink.Signer`) resolved by key reference; the API process holds no key (config refuses a raw key). Settlement integration moved to 21b per the ruling. Not in this ticket: the signer service implementation (defaults to `UnavailableSigner`, health degrades), custody reserves (`ReserveSource` port, custody implements on merge), switch and conversion sources (ports with empty defaults).
