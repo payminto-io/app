@@ -19,7 +19,7 @@ export function Hero() {
   useMotion(ref, () => {
     const q = gsap.utils.selector(ref);
     const tl = gsap.timeline({ defaults: { ease: EASE_IN } });
-    tl.fromTo(q("[data-hero-line]"), { yPercent: 105 }, { yPercent: 0, duration: 0.9, stagger: 0.08 })
+    tl.fromTo(q("[data-hero-line]"), { y: 0, yPercent: 105 }, { y: 0, yPercent: 0, duration: 0.9, stagger: 0.08, clearProps: "transform" })
       .fromTo(q("[data-hero-in='copy']"), { autoAlpha: 0, y: 16 }, { autoAlpha: 1, y: 0, duration: 0.6, stagger: 0.06 }, 0.3)
       .fromTo(q("[data-hero-in='mark']"), { autoAlpha: 0, y: 24, scale: 0.94 }, { autoAlpha: 1, y: 0, scale: 1, duration: 1 }, 0.2)
       .fromTo(q("[data-hero-in='plane']"), { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.9 }, 0.55)

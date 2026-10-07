@@ -1,12 +1,12 @@
 import Image from "next/image";
 import { Hero } from "./sections/hero";
+import { DemoVideo } from "./sections/demo-video";
 import { Flow } from "./sections/flow";
 import { Solvency } from "./sections/solvency";
 import { Solana } from "./sections/solana";
 import { CopyButton } from "./sections/copy-button";
 import { LINKS } from "./sections/links";
 import { ThemeImage } from "./sections/theme-image";
-import { DemoVideo } from "./sections/demo-video";
 import { PlatformDiagram } from "./sections/platform-diagram";
 
 // Section order: hero, market, flow (pinned), solvency (pinned), solana, screens,
@@ -22,6 +22,7 @@ function Navbar() {
         </a>
         <div className="hidden items-center gap-6 md:flex">
           {[
+            ["Demo", "#demo"],
             ["How it flows", "#flow"],
             ["Solvency", "#solvency"],
             ["Solana", "#solana"],
