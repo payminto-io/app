@@ -1,4 +1,5 @@
 # Go
+backend/bin/
 backend/tmp/
 *.exe
 *.test
@@ -18,6 +19,9 @@ contracts/out/
 .env
 .env.local
 .env.production
+.env.migrate
+# Operator credential files written by cmd/devseed
+.dev-credentials*.json
 *.local.json
 
 # Docker
