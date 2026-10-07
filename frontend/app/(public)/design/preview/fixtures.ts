@@ -213,8 +213,8 @@ const ROUTES: Route[] = [
     pattern: /^\/admin\/referrals\/campaigns$/,
     body: () => ({
       campaigns: [
-        { id: 1, name: "Sample launch offer", description: "First 90 days", rewardType: "percentage", rewardValue: "10", active: true, startsAt: iso(-30 * DAY), endsAt: iso(60 * DAY) },
-        { id: 2, name: "Sample partner bonus", rewardType: "fixed", rewardValue: "25", active: false, startsAt: iso(-120 * DAY), endsAt: iso(-40 * DAY) },
+        { id: 1, name: "Sample launch offer", description: "First 90 days", rewardType: "percentage", rewardValue: "10", currencyCode: "USDC", status: "active", startDate: iso(-30 * DAY), endDate: iso(60 * DAY) },
+        { id: 2, name: "Sample partner bonus", rewardType: "fixed", rewardValue: "25", currencyCode: "USDC", status: "inactive", startDate: iso(-120 * DAY), endDate: iso(-40 * DAY) },
       ],
     }),
     empty: { campaigns: [] },
@@ -245,12 +245,6 @@ const ROUTES: Route[] = [
   { method: "GET", pattern: /^\/webhooks$/, body: () => ({ webhooks }), empty: { webhooks: [] } },
   { method: "GET", pattern: /^\/webhooks\/(\d+)$/, body: (m) => ({ webhook: webhooks.find((w) => String(w.id) === m[1]) ?? webhooks[0] }) },
   { method: "GET", pattern: /^\/webhooks\/(\d+)\/deliveries$/, body: () => ({ deliveries }), empty: { deliveries: [] } },
-  {
-    method: "GET",
-    pattern: /^\/analytics\/sweeps$/,
-    body: () => ({ sweeps: { TotalSweeps: 12, TotalSwept: "14820.5", TotalGas: "0.084213" } }),
-    empty: { sweeps: { TotalSweeps: 0, TotalSwept: "0", TotalGas: "0" } },
-  },
   {
     method: "GET",
     pattern: /^\/recipients$/,
@@ -311,6 +305,21 @@ const ROUTES: Route[] = [
     empty: {
       summary: { TotalPayments: 0, FilledPayments: 0, TotalVolume: "0", TotalSweeps: 0, TotalWithdrawals: 0, ActiveWebhooks: 0 },
     },
+  },
+  {
+    method: "GET",
+    pattern: /^\/analytics\/revenue$/,
+    body: () => ({
+      revenue: [
+        { BlockchainCode: "ETH", CurrencyCode: "USDC", State: "FILLED", TotalAmount: "9120.5", Count: 41 },
+        { BlockchainCode: "TRON", CurrencyCode: "USDT", State: "FILLED", TotalAmount: "6480", Count: 33 },
+        { BlockchainCode: "ETH", CurrencyCode: "USDC", State: "OVER_FILLED", TotalAmount: "260.25", Count: 2 },
+        { BlockchainCode: "BTC", CurrencyCode: "BTC", State: "FILLED", TotalAmount: "0.0412", Count: 6 },
+        { BlockchainCode: "ETH", CurrencyCode: "ETH", State: "FILLED", TotalAmount: "1.85", Count: 4 },
+        { BlockchainCode: "ETH", CurrencyCode: "USDC", State: "OPEN", TotalAmount: "40", Count: 9 },
+      ],
+    }),
+    empty: { revenue: [] },
   },
   {
     method: "GET",
