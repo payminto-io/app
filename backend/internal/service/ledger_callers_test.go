@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/payminto/payminto/backend/internal/ledger"
@@ -164,8 +165,9 @@ func TestBlockchainCurrencyAssetResolver_ResolvesFromTheTableTheIdRefersTo(t *te
 	if err != nil || got.Asset != "ETH.BASE" || got.Native != "ETH.BASE" {
 		t.Fatalf("resolve(eth on base) = %+v, %v", got, err)
 	}
-	if _, err := resolve(f.usdcPoly); err == nil {
-		t.Fatal("a chain without a native row must fail, not guess the gas asset")
+	got, err = resolve(f.usdcPoly)
+	if err != nil || got.Asset != "USDC.POLYGON" || got.Native != "" {
+		t.Fatalf("a chain without a native row resolves the asset and leaves Native empty: %+v, %v", got, err)
 	}
 	if _, err := resolve(999); err == nil {
 		t.Fatal("unknown id must fail")
@@ -288,3 +290,69 @@ func TestLedgerService_RefusesARepositoryItCannotBindToTheTransaction(t *testing
 }
 
 type unbindableRepo struct{ repository.AccountRepository }
+
+func TestWithdrawalWithoutGas_DoesNotNeedANativeRow(t *testing.T) {
+	f := newCallerFixture(t)
+	svc := NewWithdrawalProcessingService(repository.NewWithdrawalRepository(f.db), repository.NewWithdrawRepository(f.db), f.ledgerSvc, nil, nil, nil)
+	w := createPendingWithdrawal(t, f.db)
+	f.db.Model(w).Update("blockchain_currency_id", f.usdcPoly)
+	w.BlockchainCurrencyID = f.usdcPoly
+	if err := svc.Execute(context.Background(), w); err != nil {
+		t.Fatalf("gas-free journal must post although POLYGON has no native row here: %v", err)
+	}
+	_, lines := journalLines(t, f.db, "payminto:withdrawal:"+idStr(w.ID))
+	expectLines(t, lines, []postedLine{
+		{"merchant_balance", ledger.KindLiability, "USDC.POLYGON", w.Amount},
+		{"crypto_assets", ledger.KindAsset, "USDC.POLYGON", w.Amount.Neg()},
+	})
+}
+
+func TestSweepWithGas_FailsWithoutANativeRow(t *testing.T) {
+	f := newCallerFixture(t)
+	svc := NewSweepService(f.db, repository.NewSweepRepository(f.db), repository.NewSweepTransactionRepository(f.db), repository.NewBlockchainRepository(f.db), f.ledgerSvc)
+	sweep, _ := svc.CreateSweep(1)
+	err := svc.MarkCompleted(context.Background(), sweep.ID, decimal.NewFromInt(10), decimal.RequireFromString("0.01"), f.usdcPoly)
+	if err == nil || !strings.Contains(err.Error(), "native") {
+		t.Fatalf("gas on a chain without a native row = %v, want a native-row error", err)
+	}
+}
+
+func TestRecordGasFunding_RefusesAnUnbindableRepository(t *testing.T) {
+	f := newCallerFixture(t)
+	svc := NewInternalBlockchainTransactionService(f.db, unbindableIBTRepo{repository.NewInternalBlockchainTransactionRepository(f.db)}, f.ledgerSvc)
+	if _, err := svc.RecordGasFunding(f.ethBase, "0xfrom", "0xto", decimal.NewFromInt(1), decimal.RequireFromString("0.0004")); err == nil {
+		t.Fatal("an IBT repository outside the transaction must be refused, not run unbound")
+	}
+	if n := count(t, f.db, &models.InternalBlockchainTransaction{}); n != 0 {
+		t.Fatalf("ibt rows = %d, want 0", n)
+	}
+}
+
+type unbindableIBTRepo struct {
+	repository.InternalBlockchainTransactionRepository
+}
+
+func TestReconcile_MatchesCurrencyExactlyNotByPrefix(t *testing.T) {
+	f := newCallerFixture(t)
+	ctx := context.Background()
+	for _, asset := range []string{"USDC.BASE", "USDC.E.AVALANCHE"} {
+		if _, err := f.journal.Post(ctx, ledger.Journal{
+			Kind:           ledger.KindPayment,
+			IdempotencyKey: "credit-" + asset,
+			Lines: []ledger.Line{
+				{Account: ledger.AccountKey{OwnerType: ledger.OwnerPlatform, OwnerID: "crypto_assets", Asset: asset, Kind: ledger.KindAsset}, Amount: decimal.NewFromInt(20)},
+				{Account: ledger.AccountKey{OwnerType: ledger.OwnerMember, OwnerID: "7", Asset: asset, Kind: ledger.KindLiability}, Amount: decimal.NewFromInt(-20)},
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	codeOf := func(uint) (string, error) { return "USDC", nil }
+	drifts, err := f.ledgerSvc.ReconcileStoredBalances(ctx, []models.Account{{MemberID: 7, CurrencyID: 1, Balance: decimal.NewFromInt(20)}}, codeOf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drifts) != 0 {
+		t.Fatalf("USDC.E must not count toward USDC: %+v", drifts)
+	}
+}

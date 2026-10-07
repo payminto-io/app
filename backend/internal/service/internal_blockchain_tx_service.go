@@ -79,11 +79,11 @@ func (s *InternalBlockchainTransactionService) RecordGasFunding(
 
 	ctx := context.Background()
 	txErr := s.db.Transaction(func(tx *gorm.DB) error {
-		repo := s.ibtRepo
-		if binder, ok := repo.(repository.InternalBlockchainTransactionTxBinder); ok {
-			repo = binder.WithTx(tx)
+		binder, ok := s.ibtRepo.(repository.InternalBlockchainTransactionTxBinder)
+		if !ok {
+			return fmt.Errorf("record gas funding: repository %T cannot join the transaction", s.ibtRepo)
 		}
-		if err := repo.Create(ibt); err != nil {
+		if err := binder.WithTx(tx).Create(ibt); err != nil {
 			return fmt.Errorf("record gas funding: create ibt: %w", err)
 		}
 
