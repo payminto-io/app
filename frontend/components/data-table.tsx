@@ -10,7 +10,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { EmptyState, LoadingRows } from "@/components/ui/states"
+import { LoadingRows } from "@/components/ui/states"
+import { TableEmpty } from "@/components/table-empty"
 import { cn } from "@/lib/utils"
 
 export type DataTableColumn<T> = {
@@ -31,6 +32,10 @@ export type DataTableProps<T> = {
   emptyAction?: React.ReactNode
   className?: string
   getRowId?: (row: T, index: number) => string | number
+  /** Server total when the rows are one page of a longer list. */
+  total?: number
+  /** Replaces the result count under the table, e.g. with `Pagination`. */
+  footer?: React.ReactNode
 }
 
 export function DataTable<T>({
@@ -43,6 +48,8 @@ export function DataTable<T>({
   emptyAction,
   className,
   getRowId,
+  total,
+  footer,
 }: DataTableProps<T>) {
   if (loading) {
     return <LoadingRows rows={5} />
@@ -50,10 +57,12 @@ export function DataTable<T>({
 
   if (!rows.length) {
     return (
-      <EmptyState
+      <TableEmpty
+        headers={columns.map((c) => c.header)}
         title={emptyTitle}
         description={emptyDescription}
         action={emptyAction}
+        className={className}
       />
     )
   }
@@ -104,7 +113,7 @@ export function DataTable<T>({
         </TableBody>
       </Table>
       <div className="num border-t border-line px-3 py-2 text-caption text-ink-soft">
-        {rows.length} {rows.length === 1 ? "result" : "results"}
+        {footer ?? `${total ?? rows.length} ${(total ?? rows.length) === 1 ? "result" : "results"}`}
       </div>
     </div>
   )

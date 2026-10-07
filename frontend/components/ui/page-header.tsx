@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 /**
@@ -14,7 +15,7 @@ export function PageHeader({
   children,
   className,
 }: {
-  title: string;
+  title: ReactNode;
   description?: string;
   /** @deprecated use children instead */
   actions?: ReactNode;
@@ -30,9 +31,15 @@ export function PageHeader({
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="inline-flex items-center gap-1.5">
               {i > 0 && <span className="text-ink-faint">/</span>}
-              <span className={cn(i === breadcrumbs.length - 1 && "text-ink")}>
-                {crumb.label}
-              </span>
+              {crumb.href && i < breadcrumbs.length - 1 ? (
+                <Link href={crumb.href} className="tap rounded-xs transition-colors duration-120 hover:text-ink">
+                  {crumb.label}
+                </Link>
+              ) : (
+                <span className={cn("max-w-[24ch] truncate", i === breadcrumbs.length - 1 && "text-ink")}>
+                  {crumb.label}
+                </span>
+              )}
             </span>
           ))}
         </nav>

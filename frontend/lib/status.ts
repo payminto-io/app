@@ -63,3 +63,27 @@ export function statusMeta(status: string): StatusMeta {
     }
   );
 }
+
+/**
+ * Rail position from a payment intent state alone. A paid intent is Received
+ * and Final; Settled is never filled here because the payment API carries no
+ * settlement record yet. Cancelled and failed paint the first open segment
+ * bad; expired stays empty because nothing was lost.
+ */
+export function paymentRail(state: string): { step: 0 | 1 | 2 | 3; failed: boolean } {
+  switch (state.toLowerCase()) {
+    case "confirming":
+    case "partially_filled":
+      return { step: 1, failed: false };
+    case "filled":
+    case "confirmed":
+    case "closed":
+    case "over_filled":
+      return { step: 2, failed: false };
+    case "cancelled":
+    case "failed":
+      return { step: 0, failed: true };
+    default:
+      return { step: 0, failed: false };
+  }
+}
