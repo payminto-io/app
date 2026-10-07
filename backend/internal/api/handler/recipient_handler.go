@@ -101,12 +101,12 @@ func (h *RecipientHandler) CreateRecipient(c *gin.Context) {
 	rec, err := h.recipientSvc.Create(c.Request.Context(), service.CreateRecipientInput{
 		MemberID:           memberID,
 		ExternalPlatformID: platformID,
-		Name:           req.Name,
-		Email:          req.Email,
-		BlockchainCode: req.BlockchainCode,
-		CurrencyCode:   req.CurrencyCode,
-		Address:        req.Address,
-		Memo:           req.Memo,
+		Name:               req.Name,
+		Email:              req.Email,
+		BlockchainCode:     req.BlockchainCode,
+		CurrencyCode:       req.CurrencyCode,
+		Address:            req.Address,
+		Memo:               req.Memo,
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

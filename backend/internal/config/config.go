@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	environmentpkg "github.com/payminto/payminto/backend/internal/environment"
 )
 
 // Config is the top-level configuration struct loaded from environment variables at startup.
@@ -19,6 +21,34 @@ type Config struct {
 	Security   SecurityConfig
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
+	Gateway    GatewayConfig
+	Modules    ModulesConfig
+	Fees       FeesConfig
+}
+
+// FeesConfig holds FEES_* keys; internal/fees/README.md "Configuration" documents them.
+type FeesConfig struct {
+	// SurchargeForbiddenMethods is a comma list of payment methods, "none", or empty for the default (upi).
+	SurchargeForbiddenMethods string
+	// AssetPrecision adds on-chain assets as "CODE:decimals,...".
+	AssetPrecision string
+	// OperatorPlatformID is the only platform allowed to manage fee rules; 0 means unset.
+	OperatorPlatformID uint
+}
+
+// GatewayConfig is the money mode this process serves; see internal/environment.
+type GatewayConfig struct {
+	// Environment is "test" or "live" (GATEWAY_ENVIRONMENT, default test).
+	Environment string
+	// TestDatabaseName (GATEWAY_TEST_DATABASE_NAME) names the one remote database a test process may
+	// open although its name does not end in _test; it must equal current_database() exactly.
+	TestDatabaseName string
+}
+
+// ModulesConfig holds the provider chosen for each slot module (docs/architecture/MODULES.md).
+type ModulesConfig struct {
+	// Providers maps a slot name ("custody") to its provider ("mock", "bitgo"); unset slots are absent.
+	Providers map[string]string
 }
 
 // EmailConfig holds SMTP delivery settings. When Host/From are empty, email
@@ -52,9 +82,11 @@ type ServerConfig struct {
 
 // DatabaseConfig holds PostgreSQL connection parameters.
 type DatabaseConfig struct {
-	Host               string
-	Port               int
-	Database           string
+	Host     string
+	Port     int
+	Database string
+	// TestDatabase is the name reserved for test money; a live process refuses to open it.
+	TestDatabase       string
 	Username           string
 	Password           string
 	SSLMode            string
@@ -119,6 +151,8 @@ type SecurityConfig struct {
 	JWTSecret       string
 	VaultPassphrase string
 	CustodyEnabled  bool
+	// DevKeystore enables the development keystore (DEV_KEYSTORE); live refuses to boot with it.
+	DevKeystore bool
 }
 
 // Load reads all Payminto configuration from environment variables, falling back
@@ -132,7 +166,15 @@ func Load() (*Config, error) {
 	if isDeploymentEnvironment(environment) {
 		defaultSSLMode = "verify-full"
 	}
+	feesOperator, err := envUint("FEES_OPERATOR_PLATFORM_ID")
+	if err != nil {
+		return nil, err
+	}
 	custodyEnabled, err := envBoolStrict("CUSTODY_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	devKeystore, err := envBoolStrict("DEV_KEYSTORE", false)
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +189,7 @@ func Load() (*Config, error) {
 			Host:               envStr("POSTGRES_HOST", "localhost"),
 			Port:               envInt("POSTGRES_PORT", 5432),
 			Database:           envStr("POSTGRES_DATABASE", "payminto"),
+			TestDatabase:       envStr("POSTGRES_TEST_DATABASE", "payminto_test"),
 			Username:           envStr("POSTGRES_USERNAME", "payminto"),
 			Password:           envStr("POSTGRES_PASSWORD", ""),
 			SSLMode:            envStr("POSTGRES_SSL_MODE", defaultSSLMode),
@@ -184,6 +227,7 @@ func Load() (*Config, error) {
 			JWTSecret:       envStr("JWT_SECRET", ""),
 			VaultPassphrase: envStr("VAULT_PASSPHRASE", ""),
 			CustodyEnabled:  custodyEnabled,
+			DevKeystore:     devKeystore,
 		},
 		Email: EmailConfig{
 			SMTPHost: envStr("SMTP_HOST", ""),
@@ -195,6 +239,18 @@ func Load() (*Config, error) {
 		Telemetry: TelemetryConfig{
 			MetricsEnabled: envBool("METRICS_ENABLED", true),
 			SentryDSN:      envStr("SENTRY_DSN", ""),
+		},
+		Gateway: GatewayConfig{
+			Environment:      envStr("GATEWAY_ENVIRONMENT", string(environmentpkg.Test)),
+			TestDatabaseName: strings.TrimSpace(envStr("GATEWAY_TEST_DATABASE_NAME", "")),
+		},
+		Modules: ModulesConfig{
+			Providers: envSlotProviders(),
+		},
+		Fees: FeesConfig{
+			SurchargeForbiddenMethods: envStr("FEES_SURCHARGE_FORBIDDEN_METHODS", ""),
+			AssetPrecision:            envStr("FEES_ASSET_PRECISION", ""),
+			OperatorPlatformID:        feesOperator,
 		},
 	}
 	if err := cfg.validate(); err != nil {
@@ -209,6 +265,26 @@ func (c *Config) validate() error {
 		return err
 	}
 	c.Server.Environment = environment
+
+	gatewayEnv, err := environmentpkg.Parse(c.Gateway.Environment)
+	if err != nil {
+		return fmt.Errorf("GATEWAY_ENVIRONMENT must be test or live; got %q", c.Gateway.Environment)
+	}
+	c.Gateway.Environment = string(gatewayEnv)
+
+	c.Database.Database = strings.TrimSpace(c.Database.Database)
+	c.Database.TestDatabase = strings.TrimSpace(c.Database.TestDatabase)
+	if strings.ContainsAny(c.Gateway.TestDatabaseName, dsnUnsafe) {
+		return fmt.Errorf("GATEWAY_TEST_DATABASE_NAME must be a plain database name; got %q", c.Gateway.TestDatabaseName)
+	}
+	for name, value := range map[string]string{"POSTGRES_DATABASE": c.Database.Database, "POSTGRES_TEST_DATABASE": c.Database.TestDatabase, "POSTGRES_HOST": c.Database.Host, "POSTGRES_USERNAME": c.Database.Username} {
+		if value == "" {
+			return fmt.Errorf("%s must not be empty", name)
+		}
+		if strings.ContainsAny(value, dsnUnsafe) {
+			return fmt.Errorf("%s must not contain whitespace, quotes, backslashes or '='; got %q", name, value)
+		}
+	}
 
 	schemaMode := strings.ToLower(strings.TrimSpace(c.Database.SchemaMode))
 	if schemaMode != SchemaModeValidate && schemaMode != SchemaModeAutoMigrate {
@@ -289,14 +365,65 @@ func isStrongSecret(value string, minimumLength int) bool {
 	return true
 }
 
-// DSN constructs a PostgreSQL DSN string from the DatabaseConfig fields.
+// dsnUnsafe are the characters a connection parameter must never carry: each one would end or
+// escape a keyword/value token and point the process at another database or option.
+const dsnUnsafe = " \t\r\n=\\'\""
+
+// DSN constructs a PostgreSQL keyword/value DSN; every value is quoted so it cannot inject parameters.
 func (d DatabaseConfig) DSN() string {
-	return "host=" + d.Host +
+	return "host=" + dsnValue(d.Host) +
 		" port=" + strconv.Itoa(d.Port) +
-		" user=" + d.Username +
-		" password=" + d.Password +
-		" dbname=" + d.Database +
-		" sslmode=" + d.SSLMode
+		" user=" + dsnValue(d.Username) +
+		" password=" + dsnValue(d.Password) +
+		" dbname=" + dsnValue(d.Database) +
+		" sslmode=" + dsnValue(d.SSLMode)
+}
+
+// dsnValue single-quotes a keyword/value parameter, escaping backslashes and quotes (libpq syntax).
+func dsnValue(v string) string {
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
+}
+
+// envSlotProviders reads <SLOT>_PROVIDER for every slot module; absent slots are left out.
+func envSlotProviders() map[string]string {
+	providers := map[string]string{}
+	for _, slot := range environmentpkg.KnownSlots {
+		if v := strings.TrimSpace(os.Getenv(strings.ToUpper(slot) + "_PROVIDER")); v != "" {
+			providers[slot] = v
+		}
+	}
+	return providers
+}
+
+// BootFacts projects the loaded configuration onto the environment module's boot gate.
+func (c *Config) BootFacts() environmentpkg.BootFacts {
+	return environmentpkg.BootFacts{
+		Environment:                    environmentpkg.Environment(c.Gateway.Environment),
+		DatabaseName:                   c.Database.Database,
+		DatabaseHost:                   c.Database.Host,
+		TestDatabaseName:               c.Database.TestDatabase,
+		TestDatabaseAllowName:          c.Gateway.TestDatabaseName,
+		DevKeystore:                    c.Security.DevKeystore || c.Security.AESKey != "",
+		VaultDevMode:                   c.Security.CustodyEnabled && !isStrongSecret(c.Security.VaultPassphrase, 24),
+		SlotProviders:                  c.Modules.Providers,
+		DatabaseSSLMode:                c.Database.SSLMode,
+		DatabaseInsecureLocalException: c.Database.AllowInsecureLocal,
+		DeploymentHardened:             isDeploymentEnvironment(c.Server.Environment),
+		NetworkType:                    c.Blockchain.NetworkType,
+		JWTSecretWeak:                  isKnownDevSecret(c.Security.JWTSecret) || len(strings.TrimSpace(c.Security.JWTSecret)) < 32,
+	}
+}
+
+// knownDevSecrets are the JWT secrets this repository ships for local stacks; live must never run on them.
+var knownDevSecrets = []string{
+	"payminto-development-jwt-secret-not-for-production",
+	"dev-jwt-secret",
+	"test-secret",
+}
+
+func isKnownDevSecret(value string) bool {
+	value = strings.TrimSpace(value)
+	return slices.Contains(knownDevSecrets, value) || !isStrongSecret(value, 32)
 }
 
 func envStr(key, fallback string) string {
@@ -374,6 +501,22 @@ type ConfigurationReader interface {
 // stamp so subsequent boots have something to compare against.
 //
 // If envMode is empty, this is a no-op (development mode).
+// CheckModeMatch is EnforceModeMatch without the first-boot write: it compares only when the row
+// exists, for tools that must not stamp anything (cmd/migrate before the environment stamp).
+func CheckModeMatch(envMode string, repo ConfigurationReader) error {
+	if envMode == "" {
+		return nil
+	}
+	c, err := repo.Get("mode")
+	if err != nil {
+		return nil
+	}
+	if c != "" && c != envMode {
+		return fmt.Errorf("network mode mismatch: database is stamped as %q but BLOCKCHAIN_NETWORK_TYPE=%q; refusing", c, envMode)
+	}
+	return nil
+}
+
 func EnforceModeMatch(envMode string, repo ConfigurationReader) error {
 	if envMode == "" {
 		return nil
@@ -387,4 +530,17 @@ func EnforceModeMatch(envMode string, repo ConfigurationReader) error {
 		return fmt.Errorf("network mode mismatch: database is stamped as %q but BLOCKCHAIN_NETWORK_TYPE=%q — refusing to start. To switch modes, redeploy with a fresh database", c, envMode)
 	}
 	return nil
+}
+
+// envUint reads an optional positive integer; unset is 0, anything else unparsable is an error.
+func envUint(key string) (uint, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("%s must be a positive integer; got %q", key, raw)
+	}
+	return uint(n), nil
 }

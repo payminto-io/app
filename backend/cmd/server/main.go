@@ -14,6 +14,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/blockchain/solana"
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/database"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/observability"
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/service"
@@ -51,6 +52,12 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
+	// Boot gate: live and test are isolated before a database is even opened (ticket 13).
+	envModule, err := modules.WireEnvironment(modules.Deps{Config: cfg})
+	if err != nil {
+		log.Fatalf("environment: %v", err)
+	}
+
 	observability.Init(cfg.Server.Environment)
 	observability.InitErrorReporting(cfg.Telemetry.SentryDSN, cfg.Server.Environment)
 	defer observability.FlushErrors()
@@ -60,18 +67,31 @@ func main() {
 		log.Fatalf("database: %v", err)
 	}
 
+	// The database itself is the authority: its reported name and stamp are checked before any
+	// schema work, and the stamp is written once the schema is ready.
+	if err := envModule.VerifyDatabase(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
 	if err := database.PrepareSchema(db, cfg.Server.Environment, cfg.Database.SchemaMode); err != nil {
 		log.Fatalf("schema startup: %v", err)
 	}
+	if err := envModule.VerifySchema(context.Background(), db); err != nil {
+		log.Fatalf("environment: %v", err)
+	}
 
-	reg, err := service.NewServiceRegistry(db, nil, cfg)
+	reg, err := service.NewServiceRegistry(db, nil, cfg, service.WithEnvironmentModule(envModule))
 	if err != nil {
 		log.Fatalf("service registry: %v", err)
 	}
 
+	// Every check runs before the first write: the mode row is only read here, and Finalize writes
+	// the environment stamp and the mode row together, in one transaction, only once all gates passed.
 	modeRepo := service.NewConfigRepoAdapter(reg.ConfigurationRepo())
-	if err := config.EnforceModeMatch(cfg.Blockchain.NetworkType, modeRepo); err != nil {
+	if err := config.CheckModeMatch(cfg.Blockchain.NetworkType, modeRepo); err != nil {
 		log.Fatalf("mode enforcement: %v", err)
+	}
+	if err := envModule.Finalize(context.Background(), db, cfg.Blockchain.NetworkType); err != nil {
+		log.Fatalf("environment: %v", err)
 	}
 
 	// Custody is an explicit capability. Config validation guarantees a strong
@@ -103,6 +123,7 @@ func main() {
 	log.Printf("=====================================")
 	log.Printf("  Payminto %s", banner)
 	log.Printf("  Network mode: %s", cfg.Blockchain.NetworkType)
+	log.Printf("  Environment: %s", envModule.Environment)
 	log.Printf("=====================================")
 
 	// Real-time event broker: publishes payment-status changes to connected
@@ -231,6 +252,8 @@ func main() {
 		WalletSvc:            reg.WalletService(),
 		VaultSvc:             reg.SecretsVaultService(),
 		APIKeyRepo:           reg.APIKeyRepo(),
+		Environment:          reg.EnvironmentModule(),
+		Fees:                 reg.FeesModule(),
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)

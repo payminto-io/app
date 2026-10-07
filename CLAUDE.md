@@ -23,6 +23,8 @@ If a task would change one of those three folders, stop: the work belongs here.
 
 ## Rules that outrank the rest
 
+- This machine's Docker also runs other projects (Hyperswitch, originpost, HoppOn). Never run `docker system/container/image/volume prune`, `docker rm`, or stop containers you did not start; if the disk is full, stop and report it.
+
 - Every number shown is a ledger line or a connector or chain receipt. No placeholders, no inferred statuses.
 - No card data on these servers; tokenised or hosted fields only.
 - Live and test are isolated at boot; the development keystore refuses to run live.
@@ -47,5 +49,7 @@ cd backend && go test ./...
 make test-integration   # Postgres testcontainers; fails loudly without Docker
 make smoke-local  # health, CORS, admin and merchant sign-in, core APIs
 ```
+
+Environment: `GATEWAY_ENVIRONMENT=test|live` (default `test`), one per process. A test process needs a database named `*_test` or on a loopback host; a live process refuses the test database, `DEV_KEYSTORE`/`AES_KEY`, any `*_PROVIDER=mock`, a non-hardened `SERVER`, weak `POSTGRES_SSL_MODE` and a non-mainnet network, all before opening a connection (`internal/environment`, `internal/modules/environment.go`). API keys are `sk_test_`/`sk_live_`; the auth middleware answers 401 `api_key_environment_mismatch` to a key from the other environment and `session_environment_mismatch` to a JWT minted by the other one. The database carries a one-row `gateway_environment` stamp that every boot checks and that a process writes only onto an empty database; a pre-ticket database boots only after `cmd/migrate adopt-live` or `adopt-test` (docs/OPERATIONS.md). A remote test database without a `_test` suffix needs `GATEWAY_TEST_DATABASE_NAME`.
 
 Database: `POSTGRES_SCHEMA_MODE` unset means validate only; `auto-migrate` is allowed in development and test only (`internal/database/startup.go`). Integration tests use a Postgres testcontainer behind the `integration` build tag (`internal/database/testdb.go`). Never point tests at a shared database.

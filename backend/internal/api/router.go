@@ -6,6 +6,8 @@ import (
 	"github.com/payminto/payminto/backend/internal/api/middleware"
 	"github.com/payminto/payminto/backend/internal/blockchain"
 	"github.com/payminto/payminto/backend/internal/constants"
+	"github.com/payminto/payminto/backend/internal/environment"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/realtime"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/payminto/payminto/backend/internal/service"
@@ -76,6 +78,20 @@ type RouterConfig struct {
 	// AdapterReg gives handlers read access to chain adapters (e.g. hot-wallet
 	// balance lookups).
 	AdapterReg *blockchain.AdapterRegistry
+
+	// Environment is the process environment module; NewRouter refuses to build without one (ticket 13).
+	Environment *modules.EnvironmentModule
+
+	// Fees is the fee rules module (internal/fees); nil leaves its routes unmounted.
+	Fees *modules.FeesModule
+}
+
+// processEnvironment is the environment every request is tagged with; there is no default.
+func (cfg RouterConfig) processEnvironment() environment.Environment {
+	if cfg.Environment == nil || !cfg.Environment.Environment.Valid() {
+		panic("api: RouterConfig.Environment is not wired; the router never assumes an environment")
+	}
+	return cfg.Environment.Environment
 }
 
 // NewRouter constructs and returns a configured Gin engine.
@@ -83,6 +99,7 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 	r := gin.Default()
 
 	r.Use(middleware.RequestID())
+	r.Use(middleware.Environment(cfg.processEnvironment()))
 	r.Use(middleware.CORS(cfg.AllowedOrigins...))
 
 	// Observability: record per-request metrics and expose the Prometheus
@@ -98,6 +115,11 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 	r.GET("/readyz", healthH.Health)
 
 	v1 := r.Group("/api/v1")
+
+	// ---- v2: environment indicator (session or API key) ----
+	v2 := r.Group("/v2")
+	v2.Use(middleware.JWTOrAPIKey(cfg.AuthSvc))
+	RegisterEnvironmentRoutes(v2, cfg.Environment)
 
 	// ---- Public auth routes ----
 	authH := handler.NewAuthHandler(cfg.AuthSvc, cfg.JWTTokenSvc)
@@ -176,7 +198,7 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 
 		// Merchant-facing API key management — scoped to caller's platform.
 		if cfg.APIKeyRepo != nil {
-			apiKeyH := handler.NewAPIKeyHandler(cfg.APIKeyRepo)
+			apiKeyH := handler.NewAPIKeyHandler(cfg.APIKeyRepo, cfg.processEnvironment())
 			protected.GET("/api-keys", apiKeyH.ListAPIKeys)
 			protected.POST("/api-keys", apiKeyH.CreateAPIKey)
 			protected.POST("/api-keys/:id/revoke", apiKeyH.RevokeAPIKey)
@@ -411,6 +433,15 @@ func NewRouter(cfg RouterConfig) *gin.Engine {
 				mdGrp.POST("/:id/resolve", mdH.Resolve)
 			}
 		}
+	}
+
+	// ---- Fee rules: preview for merchants; management needs a dashboard session and system.admin ----
+	if cfg.Fees != nil && cfg.AuthSvc != nil {
+		auth := FeesAuth{Merchant: middleware.JWTOrAPIKey(cfg.AuthSvc), Session: middleware.JWTAuth(cfg.AuthSvc)}
+		if cfg.MEPRoleSvc != nil {
+			auth.Admin = middleware.RequirePermission(cfg.MEPRoleSvc, "system.admin")
+		}
+		RegisterFeesRoutes(v1, cfg.Fees, auth)
 	}
 
 	return r

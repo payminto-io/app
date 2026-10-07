@@ -1,6 +1,6 @@
 # 02 Versioned fee rules and fee preview
 
-Status: ready-for-agent
+Status: done
 Owner: Backend engineer (Opus)
 Blocked by: 01
 
@@ -17,3 +17,7 @@ Fee rules per method, connector, card type and region; percent, flat, slab, min,
 
 ## Acceptance
 Specificity order tested; slab boundaries tested; min and max clamp; surcharge forbidden where method disallows; snapshot stored on `payment_requests.fee_rule_id/fee_rule_version`; fee lines posted to ledger via ticket 01.
+
+## Comments
+
+- 2026-10-07 (Backend, Opus): done on branch `fees`. Commits `10ad400` (port, Compute, resolution with typed ties), `7fa8d7e` (validation, surcharge policy, preview), `6211723` (fee_rules table, migration `2026100702_fees_rules`, versioning service, payment snapshot, fee journal, integration tests), `30eb457` (WireFees, registry line, `/fees/preview` and `/admin/fee-rules` routes), `acce8ec` (module README). Full report: `.superpowers/fees-report.md`. Deviations: `min`/`max` are `min_fee`/`max_fee`; `tax_percent` added; `RegisterFeesRoutes` takes the admin permission guard as a third argument (import cycle otherwise); `FEES_OPERATOR_PLATFORM_ID` gates rule management because `system.admin` is per platform. `ApplyToPayment` has no caller yet; the switch (05) should call it per attempt.

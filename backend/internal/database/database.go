@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/payminto/payminto/backend/internal/config"
 	"github.com/payminto/payminto/backend/internal/models"
 	"gorm.io/driver/postgres"
@@ -13,8 +14,12 @@ import (
 // Connect opens a PostgreSQL connection using the given DatabaseConfig and configures
 // connection pool limits.
 func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
+	dsn, err := VerifiedDSN(cfg)
+	if err != nil {
+		return nil, err
+	}
 	logLevel := logger.Info
-	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logLevel),
 	})
 	if err != nil {
@@ -29,6 +34,23 @@ func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	sqlDB.SetMaxIdleConns(5)
 
 	return db, nil
+}
+
+// VerifiedDSN renders the keyword/value DSN and parses it back with pgx: every connection field
+// must come out exactly as configured, so no value can smuggle a second dbname, options or sslmode.
+func VerifiedDSN(cfg config.DatabaseConfig) (string, error) {
+	dsn := cfg.DSN()
+	parsed, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return "", fmt.Errorf("database: connection parameters do not form a valid DSN: %w", err)
+	}
+	if parsed.Host != cfg.Host || int(parsed.Port) != cfg.Port || parsed.User != cfg.Username || parsed.Password != cfg.Password || parsed.Database != cfg.Database {
+		return "", fmt.Errorf("database: connection parameters changed when parsed back (host, port, user, password or dbname); refusing to connect")
+	}
+	if len(parsed.RuntimeParams) != 0 {
+		return "", fmt.Errorf("database: connection carries runtime settings %v; they come from PGAPPNAME, PGOPTIONS or a PGSERVICE file in this process environment, which the gateway refuses (unset them; docs/OPERATIONS.md, Environments)", parsed.RuntimeParams)
+	}
+	return dsn, nil
 }
 
 // AutoMigrate runs GORM AutoMigrate for all 73 Payminto models, creating or

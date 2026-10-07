@@ -17,6 +17,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/email/transport"
 	"github.com/payminto/payminto/backend/internal/ledger"
 	"github.com/payminto/payminto/backend/internal/models"
+	"github.com/payminto/payminto/backend/internal/modules"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -123,8 +124,12 @@ type ServiceRegistry struct {
 	// Phase D.6: DepositService
 	depositService *DepositService
 
+	// Modules (docs/architecture/MODULES.md): one field per wired module.
+	environmentModule *modules.EnvironmentModule
+
 	// Phase F: Sweep + ledger services
 	ledgerService               *LedgerService
+	feesModule                  *modules.FeesModule
 	sweepService                *SweepService
 	sweepTransactionService     *SweepTransactionService
 	utxoService                 *UTXOService
@@ -187,7 +192,15 @@ type ServiceRegistry struct {
 //
 // If pass 2 ever fails, return a detailed error so deployment catches the
 // misconfiguration early.
-func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*ServiceRegistry, error) {
+// RegistryOption adjusts construction; main passes the modules it already wired.
+type RegistryOption func(*ServiceRegistry)
+
+// WithEnvironmentModule reuses the module main wired at the boot gate instead of wiring a second one.
+func WithEnvironmentModule(m *modules.EnvironmentModule) RegistryOption {
+	return func(r *ServiceRegistry) { r.environmentModule = m }
+}
+
+func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts ...RegistryOption) (*ServiceRegistry, error) {
 	if db == nil {
 		return nil, fmt.Errorf("service registry: db is nil")
 	}
@@ -200,6 +213,16 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		redis:       rdb,
 		cfg:         cfg,
 		networkType: cfg.Blockchain.NetworkType,
+	}
+
+	for _, opt := range opts {
+		opt(r)
+	}
+	var err error
+	if r.environmentModule == nil {
+		if r.environmentModule, err = modules.WireEnvironment(modules.Deps{Config: cfg, DB: db}); err != nil {
+			return nil, err
+		}
 	}
 
 	// Construct adapter registry and register one adapter per active blockchain.
@@ -313,8 +336,10 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 
 	// Pass 1: construct services (now take repository interfaces).
 	r.authService = NewAuthService(r.memberRepo, r.apiKeyRepo, cfg.Security.JWTSecret)
+	r.authService.SetEnvironment(r.environmentModule.Environment)
 	r.paymentService = NewPaymentService(r.paymentRepo)
 	r.webhookService = NewWebhookService(r.webhookRepo, r.webhookDeliveryLogRepo)
+	r.webhookService.SetEnvironment(r.environmentModule.Environment)
 	r.onrampService = NewOnrampService("", "")
 	r.secretsVaultService = NewSecretsVaultService(r.secretsVaultRepo, r.secretsVaultActivityRepo)
 
@@ -373,7 +398,13 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 	)
 
 	// Phase F.1: LedgerService (depends on accountRepo); dual-writes into internal/ledger
-	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(ledger.New(db), blockchainCurrencyAssetResolver()))
+	journal := ledger.New(db, ledger.WithEnvironment(r.environmentModule.Environment), ledger.WithGuard(r.environmentModule.Guard))
+	r.ledgerService = NewLedgerService(r.accountRepo, WithJournal(journal, blockchainCurrencyAssetResolver()))
+	feesModule, err := modules.WireFees(modules.Deps{DB: db, Config: cfg, Ledger: journal, LedgerAsset: LedgerAssetResolver()})
+	if err != nil {
+		return nil, fmt.Errorf("wire fees: %w", err)
+	}
+	r.feesModule = feesModule
 
 	// Phase F.2: SweepTransactionService (depends on ledgerService)
 	r.sweepTransactionService = NewSweepTransactionService(
@@ -447,9 +478,11 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 		jwtAccessTTL,
 		jwtRefreshTTL,
 	)
+	r.jwtTokenService.SetEnvironment(r.environmentModule.Environment)
 
 	// Phase G.2: OTPService
 	r.otpService = NewOTPService(r.otpRepo)
+	r.otpService.SetEnvironment(r.environmentModule.Environment)
 
 	// Phase G.3: EventEmitterService
 	r.eventEmitterService = NewEventEmitterService(r.eeEventRepo)
@@ -517,6 +550,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 	r.epbcRepo = repository.NewExternalPlatformBlockchainCurrencyRepository(db)
 	r.onramperPaymentsRepo = repository.NewOnramperPaymentsRepository(db)
 	r.externalPlatformService = NewExternalPlatformService(r.externalPlatformRepo, r.apiKeyRepo)
+	r.externalPlatformService.SetEnvironment(r.environmentModule.Environment)
 	r.epbcService = NewExternalPlatformBlockchainCurrencyService(r.epbcRepo)
 	r.missedDepositService = NewMissedDepositService(r.missedDepositRepo)
 	r.onramperPaymentsService = NewOnramperPaymentsService(r.onramperPaymentsRepo, "", "", "")
@@ -559,6 +593,9 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config) (*Se
 
 // NetworkType returns the current boot-mode network (testnet|mainnet).
 func (r *ServiceRegistry) NetworkType() string { return r.networkType }
+
+// FeesModule returns the wired fee rules module.
+func (r *ServiceRegistry) FeesModule() *modules.FeesModule { return r.feesModule }
 
 // DB returns the underlying *gorm.DB for services that need it directly.
 // Should be used sparingly — prefer repositories.
@@ -722,6 +759,15 @@ func blockchainCurrencyAssetResolver() AssetResolver {
 	}
 }
 
+// LedgerAssetResolver exposes the ledger's asset for one blockchain_currencies row to modules that post journals.
+func LedgerAssetResolver() func(tx *gorm.DB, blockchainCurrencyID uint) (string, error) {
+	resolve := blockchainCurrencyAssetResolver()
+	return func(tx *gorm.DB, blockchainCurrencyID uint) (string, error) {
+		a, err := resolve(tx, blockchainCurrencyID)
+		return a.Asset, err
+	}
+}
+
 func chainAsset(currencyCode, blockchainCode string) string {
 	return strings.ToUpper(currencyCode) + "." + strings.ToUpper(blockchainCode)
 }
@@ -753,6 +799,9 @@ func (r *ServiceRegistry) AddressDeploymentRepo() repository.AddressDeploymentRe
 func (r *ServiceRegistry) AccountRepo() repository.AccountRepository { return r.accountRepo }
 
 // ----- Phase F: Service accessors -----
+
+// EnvironmentModule returns the process environment and its guard.
+func (r *ServiceRegistry) EnvironmentModule() *modules.EnvironmentModule { return r.environmentModule }
 
 // LedgerService returns the double-entry ledger facade.
 func (r *ServiceRegistry) LedgerService() *LedgerService { return r.ledgerService }
