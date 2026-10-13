@@ -221,6 +221,7 @@ func main() {
 
 	// Tempo: TIP-20 transferWithMemo payments to one merchant address, found from logs (no block processor).
 	if svc := reg.TempoMemoService(); svc != nil {
+		svc.WithBroker(broker)
 		mgr.Register(worker.NewTempoMemoWatcher(svc, time.Duration(cfg.Tempo.PollIntervalSeconds)*time.Second))
 		log.Printf("[server] registered Tempo memo watcher (merchant=%s)", svc.Merchant().Hex())
 	}

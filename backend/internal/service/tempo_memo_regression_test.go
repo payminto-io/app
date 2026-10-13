@@ -8,6 +8,7 @@ import (
 
 	"github.com/payminto/payminto/backend/internal/blockchain/tempo"
 	"github.com/payminto/payminto/backend/internal/models"
+	"github.com/payminto/payminto/backend/internal/realtime"
 	"gorm.io/gorm"
 )
 
@@ -165,5 +166,56 @@ func TestTempoSweptPartialDepositStillCountsTowardInvoice(t *testing.T) {
 	}
 	if got.State != models.PaymentStateFilled {
 		t.Fatalf("swept partial lost from total: %s", got.State)
+	}
+}
+
+func TestTempoPublishesCommittedPaymentEventAfterRetry(t *testing.T) {
+	reader := &fakeTempoReader{head: 120}
+	svc, db, p := newTempoFixture(t, reader)
+	broker := realtime.NewMemoryBroker()
+	events, unsubscribe := broker.Subscribe(broker.PaymentTopic(p.ReferenceID))
+	defer unsubscribe()
+	svc.WithBroker(broker)
+	reader.transfers = []tempo.MemoTransfer{memoTransfer(p.ReferenceID, tempo.AlphaUSD, tempoMerchant, 2_000_000, "0xe9", 0, 110)}
+	if err := db.Callback().Update().Before("gorm:update").Register("test:tempo-event-payment-failure", func(tx *gorm.DB) {
+		if tx.Statement.Table == "payment_requests" {
+			_ = tx.AddError(errors.New("payment write failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("published rolled-back payment: %+v", event)
+	default:
+	}
+	if err := db.Callback().Update().Remove("test:tempo-event-payment-failure"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-events:
+		if event.State != models.PaymentStateFilled || event.ReferenceID != p.ReferenceID || event.TxID != reader.transfers[0].TxHash.Hex() || event.Confirmations != 1 {
+			t.Fatalf("event=%+v", event)
+		}
+		var got models.PaymentRequest
+		if err := db.First(&got, p.ID).Error; err != nil || got.State != event.State {
+			t.Fatalf("event outran payment commit: %s, %v", got.State, err)
+		}
+	default:
+		t.Fatal("committed Tempo payment did not reach checkout subscriber")
+	}
+	if _, err := svc.PollOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("published duplicate finalization: %+v", event)
+	default:
 	}
 }

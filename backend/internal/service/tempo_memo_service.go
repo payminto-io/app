@@ -82,6 +82,12 @@ func (s *TempoMemoService) Merchant() common.Address { return s.cfg.Merchant }
 // Tokens returns the accepted tokens.
 func (s *TempoMemoService) Tokens() map[common.Address]tempo.Token { return s.tokens }
 
+// WithBroker attaches the checkout event broker during startup, before polling begins.
+func (s *TempoMemoService) WithBroker(broker realtime.Broker) *TempoMemoService {
+	s.broker = broker
+	return s
+}
+
 // PollOnce scans from the cursor to head, credits every verified payment and advances the cursor past
 // the blocks it fully handled. A transient failure (RPC, DB) stops the scan below the failing log's
 // block so the next poll retries it; de-duplication on (tx hash, log index) makes the retry safe.
