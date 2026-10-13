@@ -587,6 +587,7 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 	// a default project for root members and Signin can resolve platformID.
 	r.authService.SetExternalPlatformService(r.externalPlatformService)
 	r.authService.SetMEPRoleRepo(r.memberExternalPlatformRoleRepo)
+	r.authService.SetRoleRepo(r.roleRepo)
 
 	// Phase D: Wire ExternalPlatformService dependencies for wallet auto-init.
 	r.externalPlatformService.SetWalletService(r.walletService)

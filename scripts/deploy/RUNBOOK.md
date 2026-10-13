@@ -39,6 +39,24 @@ Unit and nginx sources are mirrored in `systemd/` and `nginx/` beside this file.
 - `backend/.env.migrate` (mode 600) — the privileged migration role's overrides.
   Sourced *after* `.env` only when running `cmd/migrate`; never by the server.
 
+## Public URLs the backend mints
+
+`CHECKOUT_BASE_URL` must be set in `backend/.env`. A published payment link's
+URL is `<base>/l/<short code>`, and the variable defaults to
+`http://localhost:3002`, so leaving it unset makes every link a merchant
+shares unusable while the API still answers 200. It is set to
+`https://checkout.payminto.io` here.
+
+## Taking a crypto payment end to end
+
+`POST /api/v2/public/links/:code/pay` fails with `payment_creation_failed`
+(502) until the merchant has a wallet for the chain family: the handler looks
+up `wallets` by `(member_id, blockchain_family_id)` and a crypto payment has no
+deposit address without one. Wallet derivation lives behind
+`CUSTODY_ENABLED=true`, which additionally needs a `VAULT_PASSPHRASE` of at
+least 24 non-placeholder characters from a secrets manager. With custody off
+the link renders and the checkout page loads, but no payment can be created.
+
 ## Database roles
 
 The staging boot gate requires that the server's role cannot rewrite the ledger,
@@ -112,6 +130,33 @@ clicks; the mp4 above is the direct-download fallback. The poster deliberately
 lives in `landing/public/demo/` and **not** in `/media/`: `next/image` optimises
 local paths by fetching them from the Next server, which does not serve the nginx
 alias, so a `/media/` poster would 404 through the optimiser.
+
+## Chainlink CRE demo (local, proven)
+
+`scripts/deploy/cre-demo-local.sh` reproduces the solvency attestation end to
+end on a local Anvil. Verified 2026-10-13: tx
+`0xa7ab8b4d28e3622c711b613fb53c8f4fc0eba472ff0dfcea8572a678e8fb62f1` at block
+548, `status=attested`, `provider=chainlink`, USD 125000 owed against 130000
+held. The consumer lands at `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9`, the
+address the track write-up quotes, because the deploy order is deterministic.
+
+Three things that are easy to get wrong:
+
+- **It cannot run on the live gateway.** `SERVER=staging` refuses a simulated
+  forwarder, so the demo needs its own development-mode process (`:8097`,
+  database `payminto_cre_test`, `backend/.env.cre-local`).
+- **`CRE_START_BLOCK` is required for the chainlink provider.** Without it the
+  module degrades to the mock provider; `GET /api/v1/cre/status` reports exactly
+  that in `degraded_from` and `missing_keys`, which is how to diagnose it.
+- **Decimals must match the ledger, not the token.** Switch intents price in
+  USD and a USD liability carries 2 decimals, so the stack's 6-decimal mock
+  token cannot back it; the script deploys a 2-decimal reserve token.
+
+The attestation is labelled `simulated: true` and `independently_signed: false`
+because the report goes through the mock forwarder. It proves the workflow's
+bytes satisfy the audited consumer and the gateway's verifier; it does not prove
+DON consensus. A genuinely signed attestation needs `cre account access`
+granted — `cre whoami` currently reports `Deploy Access: Not enabled`.
 
 ## TLS
 

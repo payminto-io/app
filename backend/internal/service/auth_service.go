@@ -23,6 +23,7 @@ type AuthService struct {
 	memberRepo   repository.MemberRepository
 	apiKeyRepo   repository.APIKeyRepository
 	mepRoleRepo  repository.MemberExternalPlatformRoleRepository
+	roleRepo     repository.RoleRepository
 	jwtTokenSvc  *JWTTokenService
 	platformSvc  *ExternalPlatformService
 	eventEmitter *EventEmitterService
@@ -65,6 +66,9 @@ func (s *AuthService) SetExternalPlatformService(svc *ExternalPlatformService) {
 
 // SetMEPRoleRepo injects the member-external-platform-role repository for
 // assigning the root role on signup and resolving platforms on signin.
+// SetRoleRepo supplies the role catalogue so signup can resolve a role by name.
+func (s *AuthService) SetRoleRepo(repo repository.RoleRepository) { s.roleRepo = repo }
+
 func (s *AuthService) SetMEPRoleRepo(repo repository.MemberExternalPlatformRoleRepository) {
 	s.mepRoleRepo = repo
 }
@@ -283,6 +287,30 @@ func (s *AuthService) ValidateAPIKey(key string) (*models.APIKey, error) {
 // Signup creates a new member account, hashes the password, generates a token
 // pair, and emits a welcome email event. If a root member already exists for the
 // platform, the new member is created as type "internal".
+// ownerRoleName is the widest role in migrations/seeds/*/9005_seed_rbac.sql.
+// Note it is a role name, a different namespace from Member.MemberType ("root").
+const ownerRoleName = "owner"
+
+// assignOwnerRole grants the member every permission on the platform it just
+// created. The role is resolved by name: role ids are seed-order, not contract.
+func (s *AuthService) assignOwnerRole(memberID, platformID uint) error {
+	if s.mepRoleRepo == nil {
+		return errors.New("role assignment repository is not configured")
+	}
+	if s.roleRepo == nil {
+		return errors.New("role catalogue is not configured")
+	}
+	role, err := s.roleRepo.GetByName(ownerRoleName)
+	if err != nil {
+		return fmt.Errorf("look up %q role: %w", ownerRoleName, err)
+	}
+	return s.mepRoleRepo.Assign(&models.MemberExternalPlatformRole{
+		MemberID:           memberID,
+		ExternalPlatformID: platformID,
+		RoleID:             role.ID,
+	})
+}
+
 func (s *AuthService) Signup(emailAddr, password, name string) (*models.Member, *TokenPair, error) {
 	// Check whether a root member already exists.
 	count, err := s.memberRepo.Count()
@@ -311,30 +339,27 @@ func (s *AuthService) Signup(emailAddr, password, name string) (*models.Member, 
 		return nil, nil, fmt.Errorf("create member: %w", err)
 	}
 
-	// For root members: auto-create a default ExternalPlatform ("Default Project")
-	// and assign the root role. This ensures the JWT carries a valid platformID
-	// so payment/withdrawal APIs work immediately after signup.
+	// Every self-signup owns its own platform. The JWT carries that platformID,
+	// and the merchant APIs are scoped by it, so a member created without one
+	// signs in to an account that cannot create a payment or a link. Only the
+	// first member is `root` (the install owner); the rest are ordinary
+	// merchants, and they need a platform just the same.
+	platformName := strings.TrimSpace(name)
+	if platformName == "" {
+		platformName = "Default Project"
+	}
 	var platformID uint
-	if memberType == "root" && s.platformSvc != nil {
+	if s.platformSvc != nil {
 		platform, _, err := s.platformSvc.Create(ExternalPlatformInput{
 			MemberID: member.ID,
-			Name:     "Default Project",
-			Website:  "https://payminto.local",
+			Name:     platformName,
 		})
 		if err != nil {
-			log.Printf("[AuthService] Signup: auto-create platform for root member %d: %v", member.ID, err)
+			log.Printf("[AuthService] Signup: auto-create platform for member %d: %v", member.ID, err)
 		} else {
 			platformID = platform.ID
-			// Assign root role to the member on this platform.
-			if s.mepRoleRepo != nil {
-				rootRole := &models.MemberExternalPlatformRole{
-					MemberID:           member.ID,
-					ExternalPlatformID: platform.ID,
-					RoleID:             1, // root role (seeded as ID 1)
-				}
-				if err := s.mepRoleRepo.Assign(rootRole); err != nil {
-					log.Printf("[AuthService] Signup: assign root role for member %d platform %d: %v", member.ID, platform.ID, err)
-				}
+			if err := s.assignOwnerRole(member.ID, platform.ID); err != nil {
+				log.Printf("[AuthService] Signup: assign owner role for member %d platform %d: %v", member.ID, platform.ID, err)
 			}
 		}
 	}
