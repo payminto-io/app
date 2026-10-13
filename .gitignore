@@ -20,6 +20,7 @@ contracts/out/
 .env.local
 .env.production
 .env.migrate
+.env.cre-local
 # Operator credential files written by cmd/devseed
 .dev-credentials*.json
 *.local.json
