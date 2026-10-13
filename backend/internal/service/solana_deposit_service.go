@@ -813,41 +813,12 @@ func switchOwnsPayment(tx *gorm.DB, paymentRequestID *uint) (bool, error) {
 	return n > 0, nil
 }
 
-// finalize marks the deposit confirmed (from pending, confirming or a revived failed) and, in the same
-// transaction, posts the payment journal unless the switch owns the payment; then finalizes the payment.
+// finalize marks the deposit confirmed and posts its journal (finalizeDeposit), then flags money that
+// arrived for a payment that already closed.
 func (s *SolanaDepositService) finalize(ctx context.Context, d *models.Deposit) (bool, error) {
-	won := false
-	post := func(tx *gorm.DB) error {
-		res := tx.Model(&models.Deposit{}).
-			Where("id = ? AND status IN ?", d.ID, []string{models.DepositStatusPending, models.DepositStatusConfirming, models.DepositStatusFailed}).
-			Updates(map[string]any{"confirmations": d.RequiredConfirmations, "status": models.DepositStatusConfirmed})
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 0 {
-			return nil
-		}
-		won = true
-		if s.ledger == nil {
-			return nil
-		}
-		owned, err := switchOwnsPayment(tx, d.PaymentRequestID)
-		if err != nil || owned {
-			return err
-		}
-		return s.ledger.RecordDepositIn(ctx, tx, d.ID, d.BlockchainCurrencyID, d.Amount)
-	}
-	var err error
-	if s.ledger != nil {
-		err = s.ledger.InTransaction(ctx, post)
-	} else {
-		err = s.db.WithContext(ctx).Transaction(post)
-	}
-	if err != nil {
-		return false, fmt.Errorf("finalize deposit %d: %w", d.ID, err)
-	}
-	if !won {
-		return false, nil
+	won, err := finalizeDeposit(ctx, s.db, s.ledger, d)
+	if err != nil || !won {
+		return false, err
 	}
 	state := models.PaymentStateFilled
 	if d.PaymentRequestID != nil {

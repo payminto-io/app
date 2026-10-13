@@ -32,3 +32,14 @@ INSERT INTO blockchain_currencies (blockchain_id, currency_id, address, standard
   ((SELECT id FROM blockchains WHERE code='SOLANA'), (SELECT id FROM currencies WHERE code='USDC'), '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', 'SPL',    'USDC', 'SOLANA', true,  true,  true,  6, 0.01, NOW(), NOW()),
   ((SELECT id FROM blockchains WHERE code='SOLANA'), (SELECT id FROM currencies WHERE code='USDT'), '',                                             'SPL',    'USDT', 'SOLANA', false, false, false, 6, 0.01, NOW(), NOW())
 ON CONFLICT DO NOTHING;
+
+-- Tempo Moderato TIP-20 test stablecoins (6 decimals), asset codes PATHUSD.TEMPO and ALPHAUSD.TEMPO.
+INSERT INTO currencies (name, code, type, visible, deposit_enabled, withdrawal_enabled, wallet_precision, base_precision, created_at, updated_at) VALUES
+  ('pathUSD',  'PATHUSD',  'token', true, true, false, 6, 6, NOW(), NOW()),
+  ('AlphaUSD', 'ALPHAUSD', 'token', true, true, false, 6, 6, NOW(), NOW())
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO blockchain_currencies (blockchain_id, currency_id, address, standard, currency_code, blockchain_code, deposit_enabled, withdrawal_enabled, visible, wallet_precision, created_at, updated_at) VALUES
+  ((SELECT id FROM blockchains WHERE code='TEMPO'), (SELECT id FROM currencies WHERE code='PATHUSD'),  '0x20c0000000000000000000000000000000000000', 'TIP20', 'PATHUSD',  'TEMPO', true, false, true, 6, NOW(), NOW()),
+  ((SELECT id FROM blockchains WHERE code='TEMPO'), (SELECT id FROM currencies WHERE code='ALPHAUSD'), '0x20c0000000000000000000000000000000000001', 'TIP20', 'ALPHAUSD', 'TEMPO', true, false, true, 6, NOW(), NOW())
+ON CONFLICT DO NOTHING;

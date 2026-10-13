@@ -23,3 +23,14 @@ INSERT INTO blockchains (code, name, family, client, blockchain_family_id, min_c
   ('SOLANA', 'Solana Devnet', 'SOL_Family', 'solana-rpc', (SELECT id FROM blockchain_families WHERE code='sol'), 32, 0, 'active', 'https://explorer.solana.com/address/{address}?cluster=devnet', 'https://explorer.solana.com/tx/{tx}?cluster=devnet', NULL, NOW(), NOW())
 ON CONFLICT (code) DO NOTHING;
 UPDATE blockchains SET family = 'SOL_Family' WHERE code = 'SOLANA' AND (family IS NULL OR family = '');
+
+-- Tempo Moderato testnet (chain 42431). Payments are TIP-20 transferWithMemo calls to one merchant
+-- address, found from logs by the Tempo memo watcher (no adapter, no block processor, no RPC node row:
+-- TEMPO_RPC_URL configures the endpoint). Finality is deterministic, so 1 confirmation is final.
+INSERT INTO blockchain_families (name, code, family, created_at, updated_at) VALUES
+  ('Tempo', 'tempo', 'TEMPO_Family', NOW(), NOW())
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO blockchains (code, name, family, client, blockchain_family_id, min_confirmations, height, status, explorer_address, explorer_tx, chain_id, created_at, updated_at) VALUES
+  ('TEMPO', 'Tempo Moderato', 'TEMPO_Family', 'tempo-logs', (SELECT id FROM blockchain_families WHERE code='tempo'), 1, 0, 'active', 'https://explore.testnet.tempo.xyz/address/', 'https://explore.testnet.tempo.xyz/tx/', 42431, NOW(), NOW())
+ON CONFLICT (code) DO NOTHING;

@@ -2,10 +2,12 @@ package handler
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/payminto/payminto/backend/internal/blockchain/tempo"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/payminto/payminto/backend/internal/service"
@@ -72,6 +74,7 @@ func (h *PublicAPIHandler) GetPaymentByReference(c *gin.Context) {
 			if owner, ok := h.depositAddressSvc.SolanaOwnerAddress(da.ID); ok {
 				resp["depositOwnerAddress"] = owner
 			}
+			addTempoMemo(resp, &da, pr.ReferenceID)
 		}
 	}
 
@@ -160,6 +163,7 @@ func (h *PublicAPIHandler) AssignDepositAddress(c *gin.Context) {
 			if owner, ok := h.depositAddressSvc.SolanaOwnerAddress(da.ID); ok {
 				resp["ownerAddress"] = owner
 			}
+			addTempoMemo(resp, &da, pr.ReferenceID)
 			c.JSON(http.StatusOK, resp)
 			return
 		}
@@ -191,7 +195,19 @@ func (h *PublicAPIHandler) AssignDepositAddress(c *gin.Context) {
 	if owner, ok := h.depositAddressSvc.SolanaOwnerAddress(da.ID); ok {
 		resp["ownerAddress"] = owner
 	}
+	addTempoMemo(resp, da, pr.ReferenceID)
 	c.JSON(http.StatusOK, resp)
+}
+
+// addTempoMemo adds the memo a Tempo payer must send: TEMPO payments share the merchant address and
+// the watcher tells them apart by memo (UTF-8, left-aligned, zero-padded to 32 bytes).
+func addTempoMemo(resp gin.H, da *models.DepositAddress, referenceID string) {
+	if da == nil || da.BlockchainCurrency == nil || !strings.EqualFold(da.BlockchainCurrency.BlockchainCode, tempo.ChainCode) {
+		return
+	}
+	if memo, err := tempo.MemoForReference(referenceID); err == nil {
+		resp["memo"] = memo
+	}
 }
 
 func currencyCodeOrDefault(currencyCode, blockchainCode string) string {
@@ -213,6 +229,12 @@ func (h *PublicAPIHandler) ListBlockchainCurrencies(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if !h.depositAddressSvc.TempoEnabled() {
+		// The TEMPO rows are seeded everywhere; offer them only where the watcher runs.
+		currencies = slices.DeleteFunc(currencies, func(bc models.BlockchainCurrency) bool {
+			return strings.EqualFold(bc.BlockchainCode, tempo.ChainCode)
+		})
 	}
 	c.JSON(http.StatusOK, gin.H{"currencies": currencies})
 }

@@ -40,7 +40,7 @@ function Awaiting({ payment, onBack, onExpire }: { payment: CheckoutPayment; onB
             Send {chain.asset} on {chain.networkName}
           </h1>
           <p className="text-body text-ink-soft" aria-live="polite">
-            {chain.due ? "Send exactly this amount; the quote is held until the timer ends." : `The amount is counted in ${chain.asset} when it arrives.`}
+            {chain.memo ? "Send exactly this amount with the memo below; the quote is held until the timer ends." : chain.due ? "Send exactly this amount; the quote is held until the timer ends." : `The amount is counted in ${chain.asset} when it arrives.`}
           </p>
         </div>
         <button type="button" onClick={onBack} className="tap inline-flex shrink-0 items-center gap-1.5 pt-1 text-body-sm font-medium text-tide hover:text-tide-strong">
