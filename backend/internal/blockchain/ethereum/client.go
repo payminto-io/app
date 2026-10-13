@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
-	"sync"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -27,10 +26,6 @@ type Adapter struct {
 	name    string
 	chainID int64 // stored for IsMainnet check and tx signing
 	pool    *blockchain.RPCPool
-
-	mu       sync.RWMutex
-	client   *ethclient.Client // current ethclient for the active RPC node
-	activeID uint              // id of the currently-connected rpc_node row
 }
 
 // NewAdapter constructs an Ethereum adapter. The pool argument may be nil for

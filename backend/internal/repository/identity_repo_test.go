@@ -10,22 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// openTestDB opens an in-memory SQLite database and auto-migrates the provided
-// model types. Each test gets its own independent database.
-func openTestDB(t *testing.T, dst ...any) *gorm.DB {
-	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&mode=memory"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open test db: %v", err)
-	}
-	// Use a unique DB per test by using _test prefix and the test name in file path
-	// For simplicity we use a fresh connection each test by resetting the shared cache
-	if err := db.AutoMigrate(dst...); err != nil {
-		t.Fatalf("auto-migrate failed: %v", err)
-	}
-	return db
-}
-
 // openFreshDB creates a truly isolated in-memory database (no sharing).
 func openFreshDB(t *testing.T, dst ...any) *gorm.DB {
 	t.Helper()

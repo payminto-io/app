@@ -38,8 +38,6 @@ func strictRouter(rdb *redis.Client, limit int) *gin.Engine {
 
 func hit(r *gin.Engine, xff string) int { return hitWith(r, "198.51.100.7:1234", xff) }
 
-func hitFrom(r *gin.Engine, remote string) int { return hitWith(r, remote, "") }
-
 func hitWith(r *gin.Engine, remote, xff string) int {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
@@ -53,7 +51,11 @@ func hitWith(r *gin.Engine, remote, xff string) int {
 
 func TestRateLimitStrictFailsClosedWhenRedisIsDown(t *testing.T) {
 	down := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 50 * time.Millisecond, MaxRetries: -1})
-	defer down.Close()
+	t.Cleanup(func() {
+		if err := down.Close(); err != nil {
+			t.Errorf("close redis client: %v", err)
+		}
+	})
 	r := strictRouter(down, 2)
 	codes := []int{hit(r, ""), hit(r, "1.1.1.1"), hit(r, "2.2.2.2")}
 	if codes[0] != 200 || codes[1] != 200 || codes[2] != http.StatusTooManyRequests {

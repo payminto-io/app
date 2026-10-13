@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"sync"
 	"testing"
 
 	"github.com/payminto/payminto/backend/internal/models"
@@ -475,7 +474,6 @@ func TestVault_RotateMasterKey_BulkFailure_StateUntouched(t *testing.T) {
 // BulkUpdateCiphertexts to simulate a transactional failure.
 type bulkFailRepo struct {
 	repository.SecretsVaultRepository
-	mu sync.Mutex
 }
 
 func (r *bulkFailRepo) BulkUpdateCiphertexts(_ map[uint]string) error {

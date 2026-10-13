@@ -390,7 +390,10 @@ func (p *Provider) Trigger(ctx context.Context, kind cre.Kind, input []byte) (st
 	if err != nil {
 		return "", fmt.Errorf("cre: trigger %s: %s", kind, cre.SanitizeError(err))
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Closing a read-only response is cleanup; request and decoding errors are returned below.
+		_ = resp.Body.Close()
+	}()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	var out triggerResponse
 	_ = json.Unmarshal(raw, &out)

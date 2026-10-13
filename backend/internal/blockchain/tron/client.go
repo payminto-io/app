@@ -327,7 +327,10 @@ func (a *Adapter) post(ctx context.Context, path string, payload any, out any) e
 		a.pool.MarkFailure(node.ID, err)
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Closing a read-only response is cleanup; request and decoding errors are returned below.
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= 500 {
 		err := fmt.Errorf("http %d", resp.StatusCode)

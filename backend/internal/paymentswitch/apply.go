@@ -290,7 +290,7 @@ func (s *Service) settleAmount(tx *gorm.DB, intent *IntentRow, attempt *AttemptR
 		}
 		return attempt.AmountCaptured, attempt.Asset, nil
 	}
-	captured := decimal.Zero
+	var captured decimal.Decimal
 	switch {
 	case u.amountCaptured != nil && u.amountCaptured.IsPositive():
 		captured = *u.amountCaptured

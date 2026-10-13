@@ -95,9 +95,15 @@ func TestWebhookManagement_GetByID_TenantIsolation(t *testing.T) {
 func TestWebhookManagement_ListByPlatform(t *testing.T) {
 	svc, _ := newWebhookMgmtSvc(t)
 
-	svc.Create(CreateWebhookInput{PlatformID: 10, URL: "https://a.com/wh", Active: true})
-	svc.Create(CreateWebhookInput{PlatformID: 10, URL: "https://b.com/wh", Active: true})
-	svc.Create(CreateWebhookInput{PlatformID: 99, URL: "https://c.com/wh", Active: true})
+	if _, err := svc.Create(CreateWebhookInput{PlatformID: 10, URL: "https://a.com/wh", Active: true}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.Create(CreateWebhookInput{PlatformID: 10, URL: "https://b.com/wh", Active: true}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.Create(CreateWebhookInput{PlatformID: 99, URL: "https://c.com/wh", Active: true}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
 
 	list, err := svc.ListByPlatform(10)
 	if err != nil {

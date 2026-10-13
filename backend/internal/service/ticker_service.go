@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,8 +12,6 @@ import (
 	"github.com/payminto/payminto/backend/internal/constants"
 	"github.com/shopspring/decimal"
 )
-
-const tickerCacheNamespace = "ticker"
 
 // geckoIDs maps Payminto currency symbols to CoinGecko coin IDs.
 var geckoIDs = map[string]string{
@@ -115,7 +112,10 @@ func fetchCoinGeckoPrice(ctx context.Context, client *http.Client, baseURL, symb
 	if err != nil {
 		return decimal.Zero, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Closing a read-only response is cleanup; request and decoding errors are returned below.
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return decimal.Zero, fmt.Errorf("ticker: coingecko status %d", resp.StatusCode)
 	}
@@ -246,10 +246,4 @@ func (s *TickerService) InvalidateSymbol(symbol string) {
 	s.mu.Lock()
 	delete(s.cache, symbol)
 	s.mu.Unlock()
-}
-
-// priceToFloat64 is a helper for JSON serialisation of decimal prices.
-func priceToFloat64(d decimal.Decimal) float64 {
-	f, _ := strconv.ParseFloat(d.String(), 64)
-	return f
 }

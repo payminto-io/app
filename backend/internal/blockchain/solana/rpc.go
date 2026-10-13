@@ -245,7 +245,10 @@ func doCall(ctx context.Context, client *http.Client, url, auth, method string, 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Closing a read-only response is cleanup; request and decoding errors are returned below.
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return errTooManyRequests
 	}

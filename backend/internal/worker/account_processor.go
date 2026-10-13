@@ -10,7 +10,6 @@ import (
 
 	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/payminto/payminto/backend/internal/service"
-	"gorm.io/gorm"
 )
 
 // AccountProcessorConfig holds the ticker intervals for each sub-loop in
@@ -125,62 +124,6 @@ func NewAccountProcessorJob(
 		btcBlockchainID:       btc.ID,
 		btcNativeCurrencyBCID: btcNative.ID,
 	}, nil
-}
-
-// newAccountProcessorJobForTest constructs an AccountProcessorJob with explicit
-// BTC IDs for use in unit tests that don't have a real database.
-func newAccountProcessorJobForTest(
-	cfg AccountProcessorConfig,
-	sweepSvc *service.SweepService,
-	sweepTxSvc *service.SweepTransactionService,
-	sweepUTXOSvc *service.SweepUTXOService,
-	rewardSvc *service.AccountRewardService,
-	withdrawalSvc *service.WithdrawalProcessingService,
-	coldWalletETH string,
-	coldWalletBTC string,
-	btcBlockchainID uint,
-	btcNativeCurrencyBCID uint,
-) *AccountProcessorJob {
-	return &AccountProcessorJob{
-		cfg:                   cfg,
-		sweepSvc:              sweepSvc,
-		sweepTxSvc:            sweepTxSvc,
-		sweepUTXOSvc:          sweepUTXOSvc,
-		rewardSvc:             rewardSvc,
-		withdrawalSvc:         withdrawalSvc,
-		coldWalletETH:         coldWalletETH,
-		coldWalletBTC:         coldWalletBTC,
-		btcBlockchainID:       btcBlockchainID,
-		btcNativeCurrencyBCID: btcNativeCurrencyBCID,
-	}
-}
-
-// newAccountProcessorJobFromDB is a convenience constructor for the production
-// wiring path that accepts a *gorm.DB and creates the required repos internally.
-// This avoids changing the ServiceRegistry signature for this worker.
-func newAccountProcessorJobFromDB(
-	cfg AccountProcessorConfig,
-	db *gorm.DB,
-	sweepSvc *service.SweepService,
-	sweepTxSvc *service.SweepTransactionService,
-	sweepUTXOSvc *service.SweepUTXOService,
-	rewardSvc *service.AccountRewardService,
-	withdrawalSvc *service.WithdrawalProcessingService,
-	coldWalletETH string,
-	coldWalletBTC string,
-) (*AccountProcessorJob, error) {
-	return NewAccountProcessorJob(
-		cfg,
-		sweepSvc,
-		sweepTxSvc,
-		sweepUTXOSvc,
-		rewardSvc,
-		withdrawalSvc,
-		repository.NewBlockchainRepository(db),
-		repository.NewBlockchainCurrencyRepository(db),
-		coldWalletETH,
-		coldWalletBTC,
-	)
 }
 
 // Name implements Worker.

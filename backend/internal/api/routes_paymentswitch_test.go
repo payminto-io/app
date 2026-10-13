@@ -185,6 +185,9 @@ func TestSwitchRoutes_WebhookAndErrors(t *testing.T) {
 		t.Fatalf("next_action = %v", next)
 	}
 	code, out = s.do(http.MethodGet, "/api/v2/payments/"+id, nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("get payment = %d %v", code, out)
+	}
 	txID := payment(out)["attempts"].([]any)[0].(map[string]any)["connector_transaction_id"].(string)
 
 	headers, body := s.mock.SignWebhook(mock.Event{EventID: "evt_1", TransactionID: txID, Status: "captured"})

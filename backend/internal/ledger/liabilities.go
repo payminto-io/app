@@ -31,7 +31,7 @@ const postingBarrierKey = `hashtextextended('ledger:posting_barrier:' || current
 
 // takePostingBarrier is called by every poster before its journal insert, inside the posting transaction.
 func takePostingBarrier(tx *gorm.DB) error {
-	if tx.Dialector.Name() != "postgres" {
+	if tx.Name() != "postgres" {
 		return nil
 	}
 	if err := tx.Exec(`SELECT pg_advisory_xact_lock_shared(` + postingBarrierKey + `)`).Error; err != nil {
@@ -48,7 +48,7 @@ func (s *Service) LiabilityTotals(ctx context.Context) (LiabilitySnapshot, error
 	if err != nil {
 		return LiabilitySnapshot{}, err
 	}
-	if s.db.Dialector.Name() != "postgres" {
+	if s.db.Name() != "postgres" {
 		return LiabilitySnapshot{}, errors.New("ledger: liability totals need PostgreSQL")
 	}
 	sqlDB, err := s.db.DB()
@@ -59,7 +59,10 @@ func (s *Service) LiabilityTotals(ctx context.Context) (LiabilitySnapshot, error
 	if err != nil {
 		return LiabilitySnapshot{}, fmt.Errorf("ledger: liability totals: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		// Close returns this reserved connection to the pool after the lock cleanup below.
+		_ = conn.Close()
+	}()
 	// A session lock must never outlive this call on a pooled connection: unless the unlock is confirmed,
 	// the connection is discarded, which releases the lock.
 	released := false
@@ -104,7 +107,10 @@ ORDER BY a.asset COLLATE "C"`, env, string(OwnerMember), string(KindLiability), 
 	if err != nil {
 		return LiabilitySnapshot{}, err
 	}
-	defer rows.Close()
+	defer func() {
+		// Iteration errors are checked through rows.Err; this also cleans up early returns.
+		_ = rows.Close()
+	}()
 	for rows.Next() {
 		var asset, signed string
 		if err := rows.Scan(&asset, &signed); err != nil {

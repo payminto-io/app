@@ -2,7 +2,6 @@ package config
 
 import (
 	"errors"
-	"os"
 	"strings"
 	"testing"
 )
@@ -21,10 +20,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 }
 
 func TestLoadConfig_FromEnv(t *testing.T) {
-	os.Setenv("API_PORT", "9090")
-	os.Setenv("POSTGRES_HOST", "db.example.com")
-	defer os.Unsetenv("API_PORT")
-	defer os.Unsetenv("POSTGRES_HOST")
+	t.Setenv("API_PORT", "9090")
+	t.Setenv("POSTGRES_HOST", "db.example.com")
 
 	cfg, err := Load()
 	if err != nil {

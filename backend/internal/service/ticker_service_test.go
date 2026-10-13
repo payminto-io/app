@@ -89,7 +89,9 @@ func TestTickerService_InvalidateCache(t *testing.T) {
 	svc := NewTickerService(nil)
 	ctx := context.Background()
 
-	svc.GetPrice(ctx, "BTC") // populate cache
+	if _, err := svc.GetPrice(ctx, "BTC"); err != nil {
+		t.Fatalf("GetPrice: %v", err)
+	}
 
 	svc.InvalidateSymbol("BTC")
 
@@ -107,8 +109,12 @@ func TestTickerService_InvalidateAllCache(t *testing.T) {
 	svc := NewTickerService(nil)
 	ctx := context.Background()
 
-	svc.GetPrice(ctx, "BTC")
-	svc.GetPrice(ctx, "ETH")
+	if _, err := svc.GetPrice(ctx, "BTC"); err != nil {
+		t.Fatalf("GetPrice: %v", err)
+	}
+	if _, err := svc.GetPrice(ctx, "ETH"); err != nil {
+		t.Fatalf("GetPrice: %v", err)
+	}
 
 	svc.InvalidateCache()
 

@@ -226,7 +226,7 @@ const adoptionManualStep = "as a role that may: ALTER FUNCTION ledger_adopt_envi
 
 // verifyAdoptFunction refuses early when the relabel function is missing or not owned by the ledger owner.
 func verifyAdoptFunction(ctx context.Context, db *gorm.DB) error {
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		return nil
 	}
 	var row struct {
@@ -403,7 +403,7 @@ func (m *EnvironmentModule) AdoptTest(ctx context.Context, db *gorm.DB, confirm 
 }
 
 func (m *EnvironmentModule) reportedDatabaseName(ctx context.Context, db *gorm.DB) (string, error) {
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		return m.databaseName, nil
 	}
 	var name string

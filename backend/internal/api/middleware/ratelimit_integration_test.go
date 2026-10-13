@@ -51,7 +51,7 @@ func TestIntegration_RateLimitStrictWithRedisIgnoresForwardedFor(t *testing.T) {
 	// A key that lost its TTL gets one back on the next request instead of limiting the client forever.
 	rdb.Set(ctx, "ratelimit:t:192.0.2.1", 99, 0)
 	r2 := strictRouter(rdb, 3)
-	w := hitFrom(r2, "192.0.2.1:9")
+	w := hitWith(r2, "192.0.2.1:9", "")
 	if w != http.StatusTooManyRequests || rdb.TTL(ctx, "ratelimit:t:192.0.2.1").Val() <= 0 {
 		t.Fatalf("ttl-less key: code %d ttl %v", w, rdb.TTL(ctx, "ratelimit:t:192.0.2.1").Val())
 	}

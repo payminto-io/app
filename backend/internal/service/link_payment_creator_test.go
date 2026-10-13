@@ -215,8 +215,13 @@ func TestLinkPaymentCreatorReportsNotCreatedOnlyWhenNothingExists(t *testing.T) 
 	if _, err := c.CreatePayment(ctx, linkPayReq("lp-4")); !errors.Is(err, links.ErrNotCreated) {
 		t.Fatalf("cancelled context: %v", err)
 	}
-	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("underlying database: %v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	if _, err := c.CreatePayment(context.Background(), linkPayReq("lp-5")); err == nil || errors.Is(err, links.ErrNotCreated) {
 		t.Fatalf("a database that cannot answer must be ambiguous, got %v", err)
 	}

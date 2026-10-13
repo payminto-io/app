@@ -128,7 +128,9 @@ func TestReferralService_RegisterReferral_AlreadyReferred(t *testing.T) {
 	referrer1, _ := svc.EnsureReferralMember(10, "payminto")
 	referrer2, _ := svc.EnsureReferralMember(11, "payminto")
 
-	svc.RegisterReferral(referrer1.ReferralCode, 20, "payminto")
+	if err := svc.RegisterReferral(referrer1.ReferralCode, 20, "payminto"); err != nil {
+		t.Fatalf("RegisterReferral: %v", err)
+	}
 
 	// Second registration attempt should fail.
 	err := svc.RegisterReferral(referrer2.ReferralCode, 20, "payminto")
@@ -142,17 +144,21 @@ func TestReferralService_RecordPayment_CreatesReward(t *testing.T) {
 
 	// Create an active campaign.
 	rewardVal := decimal.NewFromFloat(5.0)
-	campaignSvc.CreateCampaign(CreateCampaignInput{
+	if _, err := campaignSvc.CreateCampaign(CreateCampaignInput{
 		Project:      "payminto",
 		Name:         "Test Campaign",
 		RewardType:   "fixed",
 		RewardValue:  rewardVal,
 		CurrencyCode: "USDT",
-	})
+	}); err != nil {
+		t.Fatalf("CreateCampaign: %v", err)
+	}
 
 	// Set up referral relationship.
 	referrer, _ := svc.EnsureReferralMember(50, "payminto")
-	svc.RegisterReferral(referrer.ReferralCode, 60, "payminto")
+	if err := svc.RegisterReferral(referrer.ReferralCode, 60, "payminto"); err != nil {
+		t.Fatalf("RegisterReferral: %v", err)
+	}
 
 	// Record a payment from the referee.
 	if err := svc.RecordPayment(60, "payminto", decimal.NewFromFloat(100)); err != nil {
@@ -176,7 +182,9 @@ func TestReferralService_RecordPayment_NoCampaign(t *testing.T) {
 	svc, _, db := newReferralSvc(t)
 
 	referrer, _ := svc.EnsureReferralMember(70, "payminto")
-	svc.RegisterReferral(referrer.ReferralCode, 80, "payminto")
+	if err := svc.RegisterReferral(referrer.ReferralCode, 80, "payminto"); err != nil {
+		t.Fatalf("RegisterReferral: %v", err)
+	}
 
 	// No campaign exists — should not error, and no reward is created.
 	if err := svc.RecordPayment(80, "payminto", decimal.NewFromFloat(50)); err != nil {
@@ -194,7 +202,9 @@ func TestReferralService_RecordPayment_NoReferrer(t *testing.T) {
 	svc, _, db := newReferralSvc(t)
 
 	// Member 90 has no referrer — recording a payment should silently succeed with no reward.
-	svc.EnsureReferralMember(90, "payminto")
+	if _, err := svc.EnsureReferralMember(90, "payminto"); err != nil {
+		t.Fatalf("EnsureReferralMember: %v", err)
+	}
 
 	if err := svc.RecordPayment(90, "payminto", decimal.NewFromFloat(100)); err != nil {
 		t.Fatalf("RecordPayment for unreferred member: %v", err)
@@ -211,17 +221,23 @@ func TestReferralService_ProcessPendingRewards(t *testing.T) {
 	svc, campaignSvc, _ := newReferralSvc(t)
 
 	rewardVal := decimal.NewFromFloat(2.5)
-	campaignSvc.CreateCampaign(CreateCampaignInput{
+	if _, err := campaignSvc.CreateCampaign(CreateCampaignInput{
 		Project:      "payminto",
 		Name:         "Campaign",
 		RewardType:   "fixed",
 		RewardValue:  rewardVal,
 		CurrencyCode: "USDT",
-	})
+	}); err != nil {
+		t.Fatalf("CreateCampaign: %v", err)
+	}
 
 	referrer, _ := svc.EnsureReferralMember(91, "payminto")
-	svc.RegisterReferral(referrer.ReferralCode, 92, "payminto")
-	svc.RecordPayment(92, "payminto", decimal.NewFromFloat(100))
+	if err := svc.RegisterReferral(referrer.ReferralCode, 92, "payminto"); err != nil {
+		t.Fatalf("RegisterReferral: %v", err)
+	}
+	if err := svc.RecordPayment(92, "payminto", decimal.NewFromFloat(100)); err != nil {
+		t.Fatalf("RecordPayment: %v", err)
+	}
 
 	// Process pending — should mark reward as paid (Phase I stub).
 	if err := svc.ProcessPendingRewards(); err != nil {

@@ -140,7 +140,9 @@ func TestRenderStates(t *testing.T) {
 	}
 
 	archived := f.linkIn(StatusActive)
-	f.svc.Archive(ctx, pid, archived.ID)
+	if _, err := f.svc.Archive(ctx, pid, archived.ID); err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
 	if _, err := f.svc.Render(ctx, archived.ShortCode); CodeOf(err) != CodeArchived {
 		t.Fatalf("archived: %v", err)
 	}

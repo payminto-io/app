@@ -42,8 +42,12 @@ func TestProbe3_CrashAfterClaimBeforeRows(t *testing.T) {
 	ctx := context.Background()
 	f.svc.now = func() time.Time { return f.now.Add(48 * time.Hour) }
 	for i := 0; i < 5; i++ {
-		f.svc.SweepConfirmed(ctx)
-		f.svc.TrackConfirmations(ctx)
+		if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+			t.Fatalf("SweepConfirmed: %v", err)
+		}
+		if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+			t.Fatalf("TrackConfirmations: %v", err)
+		}
 	}
 	var sweeps, links int64
 	f.db.Model(&models.Sweep{}).Count(&sweeps)
@@ -80,7 +84,9 @@ func TestProbe3_NoAttemptFailRacesALateSigner(t *testing.T) {
 		return solana.ContextValue(1, map[string]any{"amount": "25000000", "decimals": 6}), nil
 	})
 	ctx := context.Background()
-	f.svc.TrackConfirmations(ctx) // worker B
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	a := f.attempts(sweep.ID)
 	t.Logf("after B's pass (A now sends SIGA, which it persisted): sweep1=%s attempt=%s deposit=%s", f.sweepStatus(sweep.ID), a[0].Status, f.depositStatus(deps[0].ID))
 	// SIGA is in flight on the chain. Next round re-sweeps the same claim.
@@ -107,11 +113,17 @@ func TestProbe3_NoAttemptFailRacesALateSigner(t *testing.T) {
 	f.history("SIGA")
 	f.rpc.Result("getBlockHeight", 1000)
 	f.finalizedTx("SIGA", ata, "25000000")
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	f.svc.now = func() time.Time { return f.now.Add(3 * time.Hour) }
 	for i := 0; i < 5; i++ {
-		f.svc.TrackConfirmations(ctx)
-		f.svc.SweepConfirmed(ctx)
+		if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+			t.Fatalf("TrackConfirmations: %v", err)
+		}
+		if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+			t.Fatalf("SweepConfirmed: %v", err)
+		}
 	}
 	missed, _ := f.missed.ListUnresolved()
 	reasons := []string{}

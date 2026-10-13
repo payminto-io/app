@@ -17,7 +17,7 @@ func SchemaSQL() string { return schemaSQL }
 
 // Migrate installs the tables for development and test databases; production applies the migration.
 func Migrate(db *gorm.DB) error {
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		return nil
 	}
 	if err := db.Exec(schemaSQL).Error; err != nil {

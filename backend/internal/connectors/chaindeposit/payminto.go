@@ -49,7 +49,7 @@ func (b *PaymintoBackend) OpenPayment(_ context.Context, req OpenRequest) (OpenR
 	if opened.Address == "" || opened.Reference == "" {
 		return OpenResult{}, fmt.Errorf("payment %q opened without a deposit address", opened.Reference)
 	}
-	return OpenResult{Reference: opened.Reference, Address: opened.Address, ExpiresAt: opened.ExpiresAt}, nil
+	return OpenResult(opened), nil
 }
 
 // PaymentStatus reports the state Payminto's finalizer wrote and the sum of confirmed deposits.

@@ -401,7 +401,7 @@ func (c *Config) validate() error {
 		return fmt.Errorf("%s POSTGRES_SCHEMA_MODE must be %q; auto-migrate is limited to development and test", strings.ToLower(environment), SchemaModeValidate)
 	}
 	if sslMode != "verify-full" {
-		if !(c.Database.AllowInsecureLocal && isLocalDatabaseHost(c.Database.Host) && sslMode == "disable") {
+		if !c.Database.AllowInsecureLocal || !isLocalDatabaseHost(c.Database.Host) || sslMode != "disable" {
 			if isLocalDatabaseHost(c.Database.Host) {
 				return fmt.Errorf("%s POSTGRES_SSL_MODE must be verify-full; set POSTGRES_ALLOW_INSECURE_LOCAL=true with sslmode=disable only for an explicit local database exception", strings.ToLower(environment))
 			}

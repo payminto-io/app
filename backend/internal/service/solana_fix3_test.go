@@ -30,7 +30,9 @@ func TestSolanaDeposit_TransportErrorKeepsMovedBalanceUnexplained(t *testing.T) 
 	ctx := context.Background()
 	// R3-L2: an outage longer than the hold budget spends none of it and writes no anomaly.
 	for i := 0; i <= f.svc.cfg.MaxHeldAttempts; i++ {
-		f.svc.PollOnce(ctx)
+		if _, err := f.svc.PollOnce(ctx); err != nil {
+			t.Fatalf("PollOnce: %v", err)
+		}
 	}
 	got, _ := f.accounts.GetByDepositAddressID(acct.DepositAddressID)
 	if got.LastBalanceRaw == "25000000" || got.BalanceHoldAttempts != 0 {
@@ -73,7 +75,9 @@ func TestSolanaDeposit_UnresolvedSignatureDoesNotBlockExpiryForever(t *testing.T
 	ctx := context.Background()
 	at := f.now
 	for i := 1; i <= 3; i++ {
-		f.svc.PollOnce(ctx)
+		if _, err := f.svc.PollOnce(ctx); err != nil {
+			t.Fatalf("PollOnce: %v", err)
+		}
 		got, _ := f.accounts.GetByDepositAddressID(acct.DepositAddressID)
 		t.Logf("poll %d: status=%s unresolved_attempts=%d", i, got.Status, got.UnresolvedAttempts)
 		if got.Status != models.SolanaDepositAccountWatching {
@@ -83,7 +87,9 @@ func TestSolanaDeposit_UnresolvedSignatureDoesNotBlockExpiryForever(t *testing.T
 		now := at
 		f.svc.now = func() time.Time { return now }
 	}
-	f.svc.PollOnce(ctx)
+	if _, err := f.svc.PollOnce(ctx); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
 	got, _ := f.accounts.GetByDepositAddressID(acct.DepositAddressID)
 	if got.Status != models.SolanaDepositAccountExpired || !strings.Contains(got.UnresolvedSignatures, first.Signature()) {
 		t.Fatalf("past the budget: status=%s unresolved=%q", got.Status, got.UnresolvedSignatures)
@@ -100,7 +106,9 @@ func TestSolanaDeposit_UnresolvedSignatureDoesNotBlockExpiryForever(t *testing.T
 	unreadable = false
 	later := at.Add(2 * time.Hour)
 	f.svc.now = func() time.Time { return later }
-	f.svc.PollOnce(ctx)
+	if _, err := f.svc.PollOnce(ctx); err != nil {
+		t.Fatalf("PollOnce: %v", err)
+	}
 	got, _ = f.accounts.GetByDepositAddressID(acct.DepositAddressID)
 	if got.UnresolvedSignatures != "" || len(f.depositsFor(pr)) != 1 {
 		t.Fatalf("expired scan did not resolve it: unresolved=%q deposits=%d", got.UnresolvedSignatures, len(f.depositsFor(pr)))
@@ -145,7 +153,9 @@ func TestSolanaSweep_ProcessingWithoutAttemptRecoversOurTransactionFromHistory(t
 	f.unknownEverywhere()
 	f.finalizedTx("OURS", ata, "25000000") // unknownEverywhere reset getTransaction
 	ctx := context.Background()
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	att := f.attempts(sweep.ID)
 	if len(att) != 1 || att[0].Signature != "OURS" || att[0].LastValidBlockHeight == 0 || f.sweepStatus(sweep.ID) != SweepStatusPending {
 		t.Fatalf("not recovered: sweep=%s attempts=%+v", f.sweepStatus(sweep.ID), att)
@@ -177,7 +187,9 @@ func TestSolanaSweep_ProcessingWithoutAttemptAndForeignDrainFailsWithAnomaly(t *
 	f.history("THEIRS")
 	f.rpc.Result("getTransaction", map[string]any{"slot": 700, "transaction": map[string]any{"signatures": []string{"THEIRS"}, "message": map[string]any{
 		"accountKeys": []any{map[string]any{"pubkey": fxPayer, "signer": true}}, "instructions": []any{}}}, "meta": map[string]any{"err": nil}})
-	f.svc.TrackConfirmations(context.Background())
+	if _, err := f.svc.TrackConfirmations(context.Background()); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	acct, _ := f.accounts.GetByTokenAccount(ata)
 	missed, _ := f.missed.ListUnresolved()
 	if f.sweepStatus(sweep.ID) != SweepStatusFailed || acct.Status != models.SolanaDepositAccountDrained || len(missed) != 1 || !strings.HasPrefix(missed[0].Reason, anomalyUnexplainedDrain) {
@@ -197,18 +209,24 @@ func TestSolanaSweep_ShortBalanceWaitsThenNeedsAnExplanation(t *testing.T) {
 	f.blockhash(500)
 	f.rpc.Result("sendTransaction", "SIGS")
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	f.balanceAlways("0")
 	f.unknownEverywhere()
 	f.rpc.Result("getBlockHeight", 600)
 	f.history()
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	if f.sweepStatus(1) != SweepStatusPending {
 		t.Fatalf("did not wait: %s", f.sweepStatus(1))
 	}
 	f.svc.now = func() time.Time { return f.now.Add(2 * time.Hour) }
 	f.db.Model(&models.SolanaSweepAttempt{}).Where("sweep_id = ?", 1).Update("created_at", f.now.Add(-2*time.Hour))
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	acct, _ := f.accounts.GetByTokenAccount(ata)
 	if f.sweepStatus(1) != SweepStatusFailed || acct.Status != models.SolanaDepositAccountDrained || f.depositStatus(deps[0].ID) != models.DepositStatusConfirmed {
 		t.Fatalf("sweep=%s account=%s deposit=%s", f.sweepStatus(1), acct.Status, f.depositStatus(deps[0].ID))
@@ -247,7 +265,9 @@ func TestSolanaSweep_SignedAttemptThatNeverLandedIsRebuilt(t *testing.T) {
 	f.blockhash(500)
 	f.rpc.On("sendTransaction", func([]any) (any, error) { return nil, errors.New("connection reset by peer") })
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	if att := f.attempts(1); len(att) != 1 || att[0].Status != models.SolanaSweepAttemptSigned {
 		t.Fatalf("attempts = %+v", att)
 	}
@@ -255,7 +275,9 @@ func TestSolanaSweep_SignedAttemptThatNeverLandedIsRebuilt(t *testing.T) {
 	f.rpc.Result("getBlockHeight", 600)
 	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "7pWqF1vXjQ2nD4sT8kL6mB3cR5yH9wE2aG7uN1xP4zV8", "lastValidBlockHeight": 750}))
 	f.rpc.Result("sendTransaction", "SIGR2")
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	att := f.attempts(1)
 	if len(att) != 2 || att[0].Status != models.SolanaSweepAttemptExpired || att[1].Status != models.SolanaSweepAttemptSent || att[1].LastValidBlockHeight != 750 {
 		t.Fatalf("attempts after rebuild = %+v", att)
@@ -285,7 +307,9 @@ func TestSolanaSweep_ConcurrentRebuildAndFailedSweepSendNothing(t *testing.T) {
 		return tx.Signature(), nil
 	})
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	// Another worker already persisted attempt 2 (its persist bumps the sweep's version).
 	must(t, f.db.Create(&models.SolanaSweepAttempt{SweepID: 1, AttemptNo: 2, Signature: "OTHER", Blockhash: "x", LastValidBlockHeight: 900, Status: models.SolanaSweepAttemptSigned}).Error)
 	sweep := models.Sweep{}
