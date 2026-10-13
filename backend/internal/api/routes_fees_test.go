@@ -257,6 +257,7 @@ func newRBACFixture(t *testing.T) rbacFixture {
 		t.Fatal(err)
 	}
 	mep := service.NewMemberExternalPlatformRoleService(repository.NewMemberExternalPlatformRoleRepository(db))
+	mep.SetMemberRepository(repository.NewMemberRepository(db))
 	sysAdmin := models.Permission{Name: "system.admin", DisplayName: "System Admin"}
 	read := models.Permission{Name: "payments.read", DisplayName: "Read"}
 	db.Create(&sysAdmin)
@@ -267,7 +268,7 @@ func newRBACFixture(t *testing.T) rbacFixture {
 	db.Create(&memberRole)
 	f := rbacFixture{mep: mep, auth: service.NewAuthService(nil, nil, strings.Repeat("s", 40))}
 	f.auth.SetEnvironment(environment.Test)
-	f.admin = models.Member{Name: "Admin", MemberType: "merchant", State: "active"}
+	f.admin = models.Member{Name: "Admin", MemberType: "root", State: "active"}
 	f.merchant = models.Member{Name: "Merchant", MemberType: "merchant", State: "active"}
 	db.Create(&f.admin)
 	db.Create(&f.merchant)
