@@ -49,6 +49,7 @@ func (r *ServiceRegistry) wireTempo(cfg *config.Config) error {
 	r.tempoMemoService = NewTempoMemoService(r.db, client, chain, tokens, r.depositService, r.ledgerService, nil, TempoMemoConfig{
 		Merchant: common.HexToAddress(tc.MerchantAddress), MemberID: uint(max(tc.MemberID, 0)), StartBlock: uint64(max(tc.StartBlock, 0)),
 	})
+	r.depositAddressService.WithTempoMerchant(common.HexToAddress(tc.MerchantAddress).Hex())
 	log.Printf("[registry] tempo memo watcher wired (chain %d, merchant %s, %d tokens)", id.Int64(), tc.MerchantAddress, len(tokens))
 	return nil
 }

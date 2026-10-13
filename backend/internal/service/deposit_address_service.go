@@ -37,6 +37,8 @@ type DepositAddressService struct {
 	solanaAccounts   repository.SolanaDepositAccountRepository
 	solanaDB         *gorm.DB
 	solanaLateWindow time.Duration
+	// tempoMerchant is set by WithTempoMerchant; TEMPO payments all go to this address, keyed by memo.
+	tempoMerchant string
 }
 
 func NewDepositAddressService(
@@ -83,6 +85,10 @@ func (s *DepositAddressService) AssignForPayment(
 	}
 	if bc.Blockchain == nil {
 		return nil, fmt.Errorf("blockchain_currency missing Blockchain preload")
+	}
+
+	if isTempo(bc) {
+		return s.assignTempo(bc, payment)
 	}
 
 	// Step 2: find the merchant's wallet for this family
