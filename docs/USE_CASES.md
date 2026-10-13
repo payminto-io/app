@@ -4,7 +4,7 @@ A merchant creates a payment request, shares its checkout, and checks the result
 The customer pays the network and token issued for that request.
 An address, wallet submission, or attractive success screen alone does not prove that the merchant received money.
 
-This guide describes the source integrated at `465ca2e` and the separately recorded local demonstrations from October 13, 2026.
+This guide describes the runtime source integrated at `1d63fc8` and the separately recorded local demonstrations from October 13, 2026.
 It complements the [project disclosure](WORLDS_FAIR.md), [recording outline](../DEMO.md), [setup guide](../CONTRIBUTING.md), and [product URLs](../website.md).
 The latest integrated public Tempo deployment remains unverified.
 Region, community affiliation, presentation ownership, traction, and submission-media URLs require human confirmation.
@@ -99,7 +99,9 @@ A local-validator mint named USDC is a local test asset, not Circle's public USD
 
 The watcher handles transfers to the tracked token account and supported owner-account payment paths.
 Wrong mints, native SOL, unsupported Token-2022 transfers, and unexplained account changes are anomaly paths, not successful stablecoin invoices.
-The standalone checkout displays an address/QR and exact amount; it does not implement a Solana browser-wallet send button.
+The standalone checkout displays the returned Solana wallet owner in its copy field and QR, falling back to the token account only when an older API omits the owner.
+Other chains retain their issued deposit address even if an unexpected owner field is supplied.
+It shows the exact amount but does not implement a Solana browser-wallet send button.
 A payer uses an appropriate external Solana wallet or a controlled local-validator transfer in the demonstration.
 
 Sources: [token-account assignment](../backend/internal/service/solana_deposit_address.go), [deposit watcher](../backend/internal/service/solana_deposit_service.go), [local-validator test](../backend/internal/service/solana_integration_test.go).
@@ -267,7 +269,7 @@ Sources: [actual router](../backend/internal/api/router.go), [MCP factory](../mc
 
 ### Additional chain selections and source status
 
-Submission chain selections express the project's declared scope or interest; they do not establish a working deployment or payment receipt.
+Submission chain selections declare integrated product scope; a selection alone does not establish a working deployment or payment receipt.
 The source audit for the additional Ethereum L1, Arbitrum, and Robinhood Chain selections found the following:
 
 | Chain | Source/configuration found | Verification boundary |
@@ -316,3 +318,12 @@ The later Tempo transfer carried compact memo `3da2ecadf4094d3b9356966030f52073`
 Its recording manifest includes a 0.000010 SOL sweep fee and separate 0.00203928 SOL rent-related entries.
 Those entries must not be represented as a platform fee on the 25-token invoice.
 Public deployment, public video hosting, portal submission, and any human presentation/region/community claims require their own confirmation.
+
+## 13. Current demo deliverables
+
+A narrated 2-minute-36-second product demo has been rendered from the later actual Solana and Tempo recordings.
+It excludes login entry and includes visible local-validator/testnet labels, with captions and a timed transcript.
+The film shows invoice creation, issued checkout, backend-confirmed payment state, merchant records, and the Tempo explorer receipt.
+The ledger and sweep evidence remains in the recording manifest and this guide; the film does not invent a merchant journal screen.
+A six-slide editable demo-day presentation with speaker notes has also been prepared.
+These are local deliverables; public hosting, portal media acceptance, and final project submission remain separate steps.

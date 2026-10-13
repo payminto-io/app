@@ -3,7 +3,7 @@
 Project name: **Payminto**.
 This is the current project-detail document for [Colosseum's Crypto World's Fair](https://colosseum.com/worldsfair), focused on Solana and Tempo.
 The [official event rules](https://colosseum.com/legal/Crypto%20World%27s%20Fair%20Hackathon%20Rules.pdf) identify both ecosystem tracks.
-Implementation status below describes the locally integrated source at `465ca2e` on October 13, 2026, with later local recording evidence described separately.
+Implementation status below describes the runtime source integrated at `1d63fc8` on October 13, 2026, with later local recording evidence described separately.
 A local integration is separate from the public deployment and from a completed portal submission.
 
 ## All product URLs
@@ -114,5 +114,6 @@ Human ownership and agent-assisted implementation are disclosed together.
 
 [DEMO.md](../DEMO.md) supplies a recording outline and separates sample previews from real payment evidence.
 Submission preparation recorded a demo-video limit of 3 minutes and founder-pitch limit of 2 minutes, hosted on YouTube, Loom, or Vimeo.
-Current hosted video URLs, a founder pitch, a reviewed Payminto-branded deck, and judge access instructions still need to be supplied.
+A current 2-minute-36-second narrated product demo, captions, transcript, and reviewed six-slide editable Payminto demo-day deck have been prepared locally.
+Public video hosting, the required founder pitch, and complete judge access/profile answers remain outstanding.
 The earlier deck and launch motion graphic are [legacy assets](../website.md#legacy-media-archive).
