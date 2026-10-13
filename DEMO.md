@@ -1,49 +1,62 @@
-# Hackathon demo: open-source gateway with Chainlink CRE solvency attestation
+# Payminto demo for Crypto World's Fair
 
-Everything below runs locally. Nothing is deployed to a public network. Screens marked "Sample data" are dev previews of the real pages.
+Show payment acceptance on Solana and Tempo, then the payment state and ledger evidence that justify the result.
+The product URLs are together in [website.md](website.md); the full project context is in [docs/WORLDS_FAIR.md](docs/WORLDS_FAIR.md).
 
-## Demo video
+## Recording status
 
-**Check demo here:** [watch the Payminto demo in your browser (88s)](https://drive.google.com/file/d/16598TrZ1iaGPIQKRVm_gZ0wkX82eXABI/view)
+A current live-product demo and founder pitch video have not been supplied in these docs.
+The portal requests a demo up to 3 minutes and a pitch up to 2 minutes on YouTube, Loom, or Vimeo, as recorded during submission preparation.
+The [legacy media archive](website.md#legacy-media-archive) contains the earlier launch motion graphic and deck, with earlier branding and track positioning.
+Those assets should not be submitted as a completed current demo or pitch.
 
-[![Watch the Payminto demo](docs/demo/payminto-demo-poster.jpg)](https://drive.google.com/file/d/16598TrZ1iaGPIQKRVm_gZ0wkX82eXABI/view)
+## Start the local showcase
 
-It covers the problem, who it is for, the market, the product, why multichain and composable, why Solana, Chainlink CRE and NOWNodes verification, and traction.
-Full-quality 1080p download: [payminto-demo.mp4](https://github.com/payminto-io/app/releases/download/demo-video/payminto-demo.mp4) from the [demo-video release](https://github.com/payminto-io/app/releases/tag/demo-video).
-All hackathon material (video and pitch deck): [Google Drive folder](https://drive.google.com/drive/folders/1LC3jWfza6qiMsV1Xc-qfu8zydhRSwOJk).
+Follow [CONTRIBUTING.md](CONTRIBUTING.md), using your own disposable test database and test money.
+Run these targets from the root in separate terminals:
 
-## Pitch deck
-
-Check the pitch deck here: [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1S9ZHGs2dDlsVGEZDbhm7Yf9ZtG1Gy-TT/view).
-It covers the product, the AWS reference deployment, the NOWNodes, Chainlink CRE, and Solana settlement flow, and screenshots of the running product.
-
-## The story (60 seconds)
-
-An open-source, self-hostable payment gateway where fiat and stablecoins are peer rails and every number is a double-entry ledger line.
-The unique part: an optional Chainlink CRE workflow proves the gateway is solvent. It compares what the ledger owes merchants with what custody actually holds on chain, and writes a signed report on chain that anyone can verify. Chainlink Proof of Reserve attests assets; this also attests liabilities.
-
-## Click path
-
-1. Dashboard home and payments (design system, test/live switch): http://localhost:3022/design/preview
-2. Payment link builder, six steps with live checkout preview (fees from the server, never the browser): http://localhost:3022/design/preview/links/new
-3. Links list with short links and QR: http://localhost:3022/design/preview/links
-4. Hosted checkout, every stablecoin state (address, QR, countdown, confirming, under/over paid, paid): http://localhost:3021/preview
-5. CRE settings in the dashboard (on/off at install, provider, last attestation): http://localhost:3020/design/preview/settings/attestations
-6. The live attestation, verified by the gateway from its own RPC against the on-chain event:
-   http://localhost:8097/api/v1/public/attestations/e78d154f-51e8-40a1-9227-334192e68b18
-   Shows: liabilities 1,250 USDC, reserves 1,300 USDC, status attested, provider chainlink, tx and block on the local chain, consumer and forwarder contracts.
-
-## Run it again live (optional, about 1 minute)
-
-```bash
-cd cre
-~/.cre/bin/cre workflow simulate workflows/solvency --target local-simulation --non-interactive --trigger-index 0
+```sh
+make backend
+NEXT_PUBLIC_API_URL=http://localhost:8090/api/v1 make frontend
+make checkout
 ```
-Prints the labelled result (liabilities vs reserves) without writing. The broadcast path is in `cre/README.md` ("Without Chainlink access").
 
-## What is real, what is next
+Source ports are API 8090, dashboard 3003, and checkout 3002.
+The optional Compose backend uses 8080 and needs matching frontend API URLs.
+Use an actual merchant session and a payment reference created by the backend when demonstrating a real payment.
 
-- Built and tested on main: double-entry ledger, versioned fee rules, live/test isolation, payment switch (intents, attempts, idempotency, reconciler), payment links with server-side preview, CRE consumer contract (audited, 81 tests, real Keystone forwarder path).
-- Built on branches, in review: custody (self-custody fence against double payment), Solana USDC/USDT, routing across rails, Kuberpays and Payvang demo connectors, CRE module verifier.
-- Next: BitGo custody with Solana, NOWNodes RPC, settlement policy, deposit-finality attestation gating settlement.
-- Going to production with CRE needs Chainlink early access: deploy, bind the real workflow id, Vault DON secrets. Steps in `cre/README.md`.
+## Suggested three-minute walkthrough
+
+| Time | Show | Evidence boundary |
+| --- | --- | --- |
+| 0:00-0:25 | The merchant problem and Payminto's self-hosted payment links, checkout, and ledger. | Card/UPI connectors, custody, and routing are unfinished. |
+| 0:25-0:55 | Create a payment in the merchant dashboard and open its issued checkout link. | Identify test mode and the exact network and asset. |
+| 0:55-1:30 | Solana USDC: the issued address, confirmation state, payment result, and deposit/ledger records. | Public test USDC is distinct from local USDT and sweep tests. |
+| 1:30-2:15 | Tempo: issued TIP-20 token, shared merchant address, invoice memo, and wallet checkout. | Moderato testnet only; identify whether the screen is a fixture or an actual issued payment. |
+| 2:15-2:40 | The original owner-run Moderato transaction and the recorded local payment and journal. | Historical real-network evidence; the current public Tempo release is unverified. |
+| 2:40-3:00 | Prior work, AI use, current progress, and next steps. | Use the disclosure below and avoid unverified traction claims. |
+
+The recorded Tempo payment was 1.5 pathUSD for invoice `84933e7d-d0fc-46dd-b616-b602be747f9e`.
+[View its Moderato transaction](https://explore.testnet.tempo.xyz/tx/0x0bd786d78b7205537319369b9dc30a8d09a79854eae0ac809223aece94a4a00d) and [the original local evidence](tracks/tempo/README.md#recorded-real-network-evidence).
+Subsequent changes were verified with local unit, browser-fixture, and disposable PostgreSQL tests.
+A new public-deployment payment on the integrated release has not been established.
+
+## Fixture click path
+
+These development previews use sample data and do not prove a payment happened:
+
+- [Dashboard](http://localhost:3003/design/preview), [payment-link builder](http://localhost:3003/design/preview/links/new), and [links list](http://localhost:3003/design/preview/links).
+- [Solana address state](http://localhost:3002/preview?state=awaiting&theme=light).
+- [Tempo address and memo](http://localhost:3002/preview?state=tempo&theme=light) and [partial-payment state](http://localhost:3002/preview?state=tempo-underpaid&theme=dark).
+- [Paid state](http://localhost:3002/preview?state=paid&theme=light), explicitly labelled as a fixture.
+
+For real checkout, open `/pay/<reference>` on port 3002 using an issued reference.
+Show receipt amounts only when the API or ledger supplies them, and never resend the full invoice to demonstrate a partial-payment remainder.
+
+## Disclosures to keep in the recording
+
+Payminto predates the event; the existing private core was imported at `fa8517f` on October 6 UTC.
+Earlier Bitcoin/EVM/Tron clients, MCP server, and widget are prior work.
+The event-period improvements and October 13 IST Tempo/QA work are described in [the project disclosure](docs/WORLDS_FAIR.md#prior-work-and-ai-disclosure).
+Claude Code and Codex assisted development, review, testing, and documentation.
+The current documentation makes no new customer, revenue, fundraising, or mainnet-launch claims.
