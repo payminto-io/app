@@ -37,7 +37,7 @@ func ValidateSchema(db *gorm.DB) error {
 			return fmt.Errorf("ledger: required table %q is missing; run the schema migrations before starting", table)
 		}
 	}
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		return nil
 	}
 	var missing []string
@@ -79,7 +79,7 @@ WHERE p.proname = ? AND n.nspname = current_schema()
 
 // ValidateMigrationRecorded fails unless schema_migrations holds the ledger migration, applied clean.
 func ValidateMigrationRecorded(db *gorm.DB) error {
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		return nil
 	}
 	var n int64
@@ -109,7 +109,7 @@ type privilegeRow struct {
 // (so nothing it creates can ever sit on a search path). TEMP is not refused: the trigger functions
 // pin pg_temp last and qualify every reference, so a temporary object cannot shadow anything.
 func ValidatePrivileges(db *gorm.DB) error {
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		return errors.New("ledger: privilege validation needs Postgres")
 	}
 	var row privilegeRow

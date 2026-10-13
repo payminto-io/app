@@ -316,11 +316,7 @@ func (r *AnalyticsReferralRepositoryImpl) GetTopReferrers(limit int) ([]TopRefer
 
 	result := make([]TopReferrerRow, len(rows))
 	for i, r := range rows {
-		result[i] = TopReferrerRow{
-			MemberID:       r.MemberID,
-			TotalReferrals: r.TotalReferrals,
-			TotalEarned:    r.TotalEarned,
-		}
+		result[i] = TopReferrerRow(r)
 	}
 	return result, nil
 }

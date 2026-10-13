@@ -44,17 +44,25 @@ func setupBTCTestPool(t *testing.T, url string) *blockchain.RPCPool {
 		t.Fatal(err)
 	}
 	repo := repository.NewRPCNodeRepository(db)
-	_ = db.Create(&models.BlockchainFamily{Code: "btc", Name: "Bitcoin"}).Error
+	if err := db.Create(&models.BlockchainFamily{Code: "btc", Name: "Bitcoin"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	bc := &models.Blockchain{Code: "BTC", Name: "Bitcoin", Status: "active"}
-	_ = db.Create(bc).Error
-	_ = repo.Create(&models.RPCNode{
+	if err := db.Create(bc).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Create(&models.RPCNode{
 		BlockchainID: bc.ID,
 		Name:         "test",
 		URL:          url,
 		Status:       models.RPCNodeStatusHealthy,
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	pool := blockchain.NewRPCPool(bc.ID, repo)
-	_ = pool.Refresh()
+	if err := pool.Refresh(); err != nil {
+		t.Fatal(err)
+	}
 	return pool
 }
 
@@ -206,13 +214,12 @@ func TestBtcAdapter_RPCFailure_MarksUnhealthy(t *testing.T) {
 	pool := setupBTCTestPool(t, srv.URL).WithFailThreshold(2)
 	a := NewAdapter(pool, &chaincfg.MainNetParams)
 
-	_, _ = a.GetConfirmations(t.Context(), "abc")
-	_, _ = a.GetConfirmations(t.Context(), "abc")
-	_, _ = a.GetConfirmations(t.Context(), "abc")
-
-	// Pool should have shrunk after failures
-	if pool.Size() > 0 {
-		// Not a failure — shrinking logic depends on fail count threshold
-		// timing; the assertion is lenient.
+	for range 3 {
+		if _, err := a.GetConfirmations(t.Context(), "abc"); err == nil {
+			t.Fatal("expected RPC failure")
+		}
+	}
+	if pool.Size() != 0 {
+		t.Fatalf("failed node remains in pool: size %d", pool.Size())
 	}
 }

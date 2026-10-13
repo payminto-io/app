@@ -91,7 +91,8 @@ func (s *WebhookService) Deliver(webhook *models.Webhook, event string, data any
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			status = "delivered"
 		}
-		resp.Body.Close()
+		// Delivery is determined by the HTTP status; closing the response cannot undo it.
+		_ = resp.Body.Close()
 	}
 
 	deliveryLog := models.WebhookDeliveryLog{

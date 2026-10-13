@@ -413,7 +413,7 @@ func (s *Service) Anomalies(ctx context.Context, merchantID, intentID string) ([
 	}
 	out := make([]Anomaly, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, Anomaly{ID: r.ID, Entity: r.Entity, EntityID: r.EntityID, IntentID: r.IntentID, Kind: r.Kind, Detail: r.Detail, CreatedAt: r.CreatedAt})
+		out = append(out, Anomaly(r))
 	}
 	return out, nil
 }
@@ -456,7 +456,7 @@ func loadRefund(db *gorm.DB, refundID string) (RefundRow, error) {
 
 // lockIfPostgres takes a row lock inside a transaction; SQLite (unit tests) serialises writers itself.
 func lockIfPostgres(tx *gorm.DB) *gorm.DB {
-	if tx.Dialector.Name() == "postgres" {
+	if tx.Name() == "postgres" {
 		return tx.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
 	return tx

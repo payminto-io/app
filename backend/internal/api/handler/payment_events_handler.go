@@ -65,7 +65,9 @@ func (h *PaymentEventsHandler) Stream(c *gin.Context) {
 	c.Stream(func(w io.Writer) bool {
 		// Send the current-state snapshot first, exactly once.
 		if snapshot.State != "" {
-			writeSSEEvent(w, snapshot)
+			if err := writeSSEEvent(w, snapshot); err != nil {
+				return false
+			}
 			snapshot = realtime.PaymentEvent{}
 			return true
 		}
@@ -76,11 +78,10 @@ func (h *PaymentEventsHandler) Stream(c *gin.Context) {
 			if !ok {
 				return false
 			}
-			writeSSEEvent(w, ev)
-			return true
+			return writeSSEEvent(w, ev) == nil
 		case <-heartbeat.C:
-			fmt.Fprint(w, ": keep-alive\n\n")
-			return true
+			_, err := fmt.Fprint(w, ": keep-alive\n\n")
+			return err == nil
 		}
 	})
 }
@@ -94,10 +95,11 @@ func setSSEHeaders(c *gin.Context) {
 	h.Set("X-Accel-Buffering", "no")
 }
 
-func writeSSEEvent(w io.Writer, ev realtime.PaymentEvent) {
+func writeSSEEvent(w io.Writer, ev realtime.PaymentEvent) error {
 	payload, err := json.Marshal(ev)
 	if err != nil {
-		return
+		return err
 	}
-	fmt.Fprintf(w, "event: payment\ndata: %s\n\n", payload)
+	_, err = fmt.Fprintf(w, "event: payment\ndata: %s\n\n", payload)
+	return err
 }

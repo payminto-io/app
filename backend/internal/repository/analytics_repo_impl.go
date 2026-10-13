@@ -16,7 +16,7 @@ import (
 // The output is interpolated directly into the SQL string — never user
 // input — so there is no injection risk.
 func (r *AnalyticsRepositoryImpl) bucketExpr(interval string) string {
-	dialect := r.db.Dialector.Name()
+	dialect := r.db.Name()
 
 	switch dialect {
 	case "sqlite":
@@ -237,12 +237,7 @@ func (r *AnalyticsRepositoryImpl) GetTopCustomers(platformID uint, limit int) ([
 
 	summaries := make([]CustomerSummary, len(rows))
 	for i, r := range rows {
-		summaries[i] = CustomerSummary{
-			CustomerID:    r.CustomerID,
-			CustomerEmail: r.CustomerEmail,
-			TotalVolume:   r.TotalVolume,
-			PaymentCount:  r.PaymentCount,
-		}
+		summaries[i] = CustomerSummary(r)
 	}
 	return summaries, nil
 }
@@ -284,13 +279,7 @@ func (r *AnalyticsRepositoryImpl) GetRevenueBreakdown(platformID uint, start, en
 
 	result := make([]RevenueBreakdown, len(rows))
 	for i, r := range rows {
-		result[i] = RevenueBreakdown{
-			BlockchainCode: r.BlockchainCode,
-			CurrencyCode:   r.CurrencyCode,
-			State:          r.State,
-			TotalAmount:    r.TotalAmount,
-			Count:          r.Count,
-		}
+		result[i] = RevenueBreakdown(r)
 	}
 	return result, nil
 }
@@ -323,11 +312,7 @@ func (r *AnalyticsRepositoryImpl) GetSweepStats(_ uint, start, end time.Time) (S
 	if err != nil {
 		return SweepStats{}, err
 	}
-	return SweepStats{
-		TotalSweeps: result.TotalSweeps,
-		TotalSwept:  result.TotalSwept,
-		TotalGas:    result.TotalGas,
-	}, nil
+	return SweepStats(result), nil
 }
 
 // GetWithdrawalStats returns aggregate withdrawal statistics.
@@ -353,11 +338,7 @@ func (r *AnalyticsRepositoryImpl) GetWithdrawalStats(platformID uint, start, end
 	if err != nil {
 		return WithdrawalStats{}, err
 	}
-	return WithdrawalStats{
-		TotalWithdrawals: result.TotalWithdrawals,
-		TotalAmount:      result.TotalAmount,
-		TotalGas:         result.TotalGas,
-	}, nil
+	return WithdrawalStats(result), nil
 }
 
 // GetDashboardSummary returns the all-up counts and totals for the dashboard

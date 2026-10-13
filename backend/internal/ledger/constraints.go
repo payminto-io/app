@@ -13,7 +13,7 @@ var constraintsSQL string
 // InstallConstraints adds the append-only triggers, the deferred balance check and the
 // FK/CHECK constraints after AutoMigrate. Postgres only; SQLite unit tests rely on Validate.
 func InstallConstraints(db *gorm.DB) error {
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		return nil
 	}
 	if err := db.Exec(constraintsSQL).Error; err != nil {

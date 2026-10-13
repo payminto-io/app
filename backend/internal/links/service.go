@@ -466,7 +466,8 @@ func (s *Service) render(ctx context.Context, l Link) (RenderModel, []DroppedMet
 	}
 	methods, dropped := []RenderMethod{}, []DroppedMethod{}
 	for _, m := range l.Methods {
-		amount, known := decimal.Zero, l.Total != nil
+		var amount decimal.Decimal
+		known := l.Total != nil
 		if known {
 			amount = *l.Total
 		} else {

@@ -229,7 +229,9 @@ func TestReplayStillAnswersAfterTheLinkCloses(t *testing.T) {
 	f := newFixture(t)
 	l := f.published(validInput())
 	first, _ := f.pay(l.ShortCode, payReq("k1"))
-	f.svc.Pause(context.Background(), merchant.PlatformID, l.ID)
+	if _, err := f.svc.Pause(context.Background(), merchant.PlatformID, l.ID); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
 	again, err := f.pay(l.ShortCode, payReq("k1"))
 	if err != nil || again.PaymentReference != first.PaymentReference {
 		t.Fatalf("replay after pause: %v", err)
@@ -245,7 +247,9 @@ func TestPayRefusesClosedLinks(t *testing.T) {
 		t.Fatalf("paused: %v", err)
 	}
 	archived := f.linkIn(StatusActive)
-	f.svc.Archive(ctx, pid, archived.ID)
+	if _, err := f.svc.Archive(ctx, pid, archived.ID); err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
 	if _, err := f.pay(archived.ShortCode, payReq("k")); CodeOf(err) != CodeArchived {
 		t.Fatalf("archived: %v", err)
 	}

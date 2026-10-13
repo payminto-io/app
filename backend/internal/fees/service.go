@@ -102,7 +102,7 @@ func (s *Service) Resolve(ctx context.Context, q Query) (Rule, error) {
 }
 
 func (s *Service) Preview(ctx context.Context, req PreviewRequest) (Breakdown, error) {
-	req.Query = req.Query.normalize()
+	req.Query = req.normalize()
 	now, err := dbNow(s.db.WithContext(ctx))
 	if err != nil {
 		return Breakdown{}, err

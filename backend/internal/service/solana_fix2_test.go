@@ -128,7 +128,9 @@ func TestSolanaSweep_I1_LastAttemptLandingBehindLaggingNodesIsBooked(t *testing.
 	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC", "lastValidBlockHeight": 500}))
 	f.rpc.Result("sendTransaction", "SIGL")
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	// The attempt landed (the account is empty) but both nodes lag and the height passed validity.
 	balance = "0"
 	f.rpc.On("getSignatureStatuses", func(p []any) (any, error) {
@@ -137,7 +139,9 @@ func TestSolanaSweep_I1_LastAttemptLandingBehindLaggingNodesIsBooked(t *testing.
 	})
 	f.rpc.Result("getBlockHeight", 600)
 	f.rpc.Result("getTransaction", nil)
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	if f.sweepStatus(1) != SweepStatusPending {
 		t.Fatalf("sweep failed with an empty account: %s", f.sweepStatus(1))
 	}

@@ -43,7 +43,7 @@ func TestReportRoundTrip(t *testing.T) {
 			}
 		case []DepositItem:
 			want := in.Items.([]DepositItem)
-			if len(items) != 1 || items[0] != *(&DepositItem{want[0].DepositID, want[0].ChainID, want[0].TxRef, want[0].Token, items[0].Amount, want[0].Destination, 99, VerdictConfirmed}) || items[0].Amount.Int64() != 42 {
+			if len(items) != 1 || items[0] != (DepositItem{want[0].DepositID, want[0].ChainID, want[0].TxRef, want[0].Token, items[0].Amount, want[0].Destination, 99, VerdictConfirmed}) || items[0].Amount.Int64() != 42 {
 				t.Fatalf("deposit items = %+v", items)
 			}
 		case []ConversionItem:

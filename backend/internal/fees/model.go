@@ -19,7 +19,7 @@ func SchemaSQL() string { return schemaSQL }
 
 // Migrate creates fee_rules and the payment_requests snapshot columns in dev/test; Postgres only.
 func Migrate(db *gorm.DB) error {
-	if db.Dialector.Name() != "postgres" {
+	if db.Name() != "postgres" {
 		return nil
 	}
 	if err := db.Exec(schemaSQL).Error; err != nil {

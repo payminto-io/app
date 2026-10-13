@@ -26,10 +26,10 @@ func DefaultConnectors(env environment.Environment, cfg *config.Config) []string
 		return cfg.Switch.Connectors
 	}
 	resolved := environment.ResolveProvider(env, cfg.Modules.Providers[ConnectorsSlot])
-	switch {
-	case resolved == "":
+	switch resolved {
+	case "":
 		return nil
-	case resolved == environment.MockProvider:
+	case environment.MockProvider:
 		return []string{environment.MockProvider, "chaindeposit"}
 	default:
 		return []string{resolved}

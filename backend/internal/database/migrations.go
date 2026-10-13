@@ -76,7 +76,10 @@ func ApplyMigrations(ctx context.Context, db *gorm.DB) ([]MigrationResult, error
 	if err != nil {
 		return nil, fmt.Errorf("migrations: reserve connection: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		// Close returns this reserved connection to the pool after the lock cleanup below.
+		_ = conn.Close()
+	}()
 
 	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationAdvisoryLockID); err != nil {
 		return nil, fmt.Errorf("migrations: acquire advisory lock: %w", err)
@@ -212,7 +215,10 @@ func readAndVerifyMigrationHistory(ctx context.Context, conn *sql.Conn, manifest
 	if err != nil {
 		return nil, fmt.Errorf("migrations: read history: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		// Iteration errors are checked through rows.Err; this also cleans up early returns.
+		_ = rows.Close()
+	}()
 	applied := make(map[int64]bool, len(manifest))
 	prefixIndex := 0
 	for rows.Next() {

@@ -111,9 +111,13 @@ func TestSweepConfirmer_ZeroConfs_StaysBroadcast(t *testing.T) {
 	c, db := setupConfirmer(t, fakeChecker{confs: 0})
 	stID := seedSweepTx(t, db, "ETH")
 
-	c.TrackConfirmations(context.Background())
+	if _, err := c.TrackConfirmations(context.Background()); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	var st models.SweepTransaction
-	db.First(&st, stID)
+	if err := db.First(&st, stID).Error; err != nil {
+		t.Fatalf("read sweep transaction: %v", err)
+	}
 	if st.Status != SweepTxStatusBroadcast {
 		t.Errorf("sweep tx status = %q, want still broadcast", st.Status)
 	}

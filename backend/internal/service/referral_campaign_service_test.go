@@ -86,9 +86,15 @@ func TestReferralCampaignService_GetCampaign_NotFound(t *testing.T) {
 func TestReferralCampaignService_ListCampaigns(t *testing.T) {
 	svc, _ := newCampaignSvc(t)
 
-	svc.CreateCampaign(CreateCampaignInput{Project: "p1", Name: "A"})
-	svc.CreateCampaign(CreateCampaignInput{Project: "p1", Name: "B"})
-	svc.CreateCampaign(CreateCampaignInput{Project: "p2", Name: "C"})
+	if _, err := svc.CreateCampaign(CreateCampaignInput{Project: "p1", Name: "A"}); err != nil {
+		t.Fatalf("CreateCampaign: %v", err)
+	}
+	if _, err := svc.CreateCampaign(CreateCampaignInput{Project: "p1", Name: "B"}); err != nil {
+		t.Fatalf("CreateCampaign: %v", err)
+	}
+	if _, err := svc.CreateCampaign(CreateCampaignInput{Project: "p2", Name: "C"}); err != nil {
+		t.Fatalf("CreateCampaign: %v", err)
+	}
 
 	list, err := svc.ListCampaigns("p1")
 	if err != nil {

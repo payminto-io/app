@@ -227,7 +227,7 @@ func (l Link) EffectiveUseLimit() *int {
 		return &one
 	}
 	var limit *int
-	for _, v := range []*int{l.Input.UseLimit, l.ExpiresAfterPayments} {
+	for _, v := range []*int{l.UseLimit, l.ExpiresAfterPayments} {
 		if v != nil && (limit == nil || *v < *limit) {
 			n := *v
 			limit = &n

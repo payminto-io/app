@@ -93,7 +93,9 @@ func TestProbe2_SendTransportErrorButLanded(t *testing.T) {
 	f.blockhash(500)
 	f.rpc.On("sendTransaction", func([]any) (any, error) { return nil, errors.New("Post: context deadline exceeded") })
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	att := f.attempts(1)
 	if f.sweepStatus(1) == SweepStatusFailed || len(att) != 1 || att[0].Signature == "" || att[0].LastValidBlockHeight != 500 {
 		t.Fatalf("LANDED SWEEP LOST: sweep=%s attempts=%+v deposit=%s", f.sweepStatus(1), att, f.depositStatus(deps[0].ID))
@@ -126,7 +128,9 @@ func TestProbe2_SendTransportErrorButLanded(t *testing.T) {
 	g.rpc.On("sendTransaction", func([]any) (any, error) {
 		return nil, &solana.RPCError{Code: -32002, Message: "Transaction simulation failed"}
 	})
-	g.svc.SweepConfirmed(ctx)
+	if _, err := g.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	if g.sweepStatus(1) != SweepStatusFailed || g.depositStatus(deps2[0].ID) != models.DepositStatusConfirmed {
 		t.Fatalf("rejected send: sweep=%s deposit=%s", g.sweepStatus(1), g.depositStatus(deps2[0].ID))
 	}
@@ -144,14 +148,18 @@ func TestProbe2_ProcessingSweepWithoutAttemptIsStuck(t *testing.T) {
 	must(t, f.db.Create(&models.SolanaSweepDeposit{SweepID: sweep.ID, DepositID: deps[0].ID}).Error)
 	must(t, f.db.Create(&models.SolanaSweepLock{TokenAccount: ata, SweepID: sweep.ID}).Error)
 	ctx := context.Background()
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	if f.sweepStatus(sweep.ID) != SweepStatusProcessing {
 		t.Fatal("resolved before the validity window")
 	}
 	f.svc.now = func() time.Time { return f.now.Add(12 * time.Hour) }
 	f.db.Model(&models.Sweep{}).Where("id = ?", sweep.ID).Update("created_at", f.now.Add(-12*time.Hour))
 	for i := 0; i < 5; i++ {
-		f.svc.TrackConfirmations(ctx)
+		if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+			t.Fatalf("TrackConfirmations: %v", err)
+		}
 	}
 	missed, _ := f.missed.ListUnresolved()
 	if f.sweepStatus(sweep.ID) != SweepStatusFailed || f.depositStatus(deps[0].ID) != models.DepositStatusConfirmed || len(missed) != 1 {
@@ -185,13 +193,17 @@ func TestProbe2_RecoveredAttemptThatDroppedNeverRebuildsOrFails(t *testing.T) {
 	f.unknownEverywhere()
 	f.rpc.Result("getBlockHeight", 600)
 	ctx := context.Background()
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	if f.sweepStatus(sweep.ID) != SweepStatusPending {
 		t.Fatal("expired a fresh recovered attempt")
 	}
 	f.svc.now = func() time.Time { return f.now.Add(12 * time.Hour) }
 	f.db.Model(&models.SolanaSweepAttempt{}).Where("sweep_id = ?", sweep.ID).Update("created_at", f.now.Add(-12*time.Hour))
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	if f.sweepStatus(sweep.ID) != SweepStatusFailed || f.depositStatus(deps[0].ID) != models.DepositStatusConfirmed {
 		t.Fatalf("STUCK: sweep=%s deposit=%s attempts=%+v", f.sweepStatus(sweep.ID), f.depositStatus(deps[0].ID), f.attempts(sweep.ID))
 	}

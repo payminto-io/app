@@ -67,7 +67,9 @@ func TestSolanaSweep_TwoWorkersSlowSignerSendExactlyOnce(t *testing.T) {
 	if done, err := f.svc.TrackConfirmations(ctx); err != nil || done != 1 {
 		t.Fatalf("track: %d %v", done, err)
 	}
-	b.TrackConfirmations(ctx)
+	if _, err := b.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	var locks int64
 	f.db.Model(&models.SolanaSweepLock{}).Count(&locks)
 	if f.sweepStatus(2) != SweepStatusCompleted || f.depositStatus(deps[0].ID) != models.DepositStatusSwept || f.sweepJournals() != 1 || locks != 0 || len(sent) != 1 {
@@ -84,7 +86,9 @@ func TestSolanaSweep_ExpiryEvidenceIsPerEndpoint(t *testing.T) {
 	f.blockhash(500)
 	f.rpc.Result("sendTransaction", "SIGE")
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	f.unknownEverywhere()
 	f.rpc.Result("getBlockHeight", 600)
 	lagging := true
@@ -94,14 +98,18 @@ func TestSolanaSweep_ExpiryEvidenceIsPerEndpoint(t *testing.T) {
 		}
 		return nil, nil, false
 	}
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	if att := f.attempts(1); len(att) != 1 || att[0].Status == models.SolanaSweepAttemptExpired {
 		t.Fatalf("expired on one endpoint's evidence: %+v", att)
 	}
 	lagging = false
 	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "7pWqF1vXjQ2nD4sT8kL6mB3cR5yH9wE2aG7uN1xP4zV8", "lastValidBlockHeight": 750}))
 	f.rpc.Result("sendTransaction", "SIGE2")
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	if att := f.attempts(1); len(att) != 2 || att[0].Status != models.SolanaSweepAttemptExpired {
 		t.Fatalf("not rebuilt once both endpoints evidence it: %+v", att)
 	}
@@ -117,11 +125,15 @@ func TestSolanaSweep_RevivedSweepTakesOverTheLock(t *testing.T) {
 	f.blockhash(500)
 	f.rpc.Result("sendTransaction", "SIG1")
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	// Sweep 1 is failed with evidence (as if misjudged) and sweep 2 takes the account.
 	f.unknownEverywhere()
 	f.rpc.Result("getBlockHeight", 600)
-	f.svc.TrackConfirmations(ctx)
+	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+		t.Fatalf("TrackConfirmations: %v", err)
+	}
 	if f.sweepStatus(1) != SweepStatusFailed {
 		t.Fatalf("sweep 1 = %s", f.sweepStatus(1))
 	}
@@ -151,8 +163,12 @@ func TestSolanaSweep_RevivedSweepTakesOverTheLock(t *testing.T) {
 	f.rpc.Result("getAccountInfo", solana.ContextValue(1, nil))
 	f.svc.now = func() time.Time { return f.now.Add(2 * time.Hour) }
 	for i := 0; i < 3; i++ {
-		f.svc.TrackConfirmations(ctx)
-		f.svc.SweepConfirmed(ctx)
+		if _, err := f.svc.TrackConfirmations(ctx); err != nil {
+			t.Fatalf("TrackConfirmations: %v", err)
+		}
+		if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+			t.Fatalf("SweepConfirmed: %v", err)
+		}
 	}
 	var locks int64
 	f.db.Model(&models.SolanaSweepLock{}).Count(&locks)
@@ -170,7 +186,9 @@ func TestSolanaSweep_UntrackedDrainSetsTheAccountAside(t *testing.T) {
 	f.history("OURS")
 	f.finalizedTx("OURS", ata, "25000000")
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	acct, _ := f.accounts.GetByTokenAccount(ata)
 	missed, _ := f.missed.ListUnresolved()
 	if acct.Status != models.SolanaDepositAccountDrained || len(missed) != 1 || !strings.HasPrefix(missed[0].Reason, anomalyUntrackedSweep) {
@@ -178,7 +196,9 @@ func TestSolanaSweep_UntrackedDrainSetsTheAccountAside(t *testing.T) {
 	}
 	before := f.rpc.Count("getSignaturesForAddress")
 	for i := 0; i < 3; i++ {
-		f.svc.SweepConfirmed(ctx)
+		if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+			t.Fatalf("SweepConfirmed: %v", err)
+		}
 	}
 	if f.rpc.Count("getSignaturesForAddress") != before {
 		t.Fatal("history re-read for an account set aside")

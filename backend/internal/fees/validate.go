@@ -309,7 +309,7 @@ func checkAmount(v decimal.Decimal, places int32, currency string) error {
 
 // preview validates req, resolves among candidates and computes; the bearer override is policy-checked.
 func preview(candidates []Rule, req PreviewRequest, policy Policy) (Breakdown, error) {
-	req.Query = req.Query.normalize()
+	req.Query = req.normalize()
 	if !slices.Contains(Methods, req.Method) {
 		return Breakdown{}, invalid("method", "must be one of %v", Methods)
 	}

@@ -175,7 +175,9 @@ func TestSolanaSweep_I2_ReconcileMismatchRaisesAnomaly(t *testing.T) {
 	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC", "lastValidBlockHeight": 500}))
 	f.rpc.Result("sendTransaction", "SIGM")
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	f.statuses(map[string]any{"slot": 700, "confirmations": nil, "err": nil, "confirmationStatus": "finalized"})
 	hotATA, _ := solana.AssociatedTokenAddress(f.hot, solana.MustPublicKey(fxUSDC), solana.TokenProgram)
 	f.rpc.Result("getTransaction", map[string]any{
@@ -208,7 +210,9 @@ func TestSolanaSweep_M5_FailReleasesOnlyItsDeposits(t *testing.T) {
 	f.rpc.Result("getLatestBlockhash", solana.ContextValue(1, map[string]any{"blockhash": "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC", "lastValidBlockHeight": 500}))
 	f.rpc.Result("sendTransaction", "SIGF")
 	ctx := context.Background()
-	f.svc.SweepConfirmed(ctx)
+	if _, err := f.svc.SweepConfirmed(ctx); err != nil {
+		t.Fatalf("SweepConfirmed: %v", err)
+	}
 	f.statuses(map[string]any{"slot": 700, "confirmations": nil, "err": map[string]any{"InstructionError": []any{0, map[string]any{"Custom": 1}}}, "confirmationStatus": "finalized"})
 	f.svc.cfg.MaxAttempts = 1
 	if _, err := f.svc.TrackConfirmations(ctx); err != nil {
