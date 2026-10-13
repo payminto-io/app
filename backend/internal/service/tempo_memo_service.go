@@ -13,6 +13,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/metrics"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/realtime"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -153,7 +154,7 @@ func (s *TempoMemoService) handle(ctx context.Context, t tempo.MemoTransfer) (bo
 	tok, amount, rej := tempo.Verify(t, s.tokens, s.cfg.Merchant, status)
 	credit := &models.TempoMemoCredit{
 		TxHash: strings.ToLower(t.TxHash.Hex()), LogIndex: t.LogIndex, BlockNumber: int64(t.BlockNumber),
-		Token: t.Token.Hex(), FromAddress: t.From.Hex(), ToAddress: t.To.Hex(), Amount: amount,
+		Token: t.Token.Hex(), FromAddress: t.From.Hex(), ToAddress: t.To.Hex(), Amount: auditAmount(t, s.tokens),
 		Memo: fmt.Sprintf("0x%x", t.Memo), Outcome: string(rej),
 	}
 	var payment *models.PaymentRequest
@@ -284,4 +285,17 @@ func TempoTokensFromCurrencies(rows []models.BlockchainCurrency) map[common.Addr
 		out[a] = tempo.Token{Address: a, Decimals: int32(r.WalletPrecision), BlockchainCurrencyID: r.ID, Code: r.CurrencyCode}
 	}
 	return out
+}
+
+// auditAmount is the transfer amount in whole units for the audit row, also for rejected logs
+// (TIP-20 stablecoins have 6 decimals when the token is not one we accept).
+func auditAmount(t tempo.MemoTransfer, tokens map[common.Address]tempo.Token) decimal.Decimal {
+	if t.Amount == nil {
+		return decimal.Zero
+	}
+	dec := int32(6)
+	if tok, ok := tokens[t.Token]; ok {
+		dec = tok.Decimals
+	}
+	return decimal.NewFromBigInt(t.Amount, -dec)
 }
