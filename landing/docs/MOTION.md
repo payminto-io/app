@@ -60,7 +60,8 @@ Research notes, the rules we took from them, and what the page does with them.
 ## Honesty rules applied to motion
 
 - Figures inside the payment flow are labelled "Illustrative figures"; nothing animates as if it were live data.
-- The Chainlink figures (1,250 USDC liabilities, 1,300 USDC reserves) are the values from the local end-to-end run documented in `tracks/chainlink/README.md`, and are labelled that way.
+- The Chainlink figures (1,250 USDC liabilities, 1,300 USDC reserves) belong to the earlier local attestation demonstration documented in [cre/README.md](../../cre/README.md).
+  This motion material is legacy product marketing, not the current Crypto World's Fair demo or founder pitch.
 - Market figures appear only with a source link.
 - Product screenshots are the real dashboard and checkout development previews, captioned as sample data.
 
@@ -78,10 +79,8 @@ Research notes, the rules we took from them, and what the page does with them.
 
 ## Screens
 
-Captured with Chrome DevTools against `next dev`, mid-animation.
+Retained legacy captures from Chrome DevTools against `next dev`, mid-animation.
 
-| | |
-| --- | --- |
-| ![Hero at 1440](screens/hero-1440.png) | ![Flow at 1440](screens/flow-1440.png) |
-| ![Solvency at 1440](screens/solvency-1440.png) | ![Solana at 1440](screens/solana-1440.png) |
-| ![Hero at 390](screens/hero-390.png) | ![Flow at 390](screens/flow-390.png) |
+| Flow | Solvency | Solana |
+| --- | --- | --- |
+| ![Flow at 1440](screens/flow-1440.png) | ![Solvency at 1440](screens/solvency-1440.png) | ![Solana at 1440](screens/solana-1440.png) |

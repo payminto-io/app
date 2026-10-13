@@ -1,45 +1,36 @@
-# Payminto on the web
+# Payminto links
 
-| What | Link |
+## Product and source
+
+| Destination | URL |
 | --- | --- |
 | Website | [payminto.io](https://payminto.io) |
-| App (merchant dashboard) | [app.payminto.io](https://app.payminto.io) |
+| Merchant dashboard | [app.payminto.io](https://app.payminto.io) |
 | Hosted checkout | [checkout.payminto.io](https://checkout.payminto.io) |
-| Pitch deck | [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1S9ZHGs2dDlsVGEZDbhm7Yf9ZtG1Gy-TT/view) |
-| Launch video (marketing) | [Watch or download (GitHub release)](https://github.com/payminto-io/app/releases/tag/demo-video) |
-| All hackathon material (video and pitch deck) | [Google Drive folder](https://drive.google.com/drive/folders/1LC3jWfza6qiMsV1Xc-qfu8zydhRSwOJk) |
-| Source code | [github.com/payminto-io/app](https://github.com/payminto-io/app) |
+| GitHub | [github.com/payminto-io/app](https://github.com/payminto-io/app) |
+| Current event | [Crypto World's Fair](https://colosseum.com/worldsfair) |
 
-## What you will find
+These public product URLs predate the current integrated release.
+The existing public test deployment advertises Solana USDC; deployment of the latest Tempo changes remains unverified.
+Use [README.md](README.md) for local setup and [docs/WORLDS_FAIR.md](docs/WORLDS_FAIR.md) for implementation status, evidence, and prior-work disclosure.
 
-- **payminto.io** - the product: an open-source, self-hostable payment gateway that connects multiple payment providers and stablecoins as peer rails on one double-entry ledger, with an optional Chainlink CRE workflow that proves the gateway is solvent.
-- **app.payminto.io** - the merchant dashboard: payments, payment links with a live checkout preview, wallets, settlements and the CRE attestation settings.
-- **checkout.payminto.io** - the hosted checkout payers see: method choice, stablecoin address and QR, countdown, confirming and paid.
-- **This repository** - everything needed to self-host it; start with the [README](README.md), the [hackathon tracks](tracks/README.md) and the [demo script](DEMO.md).
+## Current showcase
 
-## Demo
+- [Demo walkthrough](DEMO.md) covers the merchant flow, Solana, and Tempo with fixture screens clearly identified.
+- [Solana details](tracks/solana/README.md) cover USDC/USDT detection and sweeps.
+- [Tempo details](tracks/tempo/README.md) include the original owner-run Moderato transaction and local integration limits.
 
-| What | Link |
+Current product demo and founder pitch video URLs still need to be supplied for the submission.
+A new Payminto-branded pitch deck also needs review before it is presented as current material.
+
+## Legacy media archive
+
+These links are retained as historical material with earlier branding and hackathon positioning.
+They are not the current Crypto World's Fair demo or founder pitch.
+
+| Asset | Link |
 | --- | --- |
-| Pitch deck | [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1S9ZHGs2dDlsVGEZDbhm7Yf9ZtG1Gy-TT/view) |
-| Demo walkthrough (click path, what is real, how to re-run) | [DEMO.md](DEMO.md) |
-| Chainlink CRE solvency attestation | [tracks/chainlink/README.md](tracks/chainlink/README.md) |
-| Solana USDC and USDT | [tracks/solana/README.md](tracks/solana/README.md) |
-| NOWNodes RPC | [tracks/nownodes/README.md](tracks/nownodes/README.md) |
-| AWS deployment design | [tracks/aws/README.md](tracks/aws/README.md) |
-
-### Screens
-
-| Dashboard | Payment link builder |
-| --- | --- |
-| ![Dashboard](docs/design/screens/pages/home-1440-light.png) | ![Payment link builder](docs/design/screens/links/builder-all-steps-1440-light.png) |
-
-| Hosted checkout, USDC on Solana | Chainlink CRE attestation settings |
-| --- | --- |
-| ![Checkout](docs/design/screens/checkout/awaiting-1440-light.png) | ![CRE settings](docs/design/screens/pages/settings-attestations-1440-light.png) |
-
-### The local Chainlink proof
-
-The CRE solvency workflow compared what the ledger owes merchants (1,250 USDC) with what custody holds on chain (1,300 USDC), delivered a signed report through the Chainlink Keystone forwarder to our `GatewayAttestations` contract, and the gateway verified it from its own RPC and stored it as attested.
-This was demonstrated on a local chain; no public CRE deployment is claimed.
-How to reproduce it: [cre/README.md](cre/README.md).
+| Earlier pitch deck | [Legacy Google Drive deck](https://drive.google.com/file/d/1S9ZHGs2dDlsVGEZDbhm7Yf9ZtG1Gy-TT/view) |
+| Earlier launch motion graphic | [Legacy video release](https://github.com/payminto-io/app/releases/tag/demo-video) |
+| Earlier video in Drive | [Legacy 88-second video](https://drive.google.com/file/d/16598TrZ1iaGPIQKRVm_gZ0wkX82eXABI/view) |
+| Earlier media folder | [Legacy Google Drive folder](https://drive.google.com/drive/folders/1LC3jWfza6qiMsV1Xc-qfu8zydhRSwOJk) |

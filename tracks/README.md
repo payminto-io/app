@@ -1,10 +1,13 @@
-# Hackathon tracks
+# Crypto World's Fair tracks
 
-| Track | README | One line |
+Payminto's current showcase focuses on Solana and Tempo for [Colosseum's Crypto World's Fair](https://colosseum.com/worldsfair).
+See the [project details and prior-work disclosure](../docs/WORLDS_FAIR.md), [demo walkthrough](../DEMO.md), and [all product URLs](../website.md).
+
+| Track | Implementation | Evidence boundary |
 | --- | --- | --- |
-| Solana | [solana/README.md](solana/README.md) | USDC and USDT accepted on Solana beside the connected payment providers, one ledger, crash-safe sweeps |
-| Chainlink | [chainlink/README.md](chainlink/README.md) | CRE workflow that attests a gateway's liabilities against on-chain reserves |
-| AWS | [aws/README.md](aws/README.md) | How the gateway runs on AWS with isolated keys and environments (design) |
-| NOWNodes | [nownodes/README.md](nownodes/README.md) | RPC for Solana and the EVM chains, treated as evidence: two distinct providers for every money decision |
+| [Solana](solana/README.md) | USDC/USDT acceptance, shared ledger posting, and recoverable sweeps. | Public test USDC plus recorded fixtures and local-validator tests. |
+| [Tempo](tempo/README.md) | TIP-20 invoice memos and wallet checkout on Moderato testnet. | Original owner-run real payment through the local backend; subsequent local QA; latest public release unverified. |
 
-Demo script: [../DEMO.md](../DEMO.md).
+Earlier Chainlink, AWS, and NOWNodes submission write-ups have been removed from this track index.
+Their underlying implementation and general architecture material remain in the repository.
+Card/UPI connectors, custody, routing, and conversion remain unfinished or unmerged.

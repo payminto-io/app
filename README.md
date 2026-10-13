@@ -1,112 +1,91 @@
 # Payminto
 
-An open-source, self-hostable payment gateway that connects multiple payment providers and stablecoins as peer rails on one double-entry ledger, with an optional Chainlink CRE workflow that proves the gateway is solvent.
+An open-source, self-hostable payment gateway for merchants, marketplaces, and fintech teams that want to operate their own stablecoin payment infrastructure.
+Payment links, hosted checkout, a merchant dashboard, and a Go backend reconcile deposits and fees through one double-entry ledger.
 
-**Website:** [payminto.io](https://payminto.io) | **App:** [app.payminto.io](https://app.payminto.io) | **Checkout:** [checkout.payminto.io](https://checkout.payminto.io) | **Pitch:** [deck](https://drive.google.com/file/d/1S9ZHGs2dDlsVGEZDbhm7Yf9ZtG1Gy-TT/view) | [more](website.md)
-
-![Dashboard](docs/design/screens/pages/home-1440-light.png)
-
-## Hackathon tracks
-
-| Track | Read this | What we built |
-| --- | --- | --- |
-| **Chainlink** | [tracks/chainlink/README.md](tracks/chainlink/README.md) | A CRE workflow that attests a gateway's liabilities against on-chain reserves; audited consumer contract; gateway-side verifier; proven end to end on a local chain |
-| **Tempo** | [tracks/tempo/README.md](tracks/tempo/README.md) | TIP-20 stablecoin payments on Tempo testnet: the invoice reference rides in the `transferWithMemo` memo, a log-only watcher posts it to the same double-entry ledger as Solana, and checkout offers Pay on Tempo; proven with a real Moderato payment |
-| **Solana** | [tracks/solana/README.md](tracks/solana/README.md) | USDC and USDT accepted on Solana beside the connected payment providers, one ledger, crash-safe sweeps |
-| **NOWNodes** | [tracks/nownodes/README.md](tracks/nownodes/README.md) | RPC for Solana and the EVM chains, treated as evidence: two distinct providers for every money decision |
-| **AWS** | [tracks/aws/README.md](tracks/aws/README.md) | How the gateway runs on AWS with isolated keys and environments (deployment design) |
-
-Demo script: [DEMO.md](DEMO.md).
-
-## The problem
-
-Merchants who want to accept stablecoins next to cards today choose between closed, custodial processors and open-source tools that cover one rail.
-Stripe (via Bridge), Shift4, BitPay and BVNK do fiat plus crypto, all closed and custodial.
-Hyperswitch, the open-source orchestrator at scale (45.3k stars), reaches crypto only through custodial third parties (BitPay, Coinbase, CoinGate, Cryptopay, OpenNode), so funds never land in a wallet the merchant controls.
-Genuine stablecoin payments were about $390B in the year to September 2025, $226B of it business to business, growing 733% year on year ([a16z](https://a16zcrypto.com/posts/article/state-of-crypto-report-2025/)); Visa, Mastercard and Stripe settle stablecoins on Solana.
-
-And a merchant who lets a gateway hold money has to trust its balance sheet; Proof of Reserve shows what is held, not what is owed.
-
-## What Payminto does
-
-```mermaid
-flowchart LR
-  subgraph Rails
-    CARD[Card<br/>Kuberpays]
-    UPI[UPI<br/>Payvang]
-    SOL[USDC / USDT<br/>on Solana]
-    EVM[Stablecoins<br/>on EVM chains]
-  end
-  LINK[Payment links<br/>six-step builder] --> SW[Payment switch<br/>intents, attempts, idempotency]
-  CHK[Hosted checkout] --> SW
-  Rails --> SW
-  SW --> FEES[Versioned fee rules]
-  SW --> LED[(Double-entry ledger<br/>append-only, per asset)]
-  LED --> CRE[Chainlink CRE<br/>solvency attestation]
-  CRE --> CHAIN[(GatewayAttestations<br/>on chain)]
-  ENV[Live / test isolation] -.guards.-> SW
-```
-
-- **One ledger for every rail.** A card payment and a USDC payment land as the same double-entry lines; balances are derived, never stored; history cannot be rewritten by the application role.
-- **Fees you can audit.** Versioned fee rules, never edited in place; every payment records the rule version it paid.
-- **A payment switch.** Intents and attempts, connector-evidence-first state machine, exclusive claims so a capture can never be sent twice, a reconciler that resolves unknown outcomes from the provider.
-- **Payment links.** A six-step builder with a live checkout preview built by the server, unguessable short links and QR codes.
-- **Solana stablecoins.** USDC and USDT as separate assets, wrong tokens never credited, sweeps that survive crashes and racing workers.
-- **Chainlink CRE, optional.** Off by default; when on, a workflow attests liabilities against reserves on chain and the gateway re-verifies every report from its own RPC.
-- **Live and test isolation.** One environment per process, refusals at boot for development keys, mock providers, test databases and testnets in live.
-
-## Status
-
-| Built and in `main` | On branches, not merged |
+| Product links | URL |
 | --- | --- |
-| Ledger, fee rules, live/test isolation, payment switch, payment links and builder, hosted checkout UI, Solana USDC/USDT, Tempo pathUSD on testnet (memo watcher, ledger posting, Pay on Tempo), Chainlink CRE contract, module and solvency workflow, design system and dashboard, CI workflow with checkout and Tempo PostgreSQL regression gates | Custody providers (self-custody fence, BitGo next), Kuberpays and Payvang connectors, routing across rails, links on the switch with every method, NOWNodes RPC preset, one-command compose |
+| Website | [payminto.io](https://payminto.io) |
+| Merchant dashboard | [app.payminto.io](https://app.payminto.io) |
+| Hosted checkout | [checkout.payminto.io](https://checkout.payminto.io) |
+| Source | [github.com/payminto-io/app](https://github.com/payminto-io/app) |
 
-Tempo is Moderato testnet only and is refused in live money processes.
-Its real-network payment evidence was recorded through a local backend; an integrated local branch is not proof that the public deployment has been updated.
-The CI workflow is configured and its commands have been checked locally; a hosted CI run requires a push.
+These are existing public deployments.
+The integrated Tempo update has been verified locally; its rollout to these public services is unverified.
+See [all links and legacy media](website.md).
 
-Every merged module went through independent review rounds; the review findings and fixes are in the commit history.
+## Crypto World's Fair
 
-## Run it
+The current showcase is for [Colosseum's Crypto World's Fair](https://colosseum.com/worldsfair), with Solana and Tempo as the relevant ecosystem tracks.
+Read the [project details and disclosures](docs/WORLDS_FAIR.md) and [demo walkthrough](DEMO.md).
 
-Install each Node workspace once, then run these commands in separate terminals:
+| Track | Implementation and evidence |
+| --- | --- |
+| [Solana](tracks/solana/README.md) | USDC and USDT deposit detection, ledger posting, and crash-safe sweeps; the existing public test deployment advertises Solana USDC. |
+| [Tempo](tracks/tempo/README.md) | Memo-tagged TIP-20 payments on Moderato testnet, wallet checkout, and PostgreSQL ledger regression tests; an original owner-run 1.5 pathUSD payment was credited through a local backend. |
+
+## What is implemented
+
+- An append-only double-entry ledger with separate assets, auditable deposits, and versioned fee snapshots.
+- A payment switch with intents, attempts, idempotency, connector evidence, and reconciliation of unknown outcomes.
+- Payment links with server-side checkout previews and a hosted checkout with explicit partial, overpaid, confirming, and paid states.
+- Solana USDC/USDT watchers and sweep recovery across crashes, delayed RPC answers, and competing workers.
+- Tempo invoice memos, receipt and token verification, deduplication, retryable finalization, and exact token amounts in checkout.
+- Test/live separation at boot and environment-bound API credentials.
+
+Tempo supports Moderato testnet only and refuses live money configuration.
+Card and UPI connectors, custody adapters, cross-rail routing, conversion, and a complete one-command deployment remain unfinished or unmerged.
+The inherited MCP server exposes the backend API to AI agents.
+Configured CI gates cover backend, dashboard, checkout, contracts, and Tempo PostgreSQL regressions; local verification is separate from a hosted CI run.
+
+## Prior work and AI use
+
+Payminto predates this event.
+Commit [fa8517f](https://github.com/payminto-io/app/commit/fa8517fbba5c3b375513b3b773a0a518c84a5d98) imported existing private gateway code and local changes on October 6, 2026 UTC.
+Earlier Bitcoin, EVM, and Tron clients, the MCP server, and widget are prior work.
+Post-import work includes the ledger, fees, switch, payment links, Solana work, UI, docs, and the October 13 IST Tempo feature and QA.
+Claude Code and Codex contributed to development, review, testing, and documentation.
+The [detailed disclosure](docs/WORLDS_FAIR.md#prior-work-and-ai-disclosure) separates these contributions.
+
+## Run locally
+
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites, isolated database setup, and package installation.
+From the repository root, run each service in a separate terminal:
 
 ```sh
-make backend   # API: http://localhost:8090
-make frontend  # dashboard: http://localhost:3003
-make checkout  # hosted checkout: http://localhost:3002
-make landing   # marketing site: http://localhost:3001
+make backend
+NEXT_PUBLIC_API_URL=http://localhost:8090/api/v1 make frontend
+make checkout
+make landing
 ```
 
-The backend target loads `backend/.env`; Go does not load that file by itself.
-After the services are ready, verify health, CORS, admin/merchant sign-in, and the core authenticated APIs with:
+The source API uses port 8090, dashboard 3003, checkout 3002, and landing site 3001.
+The backend target loads `backend/.env`; checkout uses Webpack for development and points at that API.
+The optional Compose development stack uses API port 8080 instead.
+
+Run checks for the components you change, after inspecting database test harnesses:
 
 ```sh
-make smoke-local
+(cd backend && go test ./... && go vet ./...)
+npm test --prefix checkout
+npm run lint --prefix checkout
+npm run build --prefix checkout
+make test-integration
 ```
 
-Tests:
-
-```sh
-cd backend && go test ./...
-make test-integration          # Postgres testcontainers
-cd contracts && forge test     # contracts, including the CRE consumer
-cd cre && bun test             # CRE workflow
-```
+Integration tests need disposable PostgreSQL targets and a healthy Docker provider by default.
+Never use a shared application database for tests or seeds.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dashboard, contract, and other package checks, and for authenticated local smoke checks.
 
 ## Repository map
 
-| Path | What |
+| Path | Purpose |
 | --- | --- |
-| `backend/` | Go API and workers: ledger, fees, environment, payment switch, connectors, links, Solana, CRE |
-| `frontend/` | Merchant dashboard (Next.js) |
-| `checkout/` | Hosted checkout (Next.js) |
-| `contracts/` | Foundry contracts: sweep contracts and the CRE consumer `GatewayAttestations` |
-| `cre/` | Chainlink CRE project and the solvency workflow |
-| `docs/` | Architecture, operations, CRE research and spec, design system |
-| `tracks/` | Hackathon track write-ups |
-| `.scratch/payments-v1/` | Specification, plan and tickets |
+| `backend/` | Go API, ledger, fee rules, payment switch, chain watchers, and workers. |
+| `frontend/`, `checkout/`, `landing/` | Merchant dashboard, hosted checkout, and product website. |
+| `mcp-server/`, `widget/` | Inherited agent API surface and embeddable widget. |
+| `contracts/`, `cre/` | Retained EVM contracts and optional attestation implementation. |
+| `docs/WORLDS_FAIR.md`, `tracks/` | Current project details, disclosures, and Solana/Tempo evidence. |
+| `.scratch/payments-v1/` | Development specification and historical execution tickets. |
 
-## License
-
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE), with separately licensed dependencies and notices preserved.
