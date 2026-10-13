@@ -72,6 +72,7 @@ This document does not present them as a fresh payment on the subsequently integ
 
 The recording bundle contains `solana-localnet-flow.mp4` and `tempo-moderato-flow.mp4`, with step screenshots and `local-demo/EVIDENCE.md`.
 These recordings show the local gateway's merchant creation, customer checkout, and payment-result screens.
+Tempo transfers in these recordings were submitted externally while checkout awaited confirmation; the browser-wallet button was tested separately with controlled test wallets.
 The Solana invoice is `b7eda30a-ac7d-4e41-95aa-5c4f7b01506b` for 25 units of a custom six-decimal local-validator test mint.
 The recorded transfer and landed sweep have separate journals; later independent inspection found the deposit token account closed and 25 tokens in the hot wallet.
 Historical Solana transaction/status queries no longer returned those signatures, so the old receipts could not be independently reconstructed from that validator at review time.

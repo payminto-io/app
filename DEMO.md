@@ -8,6 +8,8 @@ Use the [end-to-end use-case guide](docs/USE_CASES.md) for actual API operations
 
 Two local product recordings have been prepared: `solana-localnet-flow.mp4` and `tempo-moderato-flow.mp4`, with step screenshots and a recording evidence manifest.
 The first captures a local-validator test-mint invoice and sweep; the second captures a Moderato payment through a local gateway.
+The real Tempo transfers were submitted through an external script while checkout waited for backend confirmation.
+Wallet-button signing has separate controlled-wallet regression evidence.
 The recordings are local files, and current publicly hosted submission demo and founder-pitch URLs have not been supplied in these docs.
 The portal requests a demo up to 3 minutes and a pitch up to 2 minutes on YouTube, Loom, or Vimeo, as recorded during submission preparation.
 The [legacy media archive](website.md#legacy-media-archive) contains the earlier launch motion graphic and deck, with earlier branding and track positioning.

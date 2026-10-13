@@ -307,6 +307,8 @@ The video files are local recording assets, not public hosted submission links.
 The later recording filenames are `solana-localnet-flow.mp4` and `tempo-moderato-flow.mp4`.
 Independent media inspection found 78 seconds and 56.033 seconds respectively, both H.264 at 1280x720 and 30 fps.
 The later captures used actual browser recording and local gateway responses; they are separate from the fake-wallet/API fixtures used for checkout regression verification.
+The real Tempo recordings submitted their transfers through an external script while the browser awaited backend confirmation.
+They demonstrate actual chain payment and live checkout status, while wallet-button signing was verified separately with controlled test wallets.
 The Solana deposit owner was `5V9fNFkbp388PpANzYLMx3NPbNqEJPcqYMnKF1tw8gkK`, and the issued token account was `6YCE2sL1gZZfXQxeJ1eSwqneEwVDztyNsmmtB2oR2Asx`.
 The Solana hot wallet recorded after sweeping was `CFVGdawg1ymbDPHAPHL2beVVUHWCWoscm6eDwzzZ544A`.
 Historical transaction/status queries returned no record for the local transfer/sweep signatures at independent review time, so the reviewer could verify current mint/account state but could not reconstruct the old local receipts.
