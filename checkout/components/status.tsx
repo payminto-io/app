@@ -36,11 +36,11 @@ function Headline({ tone, icon, title, sentence }: { tone: Tone; icon: React.Rea
 
 function Receipt({ payment }: { payment: CheckoutPayment }) {
   const chain = payment.chain;
-  const paid = chain?.received ?? chain?.due;
+  const paid = chain?.received;
   return (
     <div className="flex flex-col divide-y divide-line rounded-md border border-line px-4">
       {payment.merchant.name ? <Row label="To">{payment.merchant.name}</Row> : null}
-      {paid ? <Row label="Paid"><Amount money={paid} size="body-sm" /></Row> : <Row label="Amount due"><Amount money={payment.total} size="body-sm" /></Row>}
+      {paid ? <Row label="Paid"><Amount money={paid} size="body-sm" /></Row> : <Row label="Amount due"><Amount money={chain?.due ?? payment.total} size="body-sm" /></Row>}
       {payment.card?.brand || payment.card?.last4 ? (
         <Row label="Card">{[payment.card.brand, payment.card.last4 ? `•••• ${payment.card.last4}` : undefined].filter(Boolean).join(" ")}</Row>
       ) : null}
@@ -89,7 +89,7 @@ export function Paid({ payment }: { payment: CheckoutPayment }) {
     const t = window.setTimeout(() => window.location.assign(redirect), 1500);
     return () => window.clearTimeout(t);
   }, [redirect]);
-  const paid = payment.chain?.received ?? payment.chain?.due ?? payment.total;
+  const paid = payment.chain?.received;
   return (
     <div className="flex flex-col gap-6">
       <Headline
@@ -99,7 +99,7 @@ export function Paid({ payment }: { payment: CheckoutPayment }) {
         sentence={
           payment.success?.message ?? (
             <>
-              <Amount money={paid} size="body-sm" className="text-ink" /> {payment.merchant.name ? `to ${payment.merchant.name} ` : ""}is final.
+              {paid ? <><Amount money={paid} size="body-sm" className="text-ink" /> </> : "The payment "}{payment.merchant.name ? `to ${payment.merchant.name} ` : ""}is final.
               {redirect ? " Taking you back." : ""}
             </>
           )
@@ -130,12 +130,12 @@ export function Underpaid({ payment, onExpire }: { payment: CheckoutPayment; onE
               <Amount money={remaining} size="body-sm" className="text-ink" /> to the same address{chain.memo ? " with the same memo" : ""}.
             </>
           ) : (
-            `Part of the amount has arrived. Send the rest to the same address${chain?.memo ? " with the same memo" : ""}.`
+            "Part of the amount has arrived. The remaining amount is unavailable. Wait for the merchant to confirm it before sending more."
           )
         }
       />
       <Rail step={railStep(payment)} />
-      {chain ? <ChainPay chain={chain} due={remaining} onExpire={onExpire} note="Waiting for the rest" /> : null}
+      {chain ? <ChainPay chain={chain} due={remaining ?? null} onExpire={onExpire} note="Waiting for the rest" /> : null}
       {chain?.explorerUrl ? <ExplorerLink href={chain.explorerUrl} /> : null}
     </div>
   );

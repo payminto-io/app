@@ -3,8 +3,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { TriangleAlert, Wallet } from "lucide-react";
 import type { ChainLeg, Money } from "@/lib/model";
-import { formatAmount } from "@/lib/money";
-import { TEMPO_TESTNET } from "@/lib/tempo";
+import { TEMPO_TESTNET, tempoToken } from "@/lib/tempo";
 import { payWithWallet, txUrl, walletErrorMessage, walletProvider } from "@/lib/tempo-wallet";
 import { Amount, CopyField, ExplorerLink, Row, truncateMiddle, useCopy, WaitingBar } from "./ui";
 
@@ -13,17 +12,21 @@ const noSubscribe = () => () => undefined;
 type Send = { kind: "idle" } | { kind: "sending" } | { kind: "sent"; hash: string } | { kind: "error"; message: string };
 
 /**
- * A Tempo leg: the merchant's fixed address, the exact pathUSD amount and the
+ * A Tempo leg: the merchant's fixed address, the exact token amount and the
  * memo that tells this payment apart. No QR: an address alone would send a
  * transfer without the memo, which the watcher cannot match.
  */
-export function TempoPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?: Money; onExpire?: () => void; note?: React.ReactNode }) {
+export function TempoPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?: Money | null; onExpire?: () => void; note?: React.ReactNode }) {
   const [copied, copy] = useCopy();
   const [send, setSend] = useState<Send>({ kind: "idle" });
   const hasWallet = useSyncExternalStore(noSubscribe, () => Boolean(walletProvider()), () => false);
-  const amount = due ?? chain.due;
+  const amount = due === null ? undefined : due ?? chain.due;
   const memo = chain.memo;
-  const token = TEMPO_TESTNET.token;
+  const token = tempoToken(chain.asset);
+
+  if (!token) {
+    return <p role="alert" className="rounded-sm bg-bad-tint p-3 text-body-sm text-bad">This Tempo token is not supported by this checkout. Contact the merchant before sending.</p>;
+  }
 
   if (!memo) {
     return (
@@ -38,7 +41,7 @@ export function TempoPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?
     if (!amount) return;
     setSend({ kind: "sending" });
     try {
-      const hash = await payWithWallet({ to: chain.address as `0x${string}`, amount: amount.amount, memo: memo.hex });
+      const hash = await payWithWallet({ to: chain.address as `0x${string}`, amount: amount.amount, memo: memo.hex, asset: chain.asset });
       setSend({ kind: "sent", hash });
     } catch (cause) {
       setSend({ kind: "error", message: walletErrorMessage(cause) });
@@ -50,10 +53,10 @@ export function TempoPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?
       {amount ? (
         <CopyField
           label="Amount"
-          value={formatAmount(amount.amount, amount.code)}
+          value={amount.amount}
           display={<Amount money={amount} size="h2" />}
           copied={copied === "amount"}
-          onCopy={() => copy(formatAmount(amount.amount, amount.code), "amount")}
+          onCopy={() => copy(amount.amount, "amount")}
           mono={false}
         />
       ) : null}

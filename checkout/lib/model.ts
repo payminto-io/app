@@ -6,7 +6,7 @@
  */
 
 import { compareDecimal, isStablecoin, subtractDecimal } from "./money";
-import { TEMPO_CODE, TEMPO_TESTNET, tryEncodeMemo } from "./tempo";
+import { PATHUSD_CODE, TEMPO_CODE, TEMPO_TESTNET, tempoToken, tryEncodeMemo } from "./tempo";
 
 export interface Money {
   amount: string;
@@ -145,10 +145,10 @@ export const NETWORK_NAMES: Record<string, string> = {
   [TEMPO_CODE]: TEMPO_TESTNET.name,
 };
 
-/** Display code for an asset; pathUSD keeps its own casing. */
+/** Display code for an asset; seeded Tempo tokens keep their own casing. */
 export function assetCode(code: string): string {
   const upper = code.toUpperCase();
-  return upper === TEMPO_TESTNET.token.symbol.toUpperCase() ? TEMPO_TESTNET.token.symbol : upper;
+  return tempoToken(upper)?.symbol ?? upper;
 }
 
 export function isTempo(network?: string): boolean {
@@ -174,7 +174,8 @@ export function mapState(raw: string, expiresAt?: string | null, now = Date.now(
 
 export function fromApi(payment: ApiPayment, methods: ApiMethod[], now = Date.now()): CheckoutPayment {
   const stable = methods.filter((m) => isStablecoin(m.currencyCode) && !isTempo(m.blockchainCode));
-  const tempo = methods.find((m) => isTempo(m.blockchainCode));
+  const tempoMethods = methods.filter((m) => isTempo(m.blockchainCode) && tempoToken(m.currencyCode));
+  const tempo = tempoMethods.find((m) => m.currencyCode.toUpperCase() === PATHUSD_CODE) ?? tempoMethods[0];
   const asset = stable[0]?.currencyCode.toUpperCase();
   const networks = stable
     .filter((m) => m.currencyCode.toUpperCase() === asset)

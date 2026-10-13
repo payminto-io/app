@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ArrowLeft } from "lucide-react";
 import { railStep, viewState, type CheckoutPayment, type ViewState } from "@/lib/model";
 import { CardSlot } from "./card-slot";
 import { ChainPay } from "./chain-pay";
@@ -30,7 +29,7 @@ export interface CheckoutViewProps {
   forceState?: ViewState;
 }
 
-function Awaiting({ payment, onBack, onExpire }: { payment: CheckoutPayment; onBack: () => void; onExpire?: () => void }) {
+function Awaiting({ payment, onExpire }: { payment: CheckoutPayment; onExpire?: () => void }) {
   const chain = payment.chain!;
   return (
     <div className="flex flex-col gap-6">
@@ -43,10 +42,6 @@ function Awaiting({ payment, onBack, onExpire }: { payment: CheckoutPayment; onB
             {chain.memo ? "Send exactly this amount with the memo below; the quote is held until the timer ends." : chain.due ? "Send exactly this amount; the quote is held until the timer ends." : `The amount is counted in ${chain.asset} when it arrives.`}
           </p>
         </div>
-        <button type="button" onClick={onBack} className="tap inline-flex shrink-0 items-center gap-1.5 pt-1 text-body-sm font-medium text-tide hover:text-tide-strong">
-          <ArrowLeft size={14} strokeWidth={1.75} />
-          Change
-        </button>
       </div>
       <ChainPay chain={chain} onExpire={onExpire} />
       <Rail step={railStep(payment)} />
@@ -75,7 +70,7 @@ export function CheckoutView({ payment, method, network, busy, error, handlers, 
       body = <CardSlot payment={payment} onBack={handlers.onBack} />;
       break;
     case "awaiting":
-      body = <Awaiting payment={payment} onBack={handlers.onBack} onExpire={handlers.onExpire} />;
+      body = <Awaiting payment={payment} onExpire={handlers.onExpire} />;
       break;
     case "confirming":
       body = <Confirming payment={payment} />;

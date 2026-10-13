@@ -4,7 +4,7 @@
  */
 
 import type { EIP1193Provider } from "viem";
-import { TEMPO_TESTNET, toBaseUnits } from "./tempo";
+import { PATHUSD_CODE, TEMPO_TESTNET, tempoToken, toBaseUnits } from "./tempo";
 
 const TIP20_TRANSFER_WITH_MEMO = [
   {
@@ -29,8 +29,12 @@ export function txUrl(hash: string): string {
   return `${TEMPO_TESTNET.explorerUrl}/tx/${hash}`;
 }
 
-/** Sends `amount` pathUSD to `to` with `memo`; resolves to the transaction hash. */
-export async function payWithWallet({ to, amount, memo }: { to: `0x${string}`; amount: string; memo: `0x${string}` }): Promise<`0x${string}`> {
+/** Sends the issued Tempo token to `to` with `memo`; resolves to the transaction hash. */
+export async function payWithWallet({ to, amount, memo, asset = PATHUSD_CODE }: { to: `0x${string}`; amount: string; memo: `0x${string}`; asset?: string }): Promise<`0x${string}`> {
+  const token = tempoToken(asset);
+  if (!token) throw new Error("This Tempo token is not supported by the browser wallet payment.");
+  const units = toBaseUnits(amount, token.decimals);
+  if (units <= BigInt(0)) throw new Error("The payment amount must be greater than zero.");
   const provider = walletProvider();
   if (!provider) throw new Error("No browser wallet found.");
   const { createWalletClient, custom, defineChain } = await import("viem");
@@ -48,23 +52,37 @@ export async function payWithWallet({ to, amount, memo }: { to: `0x${string}`; a
   if (!account) throw new Error("The wallet shared no account.");
   try {
     await client.switchChain({ id: chain.id });
-  } catch {
+  } catch (cause) {
+    // Only an unknown chain needs adding. A declined switch must stop here.
+    if (walletErrorCode(cause) !== 4902) throw cause;
     await client.addChain({ chain });
     await client.switchChain({ id: chain.id });
   }
   return client.writeContract({
     account,
-    address: TEMPO_TESTNET.token.address,
+    address: token.address,
     abi: TIP20_TRANSFER_WITH_MEMO,
     functionName: "transferWithMemo",
-    args: [to, toBaseUnits(amount, TEMPO_TESTNET.token.decimals), memo],
+    args: [to, units, memo],
   });
 }
 
 /** A short, payer-facing sentence for a wallet failure. */
 export function walletErrorMessage(cause: unknown): string {
-  const code = (cause as { code?: number })?.code;
+  const code = walletErrorCode(cause);
   if (code === 4001) return "The wallet request was declined. Nothing was sent.";
   const short = (cause as { shortMessage?: string })?.shortMessage;
   return short ?? (cause instanceof Error ? cause.message : "The wallet could not send this payment.");
+}
+
+/** viem wraps provider failures; preserve their codes through the cause chain. */
+function walletErrorCode(cause: unknown): number | undefined {
+  const seen = new Set<unknown>();
+  while (cause && typeof cause === "object" && !seen.has(cause)) {
+    seen.add(cause);
+    const error = cause as { code?: number; cause?: unknown };
+    if (error.code === 4001 || error.code === 4902) return error.code;
+    cause = error.cause;
+  }
+  return undefined;
 }

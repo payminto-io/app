@@ -2,7 +2,6 @@
 
 import { QRCodeSVG } from "qrcode.react";
 import { isTempo, type ChainLeg, type Money } from "@/lib/model";
-import { formatAmount } from "@/lib/money";
 import { TempoPay } from "./tempo-pay";
 import { Amount, CopyField, useCopy, WaitingBar } from "./ui";
 
@@ -10,26 +9,27 @@ import { Amount, CopyField, useCopy, WaitingBar } from "./ui";
  * Address, exact amount and QR for a chain leg. Shared by awaiting and under
  * paid. QR is always on white so scanners get contrast (references.md, Base
  * App receive). A Tempo leg renders TempoPay instead: fixed merchant address
- * plus the memo that identifies the payment.
+ * plus the memo that identifies the payment. A null due suppresses amount
+ * instructions when the API has not supplied enough data for a top-up.
  */
-export function ChainPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?: Money; onExpire?: () => void; note?: React.ReactNode }) {
+export function ChainPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?: Money | null; onExpire?: () => void; note?: React.ReactNode }) {
   if (isTempo(chain.network)) return <TempoPay chain={chain} due={due} onExpire={onExpire} note={note} />;
   return <AddressPay chain={chain} due={due} onExpire={onExpire} note={note} />;
 }
 
-function AddressPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?: Money; onExpire?: () => void; note?: React.ReactNode }) {
+function AddressPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?: Money | null; onExpire?: () => void; note?: React.ReactNode }) {
   const [copied, copy] = useCopy();
-  const amount = due ?? chain.due;
+  const amount = due === null ? undefined : due ?? chain.due;
 
   return (
     <div className="flex flex-col gap-5">
       {amount ? (
         <CopyField
           label="Amount"
-          value={formatAmount(amount.amount, amount.code)}
+          value={amount.amount}
           display={<Amount money={amount} size="h2" />}
           copied={copied === "amount"}
-          onCopy={() => copy(formatAmount(amount.amount, amount.code), "amount")}
+          onCopy={() => copy(amount.amount, "amount")}
           mono={false}
         />
       ) : null}

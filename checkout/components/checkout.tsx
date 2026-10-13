@@ -56,7 +56,7 @@ export function Checkout({ referenceId }: { referenceId: string }) {
   const assign = useCallback(async () => {
     const chosen =
       effectiveMethod === "tempo"
-        ? methods.find((m) => isTempo(m.blockchainCode))
+        ? methods.find((m) => isTempo(m.blockchainCode) && m.currencyCode.toUpperCase() === tempo?.asset.toUpperCase())
         : methods.find((m) => m.blockchainCode.toUpperCase() === effectiveNetwork && m.currencyCode.toUpperCase() === stable?.asset);
     if (!chosen) return;
     setBusy(true);
@@ -72,7 +72,7 @@ export function Checkout({ referenceId }: { referenceId: string }) {
     } finally {
       setBusy(false);
     }
-  }, [methods, effectiveMethod, effectiveNetwork, stable, referenceId, refresh]);
+  }, [methods, effectiveMethod, effectiveNetwork, stable, tempo, referenceId, refresh]);
 
   if (load.kind === "loading") return <Loading />;
   if (load.kind === "notfound") return <NotFound />;

@@ -25,6 +25,20 @@ export const TEMPO_TESTNET = {
   },
 } as const;
 
+const ALPHAUSD = {
+  symbol: "AlphaUSD",
+  standard: "TIP-20",
+  address: "0x20c0000000000000000000000000000000000001",
+  decimals: 6,
+} as const;
+
+/** Only the backend's seeded Moderato tokens are supported by this wallet path. */
+export function tempoToken(asset: string) {
+  if (asset.toUpperCase() === PATHUSD_CODE) return TEMPO_TESTNET.token;
+  if (asset.toUpperCase() === "ALPHAUSD") return ALPHAUSD;
+  return undefined;
+}
+
 export const MEMO_BYTES = 32;
 
 export class MemoError extends Error {}
