@@ -6,7 +6,7 @@
 | App (merchant dashboard) | [app.payminto.io](https://app.payminto.io) |
 | Hosted checkout | [checkout.payminto.io](https://checkout.payminto.io) |
 | Pitch deck | [Payminto pitch deck (Google Drive)](https://drive.google.com/file/d/1S9ZHGs2dDlsVGEZDbhm7Yf9ZtG1Gy-TT/view) |
-| Demo video | [Watch or download (GitHub release)](https://github.com/payminto-io/app/releases/tag/demo-video) |
+| Launch video (marketing) | [Watch or download (GitHub release)](https://github.com/payminto-io/app/releases/tag/demo-video) |
 | All hackathon material (video and pitch deck) | [Google Drive folder](https://drive.google.com/drive/folders/1LC3jWfza6qiMsV1Xc-qfu8zydhRSwOJk) |
 | Source code | [github.com/payminto-io/app](https://github.com/payminto-io/app) |
 
@@ -38,7 +38,8 @@
 | --- | --- |
 | ![Checkout](docs/design/screens/checkout/awaiting-1440-light.png) | ![CRE settings](docs/design/screens/pages/settings-attestations-1440-light.png) |
 
-### The live Chainlink proof
+### The local Chainlink proof
 
 The CRE solvency workflow compared what the ledger owes merchants (1,250 USDC) with what custody holds on chain (1,300 USDC), delivered a signed report through the Chainlink Keystone forwarder to our `GatewayAttestations` contract, and the gateway verified it from its own RPC and stored it as attested.
+This was demonstrated on a local chain; no public CRE deployment is claimed.
 How to reproduce it: [cre/README.md](cre/README.md).

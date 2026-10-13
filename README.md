@@ -59,7 +59,11 @@ flowchart LR
 
 | Built and in `main` | On branches, not merged |
 | --- | --- |
-| Ledger, fee rules, live/test isolation, payment switch, payment links and builder, hosted checkout UI, Solana USDC/USDT, Tempo pathUSD on testnet (memo watcher, ledger posting, Pay on Tempo), Chainlink CRE contract, module and solvency workflow, design system and dashboard | Custody providers (self-custody fence, BitGo next), Kuberpays and Payvang connectors, routing across rails, links on the switch with every method, NOWNodes RPC preset, one-command compose and CI |
+| Ledger, fee rules, live/test isolation, payment switch, payment links and builder, hosted checkout UI, Solana USDC/USDT, Tempo pathUSD on testnet (memo watcher, ledger posting, Pay on Tempo), Chainlink CRE contract, module and solvency workflow, design system and dashboard, CI workflow with checkout and Tempo PostgreSQL regression gates | Custody providers (self-custody fence, BitGo next), Kuberpays and Payvang connectors, routing across rails, links on the switch with every method, NOWNodes RPC preset, one-command compose |
+
+Tempo is Moderato testnet only and is refused in live money processes.
+Its real-network payment evidence was recorded through a local backend; an integrated local branch is not proof that the public deployment has been updated.
+The CI workflow is configured and its commands have been checked locally; a hosted CI run requires a push.
 
 Every merged module went through independent review rounds; the review findings and fixes are in the commit history.
 
