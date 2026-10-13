@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -14,6 +15,9 @@ import (
 // wireTempo builds the Tempo memo watcher when TEMPO_MERCHANT_ADDRESS is set and the TEMPO chain is
 // seeded. Unset means Tempo is off and nothing else changes; a set but broken config fails boot.
 func (r *ServiceRegistry) wireTempo(cfg *config.Config) error {
+	if err := cfg.ValidateTempo(); err != nil {
+		return err
+	}
 	tc := cfg.Tempo
 	if tc.MerchantAddress == "" {
 		return nil
@@ -24,6 +28,9 @@ func (r *ServiceRegistry) wireTempo(cfg *config.Config) error {
 	chain, err := r.blockchainRepo.GetByCode(tempo.ChainCode)
 	if err != nil {
 		return fmt.Errorf("TEMPO_MERCHANT_ADDRESS is set but blockchain %s is not seeded: %w", tempo.ChainCode, err)
+	}
+	if chain.Status != "active" || chain.ChainID == nil || *chain.ChainID != tempo.ModeratoChainID {
+		return fmt.Errorf("tempo: require an active TEMPO row with Moderato chain id %d", tempo.ModeratoChainID)
 	}
 	rows, err := r.blockchainCurrencyRepo.ListByBlockchainID(chain.ID)
 	if err != nil {
@@ -41,15 +48,17 @@ func (r *ServiceRegistry) wireTempo(cfg *config.Config) error {
 	}
 	id, err := client.ChainID(ctx)
 	if err != nil {
+		client.Close()
 		return fmt.Errorf("tempo chain id: %w", err)
 	}
-	if chain.ChainID != nil && id.Int64() != *chain.ChainID {
-		return fmt.Errorf("tempo: RPC %s is chain %d, the %s row says %d", tc.RPCURL, id.Int64(), tempo.ChainCode, *chain.ChainID)
+	if id.Cmp(big.NewInt(*chain.ChainID)) != 0 {
+		client.Close()
+		return fmt.Errorf("tempo: RPC is chain %s, the %s row says %d", id, tempo.ChainCode, *chain.ChainID)
 	}
 	r.tempoMemoService = NewTempoMemoService(r.db, client, chain, tokens, r.depositService, r.ledgerService, nil, TempoMemoConfig{
 		Merchant: common.HexToAddress(tc.MerchantAddress), MemberID: uint(max(tc.MemberID, 0)), StartBlock: uint64(max(tc.StartBlock, 0)),
 	})
-	r.depositAddressService.WithTempoMerchant(common.HexToAddress(tc.MerchantAddress).Hex())
+	r.depositAddressService.WithTempoMerchant(common.HexToAddress(tc.MerchantAddress).Hex(), uint(tc.MemberID))
 	log.Printf("[registry] tempo memo watcher wired (chain %d, merchant %s, %d tokens)", id.Int64(), tc.MerchantAddress, len(tokens))
 	return nil
 }

@@ -11,9 +11,10 @@ import (
 // finalizeDeposit marks a deposit confirmed (from pending, confirming or a revived failed) and, in the
 // same transaction, posts its payment journal unless the switch owns the payment. It reports whether
 // this call performed the transition; a repeat or a racing caller gets false and posts nothing.
-// Shared by the chain watchers that confirm deposits themselves (Solana, Tempo); the caller then runs
-// DepositService.FinalizePayment and publishes.
-func finalizeDeposit(ctx context.Context, db *gorm.DB, ledger *LedgerService, d *models.Deposit) (bool, error) {
+// Shared by chain watchers that confirm deposits themselves (Solana, Tempo).
+// Optional afterConfirmed callbacks complete related writes before the same transaction commits.
+// Callers without a callback finalize the invoice separately and then publish.
+func finalizeDeposit(ctx context.Context, db *gorm.DB, ledger *LedgerService, d *models.Deposit, afterConfirmed ...func(*gorm.DB) error) (bool, error) {
 	won := false
 	post := func(tx *gorm.DB) error {
 		res := tx.Model(&models.Deposit{}).
@@ -26,14 +27,23 @@ func finalizeDeposit(ctx context.Context, db *gorm.DB, ledger *LedgerService, d 
 			return nil
 		}
 		won = true
-		if ledger == nil {
-			return nil
+		if ledger != nil {
+			owned, err := switchOwnsPayment(tx, d.PaymentRequestID)
+			if err != nil {
+				return err
+			}
+			if !owned {
+				if err := ledger.RecordDepositIn(ctx, tx, d.ID, d.BlockchainCurrencyID, d.Amount); err != nil {
+					return err
+				}
+			}
 		}
-		owned, err := switchOwnsPayment(tx, d.PaymentRequestID)
-		if err != nil || owned {
-			return err
+		for _, complete := range afterConfirmed {
+			if err := complete(tx); err != nil {
+				return err
+			}
 		}
-		return ledger.RecordDepositIn(ctx, tx, d.ID, d.BlockchainCurrencyID, d.Amount)
+		return nil
 	}
 	var err error
 	if ledger != nil {

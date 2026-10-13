@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/payminto/payminto/backend/internal/metrics"
 	"github.com/payminto/payminto/backend/internal/models"
 	"github.com/payminto/payminto/backend/internal/realtime"
+	"github.com/payminto/payminto/backend/internal/repository"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -20,6 +22,7 @@ import (
 
 // TempoReader is the chain surface the Tempo watcher reads; *tempo.Client implements it.
 type TempoReader interface {
+	ChainID(ctx context.Context) (*big.Int, error)
 	Head(ctx context.Context) (uint64, error)
 	MemoTransfersTo(ctx context.Context, tokens []common.Address, recipient common.Address, from, to uint64) ([]tempo.MemoTransfer, error)
 	ReceiptStatus(ctx context.Context, hash common.Hash) (uint64, error)
@@ -83,6 +86,15 @@ func (s *TempoMemoService) Tokens() map[common.Address]tempo.Token { return s.to
 // the blocks it fully handled. A transient failure (RPC, DB) stops the scan below the failing log's
 // block so the next poll retries it; de-duplication on (tx hash, log index) makes the retry safe.
 func (s *TempoMemoService) PollOnce(ctx context.Context) (int, error) {
+	// Recheck the RPC on every poll, before retrying pending money writes: endpoints may be
+	// reconfigured after boot, and a successful receipt on another chain proves nothing here.
+	id, err := s.client.ChainID(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("tempo chain id: %w", err)
+	}
+	if id == nil || id.Cmp(big.NewInt(tempo.ModeratoChainID)) != 0 || s.chain.ChainID == nil || *s.chain.ChainID != tempo.ModeratoChainID {
+		return 0, fmt.Errorf("tempo: RPC and configured chain must be Moderato %d", tempo.ModeratoChainID)
+	}
 	if err := s.retryPending(ctx); err != nil {
 		log.Printf("[tempo] retry pending: %v", err)
 	}
@@ -117,24 +129,31 @@ func (s *TempoMemoService) PollOnce(ctx context.Context) (int, error) {
 			ok, err := s.handle(ctx, t)
 			if err != nil {
 				// Hold the cursor below this block so the log is retried.
-				s.setCursor(ctx, t.BlockNumber-1)
+				if t.BlockNumber > 0 {
+					if cursorErr := s.setCursor(ctx, t.BlockNumber-1); cursorErr != nil {
+						return credited, errors.Join(err, cursorErr)
+					}
+				}
 				return credited, fmt.Errorf("%s: %w", t.Key(), err)
 			}
 			if ok {
 				credited++
 			}
 		}
-		s.setCursor(ctx, to)
+		if err := s.setCursor(ctx, to); err != nil {
+			return credited, err
+		}
 		from = to + 1
 	}
 	return credited, nil
 }
 
-func (s *TempoMemoService) setCursor(ctx context.Context, height uint64) {
+func (s *TempoMemoService) setCursor(ctx context.Context, height uint64) error {
 	if err := s.db.WithContext(ctx).Model(&models.Blockchain{}).Where("id = ? AND height < ?", s.chain.ID, height).
 		Updates(map[string]any{"height": height, "updated_at": time.Now()}).Error; err != nil {
-		log.Printf("[tempo] cursor %d: %v", height, err)
+		return fmt.Errorf("tempo cursor %d: %w", height, err)
 	}
+	return nil
 }
 
 // handle decides one log. It returns true when the log was newly credited.
@@ -159,7 +178,7 @@ func (s *TempoMemoService) handle(ctx context.Context, t tempo.MemoTransfer) (bo
 	}
 	var payment *models.PaymentRequest
 	if rej == tempo.RejectNone {
-		payment, err = s.paymentForMemo(ctx, t.Memo)
+		payment, err = s.paymentForMemo(ctx, t.Memo, tok, t.To)
 		if err != nil {
 			return false, err
 		}
@@ -209,47 +228,68 @@ func (s *TempoMemoService) handle(ctx context.Context, t tempo.MemoTransfer) (bo
 }
 
 // paymentForMemo resolves a memo to the payment whose reference it encodes, or nil.
-func (s *TempoMemoService) paymentForMemo(ctx context.Context, memo [32]byte) (*models.PaymentRequest, error) {
+func (s *TempoMemoService) paymentForMemo(ctx context.Context, memo [32]byte, token tempo.Token, recipient common.Address) (*models.PaymentRequest, error) {
 	refs := tempo.MemoCandidates(memo)
 	if len(refs) == 0 {
 		return nil, nil
 	}
-	q := s.db.WithContext(ctx).Where("reference_id IN ?", refs)
+	// A memo is public invoice data, not proof that this invoice accepted this rail.
+	// Require the issued leg with the same owner, receiving address, token, and active chain.
+	q := s.db.WithContext(ctx).Where("reference_id IN ?", refs).
+		Where(`EXISTS (SELECT 1 FROM deposit_addresses da
+			JOIN blockchain_currencies bc ON bc.id = da.blockchain_currency_id
+			JOIN blockchains b ON b.id = bc.blockchain_id
+			JOIN currencies c ON c.id = bc.currency_id
+			WHERE da.payment_request_id = payment_requests.id AND da.member_id = payment_requests.member_id
+			AND da.blockchain_currency_id = ? AND LOWER(da.address) = LOWER(?)
+			AND bc.blockchain_id = ? AND bc.blockchain_code = ? AND bc.deposit_enabled = ?
+			AND LOWER(bc.address) = LOWER(?) AND bc.wallet_precision = ? AND bc.standard = 'TIP20'
+			AND b.status = 'active' AND b.chain_id = ? AND c.deposit_enabled = ?
+			AND da.deleted_at IS NULL AND bc.deleted_at IS NULL AND b.deleted_at IS NULL AND c.deleted_at IS NULL)`,
+			token.BlockchainCurrencyID, recipient.Hex(), s.chain.ID, tempo.ChainCode, true, token.Address.Hex(), token.Decimals, tempo.ModeratoChainID, true)
 	if s.cfg.MemberID != 0 {
 		q = q.Where("member_id = ?", s.cfg.MemberID)
 	}
-	var p models.PaymentRequest
-	if err := q.First(&p).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
+	var payments []models.PaymentRequest
+	if err := q.Limit(2).Find(&payments).Error; err != nil {
 		return nil, err
 	}
-	return &p, nil
+	if len(payments) != 1 {
+		return nil, nil // No issued leg or ambiguous compact UUID: never guess an owner.
+	}
+	return &payments[0], nil
 }
 
 // confirm finalizes the deposit (journal in the same transaction) and the payment, then publishes.
 func (s *TempoMemoService) confirm(ctx context.Context, d *models.Deposit) (bool, error) {
-	won, err := finalizeDeposit(ctx, s.db, s.ledger, d)
+	var payment models.PaymentRequest
+	// An invoice write failure must roll back both confirmation and its journal so retryPending
+	// can finish the same deposit on the next poll without losing or double-booking money.
+	won, err := finalizeDeposit(ctx, s.db, s.ledger, d, func(tx *gorm.DB) error {
+		if d.PaymentRequestID == nil {
+			return nil
+		}
+		_, _, _, err := repository.NewPaymentRepository(tx).FinalizeFromConfirmedDeposits(*d.PaymentRequestID)
+		if err != nil {
+			return err
+		}
+		return tx.Select("state", "reference_id").First(&payment, *d.PaymentRequestID).Error
+	})
 	if err != nil || !won {
 		return false, err
 	}
-	state := models.PaymentStateFilled
+	state := "unlinked"
 	if d.PaymentRequestID != nil {
-		if err := s.depositSvc.FinalizePayment(*d.PaymentRequestID); err != nil {
-			log.Printf("[tempo] finalize payment %d: %v", *d.PaymentRequestID, err)
+		state = payment.State
+		if s.broker != nil {
+			s.broker.Publish(s.broker.PaymentTopic(payment.ReferenceID), realtime.PaymentEvent{
+				ReferenceID: payment.ReferenceID, State: strings.ToUpper(state), Confirmations: d.RequiredConfirmations,
+				Required: d.RequiredConfirmations, TxID: d.TxID,
+			})
 		}
-		var pr models.PaymentRequest
-		if err := s.db.Select("state", "reference_id").First(&pr, *d.PaymentRequestID).Error; err == nil {
-			state = pr.State
-			if s.broker != nil {
-				s.broker.Publish(s.broker.PaymentTopic(pr.ReferenceID), realtime.PaymentEvent{
-					ReferenceID: pr.ReferenceID, State: strings.ToUpper(state), Confirmations: d.RequiredConfirmations,
-					Required: d.RequiredConfirmations, TxID: d.TxID,
-				})
-			}
+		if state == models.PaymentStateFilled || state == models.PaymentStateOverFilled {
+			metrics.PaymentConfirmed()
 		}
-		metrics.PaymentConfirmed()
 	}
 	log.Printf("[tempo] deposit %d confirmed, payment state %s (%s)", d.ID, state, d.TxID)
 	return true, nil
@@ -278,7 +318,7 @@ func (s *TempoMemoService) retryPending(ctx context.Context) error {
 func TempoTokensFromCurrencies(rows []models.BlockchainCurrency) map[common.Address]tempo.Token {
 	out := make(map[common.Address]tempo.Token, len(rows))
 	for _, r := range rows {
-		if !r.DepositEnabled || !common.IsHexAddress(r.Address) {
+		if !r.DepositEnabled || r.BlockchainCode != tempo.ChainCode || r.WalletPrecision != 6 || r.Standard != "TIP20" || !common.IsHexAddress(r.Address) {
 			continue
 		}
 		a := common.HexToAddress(r.Address)

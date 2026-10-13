@@ -20,10 +20,18 @@ type fakeTempoReader struct {
 	transfers []tempo.MemoTransfer
 	status    map[common.Hash]uint64
 	statusErr error
+	chainID   *big.Int
 	ranges    [][2]uint64
 }
 
 func (f *fakeTempoReader) Head(context.Context) (uint64, error) { return f.head, nil }
+
+func (f *fakeTempoReader) ChainID(context.Context) (*big.Int, error) {
+	if f.chainID != nil {
+		return f.chainID, nil
+	}
+	return big.NewInt(tempo.ModeratoChainID), nil
+}
 
 func (f *fakeTempoReader) MemoTransfersTo(_ context.Context, _ []common.Address, to common.Address, from, until uint64) ([]tempo.MemoTransfer, error) {
 	f.ranges = append(f.ranges, [2]uint64{from, until})
@@ -57,7 +65,7 @@ func newTempoFixture(t *testing.T, reader *fakeTempoReader) (*TempoMemoService, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Blockchain{}, &models.BlockchainCurrency{}, &models.PaymentRequest{}, &models.Deposit{}, &models.TempoMemoCredit{}); err != nil {
+	if err := db.AutoMigrate(&models.Blockchain{}, &models.BlockchainCurrency{}, &models.Currency{}, &models.PaymentRequest{}, &models.DepositAddress{}, &models.Deposit{}, &models.TempoMemoCredit{}); err != nil {
 		t.Fatal(err)
 	}
 	chainID := int64(tempo.ModeratoChainID)
@@ -65,12 +73,18 @@ func newTempoFixture(t *testing.T, reader *fakeTempoReader) (*TempoMemoService, 
 	if err := db.Create(chain).Error; err != nil {
 		t.Fatal(err)
 	}
-	bc := models.BlockchainCurrency{Address: tempo.AlphaUSD.Hex(), CurrencyCode: "ALPHAUSD", BlockchainCode: tempo.ChainCode, DepositEnabled: true, WalletPrecision: 6, BlockchainID: chain.ID, CurrencyID: 1}
+	if err := db.Create(&models.Currency{Code: "ALPHAUSD", Name: "Alpha USD", Type: "token", DepositEnabled: true, WalletPrecision: 6}).Error; err != nil {
+		t.Fatal(err)
+	}
+	bc := models.BlockchainCurrency{Address: tempo.AlphaUSD.Hex(), Standard: "TIP20", CurrencyCode: "ALPHAUSD", BlockchainCode: tempo.ChainCode, DepositEnabled: true, WalletPrecision: 6, BlockchainID: chain.ID, CurrencyID: 1}
 	if err := db.Create(&bc).Error; err != nil {
 		t.Fatal(err)
 	}
 	p := &models.PaymentRequest{ReferenceID: "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b", AmountInUSD: decimal.NewFromInt(2), State: models.PaymentStateOpen, MemberID: 5, ExternalPlatformID: 1}
 	if err := db.Create(p).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.DepositAddress{Address: tempoMerchant.Hex(), BlockchainCurrencyID: bc.ID, MemberID: p.MemberID, PaymentRequestID: &p.ID}).Error; err != nil {
 		t.Fatal(err)
 	}
 	depSvc := NewDepositService(repository.NewDepositRepository(db), repository.NewDepositAddressRepository(db), repository.NewPaymentRepository(db),

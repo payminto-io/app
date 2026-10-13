@@ -352,6 +352,9 @@ func (c *Config) validate() error {
 		return fmt.Errorf("GATEWAY_ENVIRONMENT must be test or live; got %q", c.Gateway.Environment)
 	}
 	c.Gateway.Environment = string(gatewayEnv)
+	if err := c.ValidateTempo(); err != nil {
+		return err
+	}
 
 	c.Database.Database = strings.TrimSpace(c.Database.Database)
 	c.Database.TestDatabase = strings.TrimSpace(c.Database.TestDatabase)

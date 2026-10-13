@@ -39,6 +39,7 @@ type DepositAddressService struct {
 	solanaLateWindow time.Duration
 	// tempoMerchant is set by WithTempoMerchant; TEMPO payments all go to this address, keyed by memo.
 	tempoMerchant string
+	tempoMemberID uint
 }
 
 func NewDepositAddressService(
