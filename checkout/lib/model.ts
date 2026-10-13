@@ -112,6 +112,11 @@ export interface ApiPayment {
   state: string;
   expiresAt?: string | null;
   depositAddress?: string;
+  /**
+   * Solana only: the owner of the deposit token account. Wallets derive the token account from an
+   * owner, so this is the address to show; a token account pasted as a recipient strands the funds.
+   */
+  depositOwnerAddress?: string;
   blockchainCode?: string;
   currencyCode?: string;
   merchantName?: string;
@@ -199,7 +204,7 @@ export function fromApi(payment: ApiPayment, methods: ApiMethod[], now = Date.no
       network: payment.blockchainCode.toUpperCase(),
       networkName: networkName(payment.blockchainCode),
       asset: code,
-      address: payment.depositAddress,
+      address: payment.depositOwnerAddress || payment.depositAddress,
       // The chain watcher compares the raw asset amount to amountInUSD
       // (repository FinalizeFromConfirmedDeposits), so for USD stablecoins
       // the exact due amount is that number.

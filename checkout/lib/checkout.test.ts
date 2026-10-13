@@ -35,6 +35,13 @@ describe("state mapping", () => {
     expect(assigned.chain?.networkName).toBe("Solana");
   });
 
+  it("shows the Solana owner address, never the token account a wallet would treat as an owner", () => {
+    const solana = fromApi({ ...base, depositAddress: "F1LzATA", depositOwnerAddress: "FBeAOwner", blockchainCode: "SOLANA", currencyCode: "USDC" }, methods, now);
+    expect(solana.chain?.address).toBe("FBeAOwner");
+    const evm = fromApi({ ...base, depositAddress: "0xabc", blockchainCode: "BASE", currencyCode: "USDC" }, methods, now);
+    expect(evm.chain?.address).toBe("0xabc");
+  });
+
   it("offers card only when the API says so and groups stablecoin networks", () => {
     const model = fromApi(base, methods, now);
     expect(model.methods.card).toBe(false);
