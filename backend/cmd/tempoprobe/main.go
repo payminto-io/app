@@ -1,5 +1,7 @@
 // Command tempoprobe reads TransferWithMemo payments to an address on Tempo and prints them.
-// Usage: go run ./cmd/tempoprobe -to 0x... [-from N] [-rpc URL]
+// Usage: go run ./cmd/tempoprobe -to 0x... [-back N] [-rpc URL]
+//
+//	go run ./cmd/tempoprobe -memo <payment reference>   prints the memo text and bytes32 to send
 package main
 
 import (
@@ -17,7 +19,17 @@ func main() {
 	rpc := flag.String("rpc", tempo.ModeratoRPC, "Tempo RPC URL")
 	to := flag.String("to", "", "recipient address")
 	back := flag.Uint64("back", 5000, "blocks back from head to scan")
+	memoRef := flag.String("memo", "", "print the memo for this payment reference and exit")
 	flag.Parse()
+	if *memoRef != "" {
+		text, err := tempo.MemoForReference(*memoRef)
+		if err != nil {
+			log.Fatal(err)
+		}
+		h, _ := tempo.EncodeMemoHex(*memoRef)
+		fmt.Printf("%s %s\n", text, h)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	c, err := tempo.Dial(ctx, *rpc)
