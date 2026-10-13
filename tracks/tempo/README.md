@@ -44,24 +44,25 @@ Configuration:
 
 ## Evidence
 
-Tests: `go test ./...` in `backend` passes, including table-driven tests for memo encoding, log decoding, verification, de-duplication, rescan idempotency, reverted transactions and cursor hold on RPC errors.
+Real Moderato payment, end to end through the local backend (disposable database `payminto_tempo_test`):
 
-Reading real Moderato data works.
-The topic `0x57bc7354...27de7f0` was checked against live TransferWithMemo logs.
-The backend watcher, pointed at a busy third-party recipient, decided 24 real Moderato logs (blocks 39353995 to 39354110) and recorded them as `no_reference`, because their memos are not Payminto references.
-One of them: https://explore.testnet.tempo.xyz/tx/0xd38aa9a37bb3d8634abb34f04026be4f658a7182c17493807539e79690ad930a
+- Payment `84933e7d-d0fc-46dd-b616-b602be747f9e` for 1.50 USD, Tempo leg attached through the public API.
+- Paid with `tracks/tempo/pay.sh`: 1.5 pathUSD `transferWithMemo` to merchant `0x82c70b91731914e7b678a232b366336Af1436455`, memo `84933e7dd0fc46ddb616b602be747f9e`.
+- Transaction: https://explore.testnet.tempo.xyz/tx/0x0bd786d78b7205537319369b9dc30a8d09a79854eae0ac809223aece94a4a00d (block 39362768, log index 26, status 1).
+- Within seconds the watcher logged `deposit 3 seen` and `deposit 3 confirmed, payment state FILLED`.
+- The payment is `FILLED`, deposit 3 is `confirmed` with 1 confirmation, `tempo_memo_credits` says `credited`.
+- Ledger journal 3 for deposit 3: `+1.5 crypto_assets / -1.5 merchant_balance`.
+- A plain `cast send` worked for sending on Tempo; fees were paid in a USD TIP-20 automatically.
 
-The full credit path was proven end to end against a local chain, not Moderato.
-This was a local anvil node with chain id 42431 and a mock TIP-20 with the same `transferWithMemo` and events, installed at the pathUSD address.
-Through the public API: create payment, attach TEMPO/PATHUSD, pay with the memo from the API.
-The payment went `OPEN` to `FILLED`, the deposit was `confirmed` with 1 confirmation, `tempo_memo_credits` says `credited`, and the ledger journal holds `+2.5 crypto_assets / -2.5 merchant_balance`.
-The explorer links in those log lines point at Moderato, but those transactions only exist on the local chain.
+Tests: `go test ./...` and `go vet ./...` in `backend` pass.
+The new tests are table-driven and cover memo encoding, log decoding, verification, de-duplication, rescan idempotency, reverted transactions and cursor hold on RPC errors.
+
+The watcher was also run against a busy third-party recipient on Moderato.
+It decided 24 real logs (blocks 39353995 to 39354110) as `no_reference`, because their memos are binary and not Payminto references.
 
 ## Not done
 
-- No real Moderato payment yet.
-  On 2026-10-13 the Moderato faucet failed on every attempt: both `tempo_fundAddress` and the web faucet API returned `request too large`.
-  The payer wallet holds no testnet stablecoins, so it cannot send.
+- The Moderato faucet was down from about 08:55 to 09:35 IST on 2026-10-13 (`request too large`), so retry if funding fails.
 - Sending from the backend (refunds, payouts) and sweeping are out of scope.
 - No USD conversion: `FinalizeFromConfirmedDeposits` compares the stablecoin amount to `amountInUSD` 1:1.
 - The checkout UI lives on a separate branch (`checkout-tempo`).
