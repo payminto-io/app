@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, getJSON } from "@/lib/checkout";
-import { fromApi, type ApiMethod, type ApiPayment, type CheckoutPayment } from "@/lib/model";
+import { fromApi, isTempo, type ApiMethod, type ApiPayment, type CheckoutPayment } from "@/lib/model";
 import { CheckoutView } from "./checkout-view";
 import type { MethodKind } from "./methods";
 import { ErrorScreen, Loading, NotFound } from "./screens";
@@ -48,12 +48,16 @@ export function Checkout({ referenceId }: { referenceId: string }) {
 
   // Defaults derived at render: a lone stablecoin method and a lone network need no choice.
   const stable = load.kind === "ready" ? load.payment.methods.stablecoin : undefined;
+  const tempo = load.kind === "ready" ? load.payment.methods.tempo : undefined;
   const cardOffered = load.kind === "ready" && load.payment.methods.card;
-  const effectiveMethod = method ?? (stable && !cardOffered ? "stablecoin" : undefined);
+  const effectiveMethod = method ?? (stable && !cardOffered && !tempo ? "stablecoin" : tempo && !cardOffered && !stable ? "tempo" : undefined);
   const effectiveNetwork = network ?? (stable?.networks.length === 1 ? stable.networks[0].code : undefined);
 
   const assign = useCallback(async () => {
-    const chosen = methods.find((m) => m.blockchainCode.toUpperCase() === effectiveNetwork && m.currencyCode.toUpperCase() === stable?.asset);
+    const chosen =
+      effectiveMethod === "tempo"
+        ? methods.find((m) => isTempo(m.blockchainCode))
+        : methods.find((m) => m.blockchainCode.toUpperCase() === effectiveNetwork && m.currencyCode.toUpperCase() === stable?.asset);
     if (!chosen) return;
     setBusy(true);
     setError("");
@@ -68,7 +72,7 @@ export function Checkout({ referenceId }: { referenceId: string }) {
     } finally {
       setBusy(false);
     }
-  }, [methods, effectiveNetwork, stable, referenceId, refresh]);
+  }, [methods, effectiveMethod, effectiveNetwork, stable, referenceId, refresh]);
 
   if (load.kind === "loading") return <Loading />;
   if (load.kind === "notfound") return <NotFound />;
@@ -84,7 +88,7 @@ export function Checkout({ referenceId }: { referenceId: string }) {
       handlers={{
         onMethod: setMethod,
         onNetwork: setNetwork,
-        onContinue: () => { if (effectiveMethod === "stablecoin") void assign(); },
+        onContinue: () => { if (effectiveMethod === "stablecoin" || effectiveMethod === "tempo") void assign(); },
         // The address is bound to the payment; changing method means reloading
         // the page state, which the API currently returns as assigned.
         onBack: () => { setMethod(undefined); void refresh(); },

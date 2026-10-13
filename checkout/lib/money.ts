@@ -1,7 +1,7 @@
 /** Money formatting. Rules: docs/design/DESIGN.md section 8. Decimal strings in, display strings out. */
 
 const FIAT: Record<string, number> = { USD: 2, EUR: 2, GBP: 2, INR: 2, SGD: 2, MYR: 2, JPY: 0 };
-const STABLE = new Set(["USDC", "USDT", "DAI", "PYUSD", "USDP", "TUSD"]);
+const STABLE = new Set(["USDC", "USDT", "DAI", "PYUSD", "USDP", "TUSD", "PATHUSD"]);
 
 export function isFiat(code: string): boolean {
   return code.toUpperCase() in FIAT;

@@ -6,6 +6,7 @@
  */
 
 import { compareDecimal, isStablecoin, subtractDecimal } from "./money";
+import { TEMPO_CODE, TEMPO_TESTNET, tryEncodeMemo } from "./tempo";
 
 export interface Money {
   amount: string;
@@ -31,6 +32,14 @@ export interface NetworkOption {
 export interface MethodOptions {
   card: boolean;
   stablecoin?: { asset: string; networks: NetworkOption[] };
+  /** Tempo rail: pay the merchant's address with a memo. Offered when the API lists a TEMPO method. */
+  tempo?: { asset: string; network: NetworkOption };
+}
+
+/** The bytes32 memo a Tempo transfer must carry, as the human reference and its 0x hex. */
+export interface ChainMemo {
+  reference: string;
+  hex: `0x${string}`;
 }
 
 export interface ChainLeg {
@@ -46,6 +55,8 @@ export interface ChainLeg {
   explorerUrl?: string;
   confirmations?: number;
   requiredConfirmations?: number;
+  /** Tempo only: `address` is the merchant's receiving address and this memo identifies the payment. */
+  memo?: ChainMemo;
 }
 
 export interface CardLeg {
@@ -104,6 +115,11 @@ export interface ApiPayment {
   blockchainCode?: string;
   currencyCode?: string;
   merchantName?: string;
+  /**
+   * Tempo only: the reference the watcher matches in the transfer memo
+   * (e.g. "PM-1042"), at most 32 UTF-8 bytes. Falls back to referenceID.
+   */
+  memo?: string;
 }
 
 /** Shape of GET /api/v1/public/blockchain-currencies. */
@@ -126,7 +142,18 @@ export const NETWORK_NAMES: Record<string, string> = {
   OP: "Optimism",
   TRX: "Tron",
   BTC: "Bitcoin",
+  [TEMPO_CODE]: TEMPO_TESTNET.name,
 };
+
+/** Display code for an asset; pathUSD keeps its own casing. */
+export function assetCode(code: string): string {
+  const upper = code.toUpperCase();
+  return upper === TEMPO_TESTNET.token.symbol.toUpperCase() ? TEMPO_TESTNET.token.symbol : upper;
+}
+
+export function isTempo(network?: string): boolean {
+  return network?.toUpperCase() === TEMPO_CODE;
+}
 
 export function networkName(code: string, fallback?: string): string {
   return NETWORK_NAMES[code.toUpperCase()] ?? fallback ?? code;
@@ -146,7 +173,8 @@ export function mapState(raw: string, expiresAt?: string | null, now = Date.now(
 }
 
 export function fromApi(payment: ApiPayment, methods: ApiMethod[], now = Date.now()): CheckoutPayment {
-  const stable = methods.filter((m) => isStablecoin(m.currencyCode));
+  const stable = methods.filter((m) => isStablecoin(m.currencyCode) && !isTempo(m.blockchainCode));
+  const tempo = methods.find((m) => isTempo(m.blockchainCode));
   const asset = stable[0]?.currencyCode.toUpperCase();
   const networks = stable
     .filter((m) => m.currencyCode.toUpperCase() === asset)
@@ -158,10 +186,14 @@ export function fromApi(payment: ApiPayment, methods: ApiMethod[], now = Date.no
     merchant: { name: payment.merchantName },
     total: { amount: payment.amountInUSD, code: "USD" },
     expiresAt,
-    methods: { card: false, stablecoin: asset ? { asset, networks } : undefined },
+    methods: {
+      card: false,
+      stablecoin: asset ? { asset, networks } : undefined,
+      tempo: tempo ? { asset: assetCode(tempo.currencyCode), network: { code: TEMPO_CODE, name: TEMPO_TESTNET.name } } : undefined,
+    },
   };
   if (payment.depositAddress && payment.blockchainCode && payment.currencyCode) {
-    const code = payment.currencyCode.toUpperCase();
+    const code = assetCode(payment.currencyCode);
     model.chain = {
       network: payment.blockchainCode.toUpperCase(),
       networkName: networkName(payment.blockchainCode),
@@ -173,11 +205,16 @@ export function fromApi(payment: ApiPayment, methods: ApiMethod[], now = Date.no
       due: isStablecoin(code) ? { amount: payment.amountInUSD, code } : undefined,
       quoteExpiresAt: expiresAt,
     };
+    if (isTempo(payment.blockchainCode)) {
+      const reference = payment.memo || payment.referenceID;
+      const hex = tryEncodeMemo(reference);
+      if (hex) model.chain.memo = { reference, hex };
+    }
   }
   return model;
 }
 
-export function viewState(payment: CheckoutPayment, selectedMethod?: "card" | "stablecoin"): ViewState {
+export function viewState(payment: CheckoutPayment, selectedMethod?: "card" | "stablecoin" | "tempo"): ViewState {
   switch (payment.state) {
     case "paid":
       return "paid";

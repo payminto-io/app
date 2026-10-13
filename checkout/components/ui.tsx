@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, Clock3, Copy, ExternalLink } from "lucide-react";
 import { formatAmount } from "@/lib/money";
 import { formatCountdown, secondsUntil, type Money } from "@/lib/model";
 
@@ -84,6 +84,19 @@ export function Countdown({ until, label, onExpire }: { until?: string; label: s
       <span>{label}</span>
       <span className="mono num font-medium">{formatCountdown(left)}</span>
     </span>
+  );
+}
+
+/** The waiting line under every chain leg: what we wait for, and the quote timer. */
+export function WaitingBar({ until, onExpire, note }: { until?: string; onExpire?: () => void; note?: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-sm bg-surface-sunken px-3 py-2.5">
+      <span className="inline-flex items-center gap-2 text-body-sm text-ink-soft">
+        <Clock3 size={16} strokeWidth={1.75} />
+        {note ?? "Waiting for your transfer"}
+      </span>
+      <Countdown until={until} label="Expires in" onExpire={onExpire} />
+    </div>
   );
 }
 
