@@ -94,6 +94,7 @@ var currentSchemaManifest = []schemaTable{
 	{name: "sweep_transactions"},
 	{name: "sweeps"},
 	{name: "tags"},
+	{name: "tempo_memo_credits", requiredColumns: []string{"tx_hash", "log_index", "outcome"}},
 	{name: "utxos"},
 	{name: "wallet_functions"},
 	{name: "wallet_scws"},
