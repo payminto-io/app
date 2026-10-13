@@ -19,6 +19,7 @@ type Config struct {
 	Redis      RedisConfig
 	Blockchain BlockchainConfig
 	Solana     SolanaConfig
+	Tempo      TempoConfig
 	Security   SecurityConfig
 	Email      EmailConfig
 	Telemetry  TelemetryConfig
@@ -155,6 +156,17 @@ type BlockchainConfig struct {
 	ColdWalletTRX string // Tron cold-storage destination
 }
 
+// TempoConfig is the TEMPO_* section. Tempo payments are TIP-20 transferWithMemo calls to one merchant
+// receiving address with the payment reference as memo; the watcher runs only when MerchantAddress is set.
+// Tokens live in the TEMPO blockchain_currencies seeds. See internal/blockchain/tempo.
+type TempoConfig struct {
+	RPCURL              string
+	MerchantAddress     string
+	MemberID            int
+	StartBlock          int
+	PollIntervalSeconds int
+}
+
 // SolanaConfig is the SOLANA_* section; mints live in the blockchain_currencies seeds, not here.
 // Reasoning: internal/blockchain/solana/README.md.
 type SolanaConfig struct {
@@ -263,6 +275,13 @@ func Load() (*Config, error) {
 			SweepIntervalSeconds:     envInt("SOLANA_SWEEP_INTERVAL_SECONDS", 30),
 			LateWindowDays:           envInt("SOLANA_LATE_WINDOW_DAYS", 7),
 			RequestsPerSecond:        envInt("SOLANA_RPC_REQUESTS_PER_SECOND", 10),
+		},
+		Tempo: TempoConfig{
+			RPCURL:              envStr("TEMPO_RPC_URL", "https://rpc.moderato.tempo.xyz"),
+			MerchantAddress:     envStr("TEMPO_MERCHANT_ADDRESS", ""),
+			MemberID:            envInt("TEMPO_MEMBER_ID", 0),
+			StartBlock:          envInt("TEMPO_START_BLOCK", 0),
+			PollIntervalSeconds: envInt("TEMPO_POLL_INTERVAL_SECONDS", 2),
 		},
 		Security: SecurityConfig{
 			AESKey:          envStr("AES_KEY", ""),

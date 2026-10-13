@@ -118,6 +118,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.InternalBlockchainTransaction{},
 		&models.MissedDeposit{},
 		&models.SolanaDepositAccount{},
+		&models.TempoMemoCredit{},
 		&models.SolanaSweepAttempt{},
 		&models.SolanaSweepDeposit{},
 		&models.SolanaSweepLock{},

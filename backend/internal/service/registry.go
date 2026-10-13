@@ -96,6 +96,7 @@ type ServiceRegistry struct {
 	solanaModule             *modules.SolanaModule
 	solanaDepositService     *SolanaDepositService
 	solanaSweepService       *SolanaSweepService
+	tempoMemoService         *TempoMemoService
 
 	// services (existing — Phase A.9 will refactor these to take repos)
 	authService         *AuthService
@@ -451,6 +452,9 @@ func NewServiceRegistry(db *gorm.DB, rdb *redis.Client, cfg *config.Config, opts
 	// Ticket 09: Solana module (adapter, RPC policy, sweep identity), then watcher and sweeper.
 	if err := r.wireSolana(cfg); err != nil {
 		return nil, fmt.Errorf("wire solana: %w", err)
+	}
+	if err := r.wireTempo(cfg); err != nil {
+		return nil, fmt.Errorf("wire tempo: %w", err)
 	}
 
 	// Phase F.4: UTXOService
