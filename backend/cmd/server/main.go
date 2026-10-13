@@ -219,6 +219,12 @@ func main() {
 			chain.Code, chain.Height, chain.MinConfirmations)
 	}
 
+	// Tempo: TIP-20 transferWithMemo payments to one merchant address, found from logs (no block processor).
+	if svc := reg.TempoMemoService(); svc != nil {
+		mgr.Register(worker.NewTempoMemoWatcher(svc, time.Duration(cfg.Tempo.PollIntervalSeconds)*time.Second))
+		log.Printf("[server] registered Tempo memo watcher (merchant=%s)", svc.Merchant().Hex())
+	}
+
 	systemSvc := service.NewSystemService(&managerAdapter{mgr: mgr}, db)
 
 	checkoutHost := cfg.Server.CheckoutBaseURL
