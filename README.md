@@ -2,7 +2,7 @@
 
 An open-source, self-hostable payment gateway that connects multiple payment providers and stablecoins as peer rails on one double-entry ledger, with an optional Chainlink CRE workflow that proves the gateway is solvent.
 
-**Website:** [payminto.io](https://payminto.io) | **App:** [app.payminto.io](https://app.payminto.io) | **Checkout:** [checkout.payminto.io](https://checkout.payminto.io) | **Pitch:** [deck](https://drive.google.com/file/d/1QpXIgz82kQVeH15eYvIeyOrCwypKGi2K/view) | [more](website.md)
+**Website:** [payminto.io](https://payminto.io) | **App:** [app.payminto.io](https://app.payminto.io) | **Checkout:** [checkout.payminto.io](https://checkout.payminto.io) | **Pitch:** [deck](https://drive.google.com/file/d/1S9ZHGs2dDlsVGEZDbhm7Yf9ZtG1Gy-TT/view) | [more](website.md)
 
 ![Dashboard](docs/design/screens/pages/home-1440-light.png)
 
@@ -21,7 +21,7 @@ Demo script: [DEMO.md](DEMO.md).
 
 Merchants who want to accept stablecoins next to cards today choose between closed, custodial processors and open-source tools that cover one rail.
 Stripe (via Bridge), Shift4, BitPay and BVNK do fiat plus crypto, all closed and custodial.
-Hyperswitch, the open-source orchestrator at scale (45.3k stars), has two crypto connectors, and one of them shut on 2026-03-31.
+Hyperswitch, the open-source orchestrator at scale (45.3k stars), reaches crypto only through custodial third parties (BitPay, Coinbase, CoinGate, Cryptopay, OpenNode), so funds never land in a wallet the merchant controls.
 Genuine stablecoin payments were about $390B in the year to September 2025, $226B of it business to business, growing 733% year on year ([a16z](https://a16zcrypto.com/posts/article/state-of-crypto-report-2025/)); Visa, Mastercard and Stripe settle stablecoins on Solana.
 
 And a merchant who lets a gateway hold money has to trust its balance sheet; Proof of Reserve shows what is held, not what is owed.
@@ -104,4 +104,4 @@ cd cre && bun test             # CRE workflow
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).
