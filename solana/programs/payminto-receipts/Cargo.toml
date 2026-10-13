@@ -1,0 +1,26 @@
+[package]
+name = "payminto-receipts"
+version = "0.1.0"
+description = "Payminto direct-to-merchant invoice payments with on-chain idempotency receipts"
+edition = "2021"
+rust-version = "1.79"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "payminto_receipts"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+custom-heap = []
+custom-panic = []
+anchor-debug = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "=0.31.1" }
+anchor-spl = { version = "=0.31.1", default-features = false, features = ["token", "token_2022", "associated_token"] }
