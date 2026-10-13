@@ -39,6 +39,17 @@ var standardRoles = []defaultRole{
 		},
 	},
 	{
+		name:        merchantOwnerRoleName,
+		displayName: "Merchant Owner",
+		description: "Own-project commerce access without installation administration",
+		permissions: []string{
+			"payments.read", "payments.create", "payments.delete",
+			"deposits.read", "wallets.read", "wallets.manage",
+			"withdrawals.read", "withdrawals.create", "withdrawals.approve",
+			"sweeps.read", "sweeps.trigger", "webhooks.manage", "analytics.read",
+		},
+	},
+	{
 		name:        "admin",
 		displayName: "Admin",
 		description: "Administrative access excluding system-level controls",
@@ -109,7 +120,7 @@ func NewRoleService(roleRepo repository.RoleRepository, permissionRepo repositor
 	return &RoleService{roleRepo: roleRepo, permissionRepo: permissionRepo}
 }
 
-// SeedDefaults idempotently inserts the five standard roles with their
+// SeedDefaults idempotently inserts the standard roles with their
 // default permission sets. Skips roles that already exist.
 func (s *RoleService) SeedDefaults(ctx context.Context) error {
 	for _, def := range standardRoles {

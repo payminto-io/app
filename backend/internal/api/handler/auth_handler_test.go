@@ -26,6 +26,10 @@ func newAuthHandlerDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(
 		&models.Member{},
 		&models.APIKey{},
+		&models.ExternalPlatform{},
+		&models.Role{},
+		&models.Permission{},
+		&models.MemberExternalPlatformRole{},
 		&models.AuthRefreshToken{},
 		&models.EEEvent{},
 	); err != nil {
@@ -50,6 +54,19 @@ func newAuthHandler(t *testing.T, db *gorm.DB) (*AuthHandler, *service.AuthServi
 	authSvc.SetEnvironment(environment.Test)
 	authSvc.SetJWTTokenService(jwtSvc)
 	authSvc.SetEventEmitter(emitter)
+	platformSvc := service.NewExternalPlatformService(repository.NewExternalPlatformRepository(db), apiKeyRepo)
+	platformSvc.SetEnvironment(environment.Test)
+	authSvc.SetExternalPlatformService(platformSvc)
+	roleRepo := repository.NewRoleRepository(db)
+	permissionRepo := repository.NewPermissionRepository(db)
+	if err := service.NewPermissionService(permissionRepo).SeedDefaults(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.NewRoleService(roleRepo, permissionRepo).SeedDefaults(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	authSvc.SetRoleRepo(roleRepo)
+	authSvc.SetMEPRoleRepo(repository.NewMemberExternalPlatformRoleRepository(db))
 
 	h := NewAuthHandler(authSvc, jwtSvc)
 	return h, authSvc, jwtSvc

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -20,9 +21,12 @@ import (
 
 // AuthService handles member authentication via JWT tokens and API keys.
 type AuthService struct {
+	signupMu sync.Mutex // serialize installation bootstrap within this server
+
 	memberRepo   repository.MemberRepository
 	apiKeyRepo   repository.APIKeyRepository
 	mepRoleRepo  repository.MemberExternalPlatformRoleRepository
+	roleRepo     repository.RoleRepository
 	jwtTokenSvc  *JWTTokenService
 	platformSvc  *ExternalPlatformService
 	eventEmitter *EventEmitterService
@@ -58,13 +62,16 @@ func (s *AuthService) SetJWTTokenService(svc *JWTTokenService) {
 }
 
 // SetExternalPlatformService injects the platform service for auto-creating
-// a default project on root signup.
+// a default project on self-signup.
 func (s *AuthService) SetExternalPlatformService(svc *ExternalPlatformService) {
 	s.platformSvc = svc
 }
 
 // SetMEPRoleRepo injects the member-external-platform-role repository for
-// assigning the root role on signup and resolving platforms on signin.
+// assigning platform ownership on signup and resolving platforms on signin.
+// SetRoleRepo supplies the role catalogue so signup can resolve a role by name.
+func (s *AuthService) SetRoleRepo(repo repository.RoleRepository) { s.roleRepo = repo }
+
 func (s *AuthService) SetMEPRoleRepo(repo repository.MemberExternalPlatformRoleRepository) {
 	s.mepRoleRepo = repo
 }
@@ -280,11 +287,40 @@ func (s *AuthService) ValidateAPIKey(key string) (*models.APIKey, error) {
 	return apiKey, nil
 }
 
-// Signup creates a new member account, hashes the password, generates a token
-// pair, and emits a welcome email event. If a root member already exists for the
-// platform, the new member is created as type "internal".
+const (
+	ownerRoleName         = "owner"
+	merchantOwnerRoleName = "merchant_owner"
+)
+
+// signupRole resolves the role before creating any account or project rows.
+func (s *AuthService) signupRole(memberType string) (*models.Role, error) {
+	if s.platformSvc == nil || s.mepRoleRepo == nil || s.roleRepo == nil {
+		return nil, errors.New("signup platform and role services are not configured")
+	}
+	roleName := merchantOwnerRoleName
+	if memberType == "root" {
+		roleName = ownerRoleName
+	}
+	role, err := s.roleRepo.GetByName(roleName)
+	if err != nil {
+		return nil, fmt.Errorf("look up %q role: %w", roleName, err)
+	}
+	return role, nil
+}
+
+// Signup provisions a member, project and platform-scoped role before issuing a session.
+// Only the installation's first member receives installation authority.
 func (s *AuthService) Signup(emailAddr, password, name string) (*models.Member, *TokenPair, error) {
-	// Check whether a root member already exists.
+	s.signupMu.Lock()
+	defer s.signupMu.Unlock()
+	env, err := s.Environment()
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := signingKeyFor(s.jwtSecret, env); err != nil {
+		return nil, nil, err
+	}
+	// Check whether the installation already has a member.
 	count, err := s.memberRepo.Count()
 	if err != nil {
 		return nil, nil, fmt.Errorf("count members: %w", err)
@@ -295,6 +331,10 @@ func (s *AuthService) Signup(emailAddr, password, name string) (*models.Member, 
 		memberType = "internal"
 	}
 
+	role, err := s.signupRole(memberType)
+	if err != nil {
+		return nil, nil, err
+	}
 	hash, err := s.HashPassword(password)
 	if err != nil {
 		return nil, nil, fmt.Errorf("hash password: %w", err)
@@ -305,43 +345,37 @@ func (s *AuthService) Signup(emailAddr, password, name string) (*models.Member, 
 		Email:      &emailAddr,
 		Password:   &hash,
 		MemberType: memberType,
-		State:      "active",
+		State:      "provisioning",
 	}
 	if err := s.memberRepo.Create(member); err != nil {
 		return nil, nil, fmt.Errorf("create member: %w", err)
 	}
 
-	// For root members: auto-create a default ExternalPlatform ("Default Project")
-	// and assign the root role. This ensures the JWT carries a valid platformID
-	// so payment/withdrawal APIs work immediately after signup.
-	var platformID uint
-	if memberType == "root" && s.platformSvc != nil {
-		platform, _, err := s.platformSvc.Create(ExternalPlatformInput{
-			MemberID: member.ID,
-			Name:     "Default Project",
-			Website:  "https://payminto.local",
-		})
-		if err != nil {
-			log.Printf("[AuthService] Signup: auto-create platform for root member %d: %v", member.ID, err)
-		} else {
-			platformID = platform.ID
-			// Assign root role to the member on this platform.
-			if s.mepRoleRepo != nil {
-				rootRole := &models.MemberExternalPlatformRole{
-					MemberID:           member.ID,
-					ExternalPlatformID: platform.ID,
-					RoleID:             1, // root role (seeded as ID 1)
-				}
-				if err := s.mepRoleRepo.Assign(rootRole); err != nil {
-					log.Printf("[AuthService] Signup: assign root role for member %d platform %d: %v", member.ID, platform.ID, err)
-				}
-			}
-		}
+	// Every self-signup owns its own platform. The JWT carries that platformID,
+	// and the merchant APIs are scoped by it, so a member created without one
+	// signs in to an account that cannot create a payment or a link. Only the
+	// first member is `root` (the install owner); the rest are ordinary
+	// merchants, and they need a platform just the same.
+	platformName := strings.TrimSpace(name)
+	if platformName == "" {
+		platformName = "Default Project"
 	}
-
-	pair, err := s.issueTokenPair(member, platformID)
+	platform, _, err := s.platformSvc.Create(ExternalPlatformInput{MemberID: member.ID, Name: platformName})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, s.abortSignup(member.ID, 0, fmt.Errorf("create signup platform: %w", err))
+	}
+	if err := s.mepRoleRepo.Assign(&models.MemberExternalPlatformRole{
+		MemberID: member.ID, ExternalPlatformID: platform.ID, RoleID: role.ID,
+	}); err != nil {
+		return nil, nil, s.abortSignup(member.ID, platform.ID, fmt.Errorf("assign signup role: %w", err))
+	}
+	pair, err := s.issueTokenPair(member, platform.ID)
+	if err != nil {
+		return nil, nil, s.abortSignup(member.ID, platform.ID, err)
+	}
+	member.State = "active"
+	if err := s.memberRepo.Update(member); err != nil {
+		return nil, nil, s.abortSignup(member.ID, platform.ID, fmt.Errorf("activate signup member: %w", err))
 	}
 
 	// Emit welcome email event (best-effort).
@@ -357,6 +391,19 @@ func (s *AuthService) Signup(emailAddr, password, name string) (*models.Member, 
 	}
 
 	return member, pair, nil
+}
+
+// abortSignup compensates only rows created by this signup; no session is returned.
+func (s *AuthService) abortSignup(memberID, platformID uint, cause error) error {
+	if platformID != 0 {
+		if err := s.platformSvc.Delete(platformID); err != nil {
+			cause = errors.Join(cause, fmt.Errorf("remove incomplete signup platform: %w", err))
+		}
+	}
+	if err := s.memberRepo.Delete(memberID); err != nil {
+		cause = errors.Join(cause, fmt.Errorf("remove incomplete signup member: %w", err))
+	}
+	return cause
 }
 
 // Signin authenticates a member by email+password and issues a token pair.

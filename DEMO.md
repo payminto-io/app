@@ -6,12 +6,13 @@ Use the [end-to-end use-case guide](docs/USE_CASES.md) for actual API operations
 
 ## Recording status
 
-A current 2-minute-36-second narrated product demo has been rendered from `solana-localnet-flow.mp4` and `tempo-moderato-flow.mp4`, with captions, timed transcript, step screenshots, and a recording evidence manifest.
+A current 2-minute-39-second narrated product story has been rendered from `solana-localnet-flow.mp4` and `tempo-moderato-flow.mp4`, with captions, timed transcript, step screenshots, and a recording evidence manifest.
 The first captures a local-validator test-mint invoice and sweep; the second captures a Moderato payment through a local gateway.
 The real Tempo transfers were submitted through an external script while checkout waited for backend confirmation.
 Wallet-button signing has separate controlled-wallet regression evidence.
 The current demo is a local file, and publicly hosted submission demo and founder-pitch URLs have not been supplied in these docs.
-It shows actual invoice creation, checkout confirmation, merchant records, and the Tempo explorer; ledger and sweep evidence is documented separately.
+It shows actual invoice creation, checkout confirmation, merchant records, and the Tempo explorer.
+An explanatory journal card uses the recorded accounting evidence and is clearly separate from the application UI; ledger and sweep evidence is also documented separately.
 Login entry is excluded, and local-validator/testnet labels remain visible.
 The portal requests a demo up to 3 minutes and a pitch up to 2 minutes on YouTube, Loom, or Vimeo, as recorded during submission preparation.
 The [legacy media archive](website.md#legacy-media-archive) contains the earlier launch motion graphic and deck, with earlier branding and track positioning.
@@ -32,16 +33,25 @@ Source ports are API 8090, dashboard 3003, and checkout 3002.
 The optional Compose backend uses 8080 and needs matching frontend API URLs.
 Use an actual merchant session and a payment reference created by the backend when demonstrating a real payment.
 
-## Suggested three-minute walkthrough
+## Current product-story beats
+
+The nine beats lead with the merchant's operational problem and explain the infrastructure behind the recorded payments.
+They cover merchant-operated infrastructure, exact issued checkout instructions, Solana finality, per-asset journals and sweep recovery, Tempo invoice memos, verified receipts, replay/retry protection, and common merchant records.
+The separate v2 switch's fee snapshots and failed-attempt retries are identified as tested capabilities outside the recorded v1 invoice flow.
+
+## Current 2:39 product-story cut
 
 | Time | Show | Evidence boundary |
 | --- | --- | --- |
-| 0:00-0:25 | The merchant problem and Payminto's self-hosted payment links, checkout, and ledger. | Card/UPI connectors, custody, and routing are unfinished. |
-| 0:25-0:55 | Create a single invoice in the merchant dashboard and open `/pay/<issued-reference>`. | This is the v1 invoice path; it does not demonstrate the unfinished reusable-link hosted flow or switch fee posting. |
-| 0:55-1:30 | Solana: the issued token account, exact mint/network, paid invoice, deposit journal, and later hot-wallet sweep. | The prepared recording uses a custom local-validator test mint named USDC, not Circle USDC, devnet, or mainnet. |
-| 1:30-2:15 | Tempo: issued pathUSD contract, shared merchant address, UUID memo, wallet/transfer path, and backend-confirmed state. | The later 12.5 pathUSD run is Moderato testnet with a local gateway; the public Payminto Tempo release is unverified. |
-| 2:15-2:40 | The independently checked Moderato transfer and matching local payment/journal evidence; optionally distinguish the original 1.5-token proof. | Show the exact receipt/token/recipient/memo; a preview or submitted wallet request is not payment confirmation. |
-| 2:40-3:00 | Prior work, AI use, current progress, and next steps. | Use the disclosure below and avoid unverified traction claims. |
+| 0:00-0:09 | Open on completed merchant records and the reconciliation problem. | Recorded test-environment payments. |
+| 0:09-0:24 | Merchant-operated gateway: checkout, verification and accounting. | Open-source infrastructure; no new production rollout claim. |
+| 0:24-0:40 | Solana issued amount, wallet owner destination and QR. | The source recording uses a custom local-validator mint labelled USDC, not Circle-issued USDC. |
+| 0:40-0:56 | Finalized transfer, Paid checkout and merchant record. | Transfer submitted outside the browser; this is the v1 invoice path. |
+| 0:56-1:18 | Deposit journal and Solana sweep/recovery explanation. | Journal card derives from recorded backend evidence and is separate from the filmed UI; Solana invoice update follows the atomic deposit/journal commit. |
+| 1:18-1:38 | Tempo shared recipient and invoice memo. | Issued TIP-20 token and Moderato testnet with a local gateway. |
+| 1:38-1:56 | Explorer receipt, Paid checkout and merchant record. | Successful 12.5 pathUSD receipt independently verified. |
+| 1:56-2:20 | Both merchant records, separate assets and retry protection. | Separate v2 fee snapshots and failed-attempt retries are source/test capabilities outside the filmed invoice flow. |
+| 2:20-2:39 | Product/source links, current environments and disclosure. | Includes prior work; public Tempo integration remains unverified. |
 
 The recorded Tempo payment was 1.5 pathUSD for invoice `84933e7d-d0fc-46dd-b616-b602be747f9e`.
 [View its Moderato transaction](https://explore.testnet.tempo.xyz/tx/0x0bd786d78b7205537319369b9dc30a8d09a79854eae0ac809223aece94a4a00d) and [the original local evidence](tracks/tempo/README.md#recorded-real-network-evidence).
@@ -64,8 +74,10 @@ These development previews use sample data and do not prove a payment happened:
 
 For real checkout, open `/pay/<reference>` on port 3002 using an issued reference.
 Show receipt amounts only when the API or ledger supplies them, and never resend the full invoice to demonstrate a partial-payment remainder.
-For reusable links, the management/render/pay APIs are implemented, but the generated `/l/<short_code>` route and Tempo link-payment reference are unfinished in the integrated source.
-Demonstrate those as [documented API capabilities and limits](docs/USE_CASES.md#7-merchant-manages-reusable-payment-links), not as the completed single-invoice recording path.
+For reusable links, the management/render/pay APIs and a basic `/l/<short_code>` method-to-invoice handoff now exist.
+The hosted page preserves a rendered form's submission identity for repeat submissions; variable amounts, required customer forms, and Tempo `pl_<UUID>` references remain unsupported.
+Demonstrate those as [documented capabilities and limits](docs/USE_CASES.md#7-merchant-manages-reusable-payment-links), separate from the recorded single-invoice path.
+The [standalone Anchor receipt prototype](solana/README.md) is not connected to the gateway checkout and was not used in either recorded payment.
 
 ## Disclosures to keep in the recording
 

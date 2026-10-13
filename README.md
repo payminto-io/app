@@ -30,15 +30,18 @@ They also assess inherited Ethereum L1 support and the source/configuration limi
 
 - An append-only double-entry ledger with separate assets, auditable deposits, and versioned fee snapshots.
 - A payment switch with intents, attempts, idempotency, connector evidence, and reconciliation of unknown outcomes.
-- Payment links with server-side checkout previews and a hosted checkout with explicit partial, overpaid, confirming, and paid states.
+- Payment links with server-side previews and a basic hosted `/l/<short_code>` handoff; single-invoice checkout has explicit partial, overpaid, confirming, and paid states.
 - Solana USDC/USDT watchers and sweep recovery across crashes, delayed RPC answers, and competing workers.
 - Tempo invoice memos, receipt and token verification, deduplication, retryable finalization, and exact token amounts in checkout.
+- Separate merchant projects and commerce permissions, with active installation-root checks on global administration.
 - Test/live separation at boot and environment-bound API credentials.
 
 Tempo supports Moderato testnet only and refuses live money configuration.
 Card and UPI connectors, custody adapters, cross-rail routing, conversion, and a complete one-command deployment remain unfinished or unmerged.
 The backend REST API supports merchant integrations; inherited MCP tool definitions and a widget remain unfinished integration surfaces.
 The v1 invoice flow, legacy reusable-link creator, and v2 switch fee-snapshot/posting path have different capabilities, described in [the use-case guide](docs/USE_CASES.md#8-explain-fees-and-the-payment-switch-accurately).
+The basic hosted-link page does not yet collect variable amounts or required customer forms, and Tempo reusable-link references remain unsupported.
+A [standalone Solana Anchor receipt prototype](solana/README.md) and local-validator tests are present; it is separate from the gateway's recorded deposit/sweep flow and is not wired into checkout.
 Configured CI gates cover backend, dashboard, checkout, contracts, and Tempo PostgreSQL regressions; local verification is separate from a hosted CI run.
 
 ## Prior work and AI use

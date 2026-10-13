@@ -22,10 +22,16 @@ const permCacheTTL = 60 * time.Second
 // MemberExternalPlatformRoleService manages per-project role assignments and
 // provides the HasPermission hot path used by the RBAC middleware.
 type MemberExternalPlatformRoleService struct {
-	repo repository.MemberExternalPlatformRoleRepository
+	repo       repository.MemberExternalPlatformRoleRepository
+	memberRepo repository.MemberRepository
 
 	mu    sync.RWMutex
 	cache map[string]*permCacheEntry // key: "memberID:platformID"
+}
+
+// SetMemberRepository provides the persisted identity used for installation-wide permissions.
+func (s *MemberExternalPlatformRoleService) SetMemberRepository(repo repository.MemberRepository) {
+	s.memberRepo = repo
 }
 
 // NewMemberExternalPlatformRoleService constructs the service.
@@ -73,6 +79,18 @@ func (s *MemberExternalPlatformRoleService) ListByPlatform(_ context.Context, pl
 // platform that includes the named permission. Results are cached for 60 s to
 // avoid hammering the DB on every authenticated request.
 func (s *MemberExternalPlatformRoleService) HasPermission(ctx context.Context, memberID, platformID uint, permission string) bool {
+	// Global routes operate on installation-wide resources, even when their
+	// permission appears on a tenant role. Check persisted identity on every
+	// request, including cache hits, so old owner assignments cannot elevate tenants.
+	if installationPermission(permission) {
+		if s.memberRepo == nil {
+			return false
+		}
+		member, err := s.memberRepo.GetByID(memberID)
+		if err != nil || member == nil || member.MemberType != "root" || member.State != "active" {
+			return false
+		}
+	}
 	perms, err := s.permissionsFor(ctx, memberID, platformID)
 	if err != nil {
 		log.Printf("[rbac] permission check for member %d platform %d: %v", memberID, platformID, err)
@@ -80,6 +98,17 @@ func (s *MemberExternalPlatformRoleService) HasPermission(ctx context.Context, m
 	}
 	_, ok := perms[permission]
 	return ok
+}
+
+// installationPermission names permissions whose current routes are globally scoped.
+func installationPermission(permission string) bool {
+	switch permission {
+	case "system.admin", "roles.manage", "settings.read", "settings.write",
+		"members.read", "members.invite", "members.remove":
+		return true
+	default:
+		return false
+	}
 }
 
 // permissionsFor returns the full permission set for a member+platform from

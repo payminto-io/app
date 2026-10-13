@@ -1,0 +1,24 @@
+[toolchain]
+anchor_version = "0.31.1"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+payminto_receipts = "3aJrkdT9RtQGE9sFszGY9worUS7QEGKv5XXZgb74hVud"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+# Non-default ports so tests never collide with a local demo validator on 8899.
+[test.validator]
+bind_address = "127.0.0.1"
+rpc_port = 18899
+faucet_port = 19900
+gossip_port = 18001
+dynamic_port_range = "18002-18030"

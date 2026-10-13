@@ -4,7 +4,8 @@ A merchant creates a payment request, shares its checkout, and checks the result
 The customer pays the network and token issued for that request.
 An address, wallet submission, or attractive success screen alone does not prove that the merchant received money.
 
-This guide describes the runtime source integrated at `1d63fc8` and the separately recorded local demonstrations from October 13, 2026.
+This guide describes the local integration of the Solana/Tempo safety fixes, basic hosted payment-link route, signup changes, and standalone Anchor prototype on October 13, 2026.
+The recorded payment demonstrations are described separately from these later source additions.
 It complements the [project disclosure](WORLDS_FAIR.md), [recording outline](../DEMO.md), [setup guide](../CONTRIBUTING.md), and [product URLs](../website.md).
 The latest integrated public Tempo deployment remains unverified.
 Region, community affiliation, presentation ownership, traction, and submission-media URLs require human confirmation.
@@ -17,7 +18,7 @@ The founder reports sharing the project with hackers in Hong Kong and Singapore 
 | Send one customer an invoice | Dashboard Create payment or authenticated v1 payment API, then `/pay/<reference>`. | The working Solana/Tempo showcase path. |
 | Accept Solana stablecoins | Issue a Solana token account, observe finalized payment, post deposit journal, optionally sweep. | Local-validator test tokens and public USDC availability are distinct evidence. |
 | Accept Tempo stablecoins | Issue the shared merchant recipient and invoice memo, then send the issued TIP-20 token. | Moderato testnet only; no Tempo refund, payout, or sweep. |
-| Manage reusable payment links | Dashboard link builder and v2 link lifecycle/render/pay APIs. | The standalone checkout has no `/l/<short_code>` page; link-to-switch migration remains incomplete. |
+| Manage reusable payment links | Dashboard builder, v2 link APIs, and a basic hosted `/l/<short_code>` method-to-invoice handoff. | Payer-entered amounts/required customer forms, Tempo link references, and link-to-switch migration remain incomplete. |
 | Price and reconcile a switch payment | v2 payment intent/attempt API with configured connectors and versioned fee snapshots. | Mock and chain-deposit connectors are wired; real card/UPI and cross-rail routing are unfinished. |
 | Integrate a merchant application | Authenticated API creation and merchant lookup; public checkout receives the issued reference. | Keep merchant credentials on the merchant's server. |
 | Let an AI agent help a merchant | Inherited MCP tool definitions for payment creation, lookup, and reporting. | The entrypoint has no attached MCP transport; no demonstrated autonomous wallet payment. |
@@ -28,6 +29,10 @@ The founder reports sharing the project with hackers in Hong Kong and Singapore 
 
 The dashboard page `/dashboard/payments/create` asks for a customer email and positive USD amount, then shows the generated checkout URL and reference.
 The form calls `POST /api/v1/payment` using the merchant's authenticated session.
+A new self-signup provisions its own project context and platform-scoped permissions when provisioning succeeds.
+Ordinary merchant signups receive `merchant_owner` commerce permissions; globally scoped administration also requires a persisted active installation-root identity, including for older owner assignments.
+Incomplete project or role provisioning returns no session and leaves no active account under the verified failure cases.
+HD wallet auto-initialization is best effort and does not block project creation; accepting a configured rail still requires the appropriate wallet and deposit setup.
 A server integration can call the same endpoint with its environment-bound API key.
 The API also accepts an invoice id and optional `blockchainCode`/`currencyCode` for assignment during creation.
 
@@ -185,11 +190,17 @@ Paused, archived, expired, exhausted, and excessive-open-payment links are refus
 
 The integrated registry still uses the legacy `LinkPaymentCreator` for crypto/USD links, rather than the switch-backed creator.
 Its generated reference is `pl_<UUID>`, which does not fit Tempo's 32-byte memo rule, so a reusable Tempo-link payment is not a supported end-to-end claim on this snapshot.
-The link URL uses `/l/<short_code>`, but the standalone checkout has no corresponding page in this source.
-A client can consume the implemented public link API and then open the returned single-invoice checkout URL for a supported rail such as configured Solana USDC.
-Do not present the generated `/l` URL as a complete shipped hosted flow until that integration is finished.
+The standalone checkout now has a basic `/l/<short_code>` page.
+It reads the public render model, displays link availability and payment methods, submits the selected method, and redirects a successful result to `/pay/<payment_reference>`.
+A rendered checkout carries one validated submission identity in its forms, so repeated submission of the same form forwards the same `Idempotency-Key` to the backend.
+A new page render creates a new identity; backend same-key/same-body replay and conflict rules remain authoritative.
 
-Sources: [link routes](../backend/internal/api/routes_links.go), [link lifecycle/validation](../backend/internal/links/README.md), [integrated creator](../backend/internal/service/link_payment_creator.go), [registry wiring](../backend/internal/service/registry.go).
+This hosted form supports links whose payment can start without additional payer input, such as configured fixed-amount Solana links.
+It does not collect customer-entered amounts, required customer fields, addresses, or answers, so those configurations require a separate API client or further hosted-form work.
+The legacy creator and oversized Tempo `pl_<UUID>` reference remain unchanged.
+The recorded Solana/Tempo footage uses single invoices, not this newly added hosted-link route.
+
+Sources: [link routes](../backend/internal/api/routes_links.go), [hosted page](../checkout/app/l/[shortCode]/page.tsx), [submission action](../checkout/app/l/[shortCode]/actions.ts), [link lifecycle/validation](../backend/internal/links/README.md), [integrated creator](../backend/internal/service/link_payment_creator.go), [registry wiring](../backend/internal/service/registry.go).
 
 ## 8. Explain fees and the payment switch accurately
 
@@ -262,10 +273,19 @@ The [ledger reconciliation implementation](../backend/internal/ledger/reconcile.
 | Wallets/recipients/withdrawals | Inherited merchant wallet/recipient and withdrawal creation, OTP, approval, lookup, and cancellation APIs exist. | Existence of these routes is not evidence of Tempo payouts or a tested end-to-end withdrawal on every rail. |
 | Webhooks | Inherited endpoint management, secret rotation, delivery logs, and processing infrastructure exist; switch connector webhooks are verified by their connector. | Do not infer that every direct Tempo deposit exercised a merchant webhook from a Paid screen or SSE event. |
 | Optional attestations | Retained CRE modules, workflows, and contract code can be enabled separately. | Outside the current Solana/Tempo demonstration; no new oracle-service launch is claimed. |
+| Solana receipt program | Standalone Anchor `pay_invoice` instruction transfers SPL tokens directly to the supplied merchant account and creates a per-merchant/invoice Receipt PDA. | Source and local-validator tests exist; backend/checkout wiring, public deployment, and use in the recorded demo are not established. |
 | Bitcoin/EVM/Tron | Inherited adapters, deposit and wallet infrastructure remain in the repository. | Prior work, with no new chain payment proof supplied by this walkthrough. |
 | Cards/UPI/custody/routing/conversion | Interfaces, specifications, and some development work exist. | Real connectors, extra custody providers, cross-rail routing, and conversion/deployment completion remain unfinished or unmerged. |
 
 Sources: [actual router](../backend/internal/api/router.go), [MCP factory](../mcp-server/src/server.ts), [MCP entrypoint](../mcp-server/src/index.ts), [widget](../widget/src/index.ts).
+
+The [Anchor prototype](../solana/README.md) rejects a second program invocation for an existing merchant/invoice receipt and emits an `InvoicePaid` event.
+It enforces the mint and token-account owners for the transfer; it does not escrow the payer's funds in a program-owned token account.
+This is separate from the current gateway's watched deposit wallets and sweep flow.
+The caller supplies the invoice identifier, mint, and amount; the prototype does not bind them to a merchant-issued quote.
+A wrong-amount or wrong-token first receipt can occupy that invoice receipt address, so quote authorization and a retry-safe recovery design are prerequisites for gateway integration.
+The prototype's receipt records the instruction amount; Token-2022 transfer fees can make the received amount smaller, and transfer hooks are not supported.
+Those limits and the unimplemented gateway verifier must be resolved before treating the receipt as the production gateway's payment proof.
 
 ### Additional chain selections and source status
 
@@ -321,9 +341,11 @@ Public deployment, public video hosting, portal submission, and any human presen
 
 ## 13. Current demo deliverables
 
-A narrated 2-minute-36-second product demo has been rendered from the later actual Solana and Tempo recordings.
+A narrated 2-minute-39-second product story has been rendered from the later actual Solana and Tempo recordings.
 It excludes login entry and includes visible local-validator/testnet labels, with captions and a timed transcript.
 The film shows invoice creation, issued checkout, backend-confirmed payment state, merchant records, and the Tempo explorer receipt.
-The ledger and sweep evidence remains in the recording manifest and this guide; the film does not invent a merchant journal screen.
+The film includes an explanatory journal card drawn from the recording evidence, clearly separate from the captured application UI.
+The ledger and sweep records remain in the recording manifest and this guide; the card does not imply a merchant journal screen exists.
+The nine story beats cover merchant-operated infrastructure, issued rails, receipt checks, per-asset accounting, Solana recovery, Tempo memos, replay/retry protection, and cross-rail merchant records.
 A six-slide editable demo-day presentation with speaker notes has also been prepared.
 These are local deliverables; public hosting, portal media acceptance, and final project submission remain separate steps.

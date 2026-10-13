@@ -3,7 +3,8 @@
 Project name: **Payminto**.
 This is the current project-detail document for [Colosseum's Crypto World's Fair](https://colosseum.com/worldsfair), focused on Solana and Tempo.
 The [official event rules](https://colosseum.com/legal/Crypto%20World%27s%20Fair%20Hackathon%20Rules.pdf) identify both ecosystem tracks.
-Implementation status below describes the runtime source integrated at `1d63fc8` on October 13, 2026, with later local recording evidence described separately.
+Implementation status below describes the local source integration on October 13, 2026, including later hosted-link/signup changes and the standalone Anchor prototype.
+Recorded payment evidence is identified separately from these source additions.
 A local integration is separate from the public deployment and from a completed portal submission.
 
 ## All product URLs
@@ -31,7 +32,8 @@ The founder reports sharing the project with hackers in Hong Kong and Singapore 
 Specific event participation, dates, official acceptance, residence, and regional prize eligibility have not been established by that statement.
 
 The [end-to-end use cases](USE_CASES.md) trace invoice creation, payer selection, chain/token/recipient checks, confirmation, journals, partial/extra payments, and merchant reconciliation.
-They distinguish working single-invoice checkout from the reusable-link API and unfinished hosted `/l` integration, and separate v1 invoices from v2 switch fee snapshots and postings.
+They distinguish the recorded single-invoice flow from the newly added basic hosted `/l` method-to-invoice handoff, and separate v1 invoices from v2 switch fee snapshots and postings.
+Variable amounts, required customer forms, Tempo reusable-link references, and link-to-switch migration remain incomplete.
 
 ## Current chain integrations
 
@@ -97,6 +99,11 @@ Local product recordings exist; public hosting and the final submission demo/pit
 Existing EVM contracts and optional attestation code are retained in the repository, outside this Solana/Tempo showcase.
 No new traction, client names, funding status, or mainnet date is claimed.
 
+The source now includes a standalone [Solana Anchor receipt program](../solana/README.md) with local-validator tests.
+Its instruction directly transfers SPL tokens and creates a merchant/invoice receipt account; it is not wired into the Go gateway or checkout and was not used in the recorded payments.
+Token-2022 transfer-fee and transfer-hook limitations remain explicit in its README.
+This prototype is distinct from the implemented deposit watcher, ledger, and sweep recovery path.
+
 ## Prior work and AI disclosure
 
 Payminto predates this event.
@@ -114,6 +121,7 @@ Human ownership and agent-assisted implementation are disclosed together.
 
 [DEMO.md](../DEMO.md) supplies a recording outline and separates sample previews from real payment evidence.
 Submission preparation recorded a demo-video limit of 3 minutes and founder-pitch limit of 2 minutes, hosted on YouTube, Loom, or Vimeo.
-A current 2-minute-36-second narrated product demo, captions, transcript, and reviewed six-slide editable Payminto demo-day deck have been prepared locally.
+A current 2-minute-39-second narrated product story, captions, transcript, and reviewed six-slide editable Payminto demo-day deck have been prepared locally.
+The story's explanatory journal card is separate from the filmed application UI and derives from the recorded accounting evidence.
 Public video hosting, the required founder pitch, and complete judge access/profile answers remain outstanding.
 The earlier deck and launch motion graphic are [legacy assets](../website.md#legacy-media-archive).
