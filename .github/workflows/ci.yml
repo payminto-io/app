@@ -39,6 +39,15 @@ jobs:
             echo "A required PostgreSQL integration test skipped; CI requires every migration and lifecycle contract test to execute"
             exit 1
           fi
+      - name: Tempo ledger PostgreSQL regression gate
+        working-directory: backend
+        run: |
+          set -o pipefail
+          go test -race -tags=integration ./internal/service -run '^TestTempoPostgres' -count=1 -json | tee tempo-integration-test.json
+          if grep -q '"Action":"skip"' tempo-integration-test.json; then
+            echo "Tempo ledger regression tests must execute against disposable PostgreSQL"
+            exit 1
+          fi
       - name: Build binary
         working-directory: backend
         run: go build ./cmd/server/
