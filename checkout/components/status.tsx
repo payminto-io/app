@@ -127,10 +127,10 @@ export function Underpaid({ payment, onExpire }: { payment: CheckoutPayment; onE
           chain?.received && chain.due && remaining ? (
             <>
               Received <Amount money={chain.received} size="body-sm" className="text-ink" /> of <Amount money={chain.due} size="body-sm" className="text-ink" />. Send the remaining{" "}
-              <Amount money={remaining} size="body-sm" className="text-ink" /> to the same address.
+              <Amount money={remaining} size="body-sm" className="text-ink" /> to the same address{chain.memo ? " with the same memo" : ""}.
             </>
           ) : (
-            "Part of the amount has arrived. Send the rest to the same address."
+            `Part of the amount has arrived. Send the rest to the same address${chain?.memo ? " with the same memo" : ""}.`
           )
         }
       />

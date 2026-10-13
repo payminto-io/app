@@ -1,6 +1,7 @@
 import { backendURL, proxyJSON, validReference } from "@/lib/backend";
 
-const codePattern = /^[A-Z0-9_-]{2,20}$/;
+// Mixed case allowed: pathUSD is a valid currency code.
+const codePattern = /^[A-Za-z0-9_-]{2,20}$/;
 
 export async function POST(request: Request, { params }: { params: Promise<{ referenceId: string }> }) {
   const { referenceId } = await params;

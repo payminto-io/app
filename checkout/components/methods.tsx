@@ -4,12 +4,21 @@ import { CreditCard, TriangleAlert } from "lucide-react";
 import type { CheckoutPayment, NetworkOption } from "@/lib/model";
 import { Amount, cx } from "./ui";
 
-export type MethodKind = "card" | "stablecoin";
+export type MethodKind = "card" | "stablecoin" | "tempo";
 
 function UsdcMark() {
   return (
     <span aria-hidden className="inline-grid h-5 w-5 place-items-center rounded-full text-[11px] font-semibold text-white" style={{ background: "#2775CA" }}>
       $
+    </span>
+  );
+}
+
+/** Neutral rail mark for Tempo; the checkout carries no third-party logos. */
+function TempoMark() {
+  return (
+    <span aria-hidden className="inline-grid h-5 w-5 place-items-center rounded-full bg-ink text-[11px] font-semibold text-ink-inverse">
+      T
     </span>
   );
 }
@@ -53,8 +62,9 @@ export function Methods({ payment, method, network, onMethod, onNetwork, onConti
   const stable = payment.methods.stablecoin;
   const networks: NetworkOption[] = stable?.networks ?? [];
   const chosenNetwork = networks.find((n) => n.code === network);
-  const nothing = !payment.methods.card && !stable;
-  const ready = method === "card" || (method === "stablecoin" && Boolean(chosenNetwork));
+  const tempo = payment.methods.tempo;
+  const nothing = !payment.methods.card && !stable && !tempo;
+  const ready = method === "card" || (method === "stablecoin" && Boolean(chosenNetwork)) || (method === "tempo" && Boolean(tempo));
 
   return (
     <div className="flex flex-col gap-6">
@@ -105,6 +115,15 @@ export function Methods({ payment, method, network, onMethod, onNetwork, onConti
               ) : null}
             </MethodRow>
           ) : null}
+          {tempo ? (
+            <MethodRow
+              selected={method === "tempo"}
+              onSelect={() => onMethod("tempo")}
+              mark={<TempoMark />}
+              title="Pay on Tempo"
+              detail={`${tempo.asset} on ${tempo.network.name}`}
+            />
+          ) : null}
         </fieldset>
       )}
 
@@ -117,7 +136,7 @@ export function Methods({ payment, method, network, onMethod, onNetwork, onConti
 
       {!nothing ? (
         <button type="button" className="btn sticky bottom-4 w-full wide:static" disabled={!ready || busy} onClick={onContinue}>
-          {busy ? "Preparing" : method === "stablecoin" && chosenNetwork ? `Pay with ${stable?.asset} on ${chosenNetwork.name}` : <>Pay <Amount money={payment.total} className="text-[15px] [&>span:last-child]:text-ink-inverse/70" /></>}
+          {busy ? "Preparing" : method === "tempo" && tempo ? "Pay on Tempo" : method === "stablecoin" && chosenNetwork ? `Pay with ${stable?.asset} on ${chosenNetwork.name}` : <>Pay <Amount money={payment.total} className="text-[15px] [&>span:last-child]:text-ink-inverse/70" /></>}
         </button>
       ) : null}
     </div>

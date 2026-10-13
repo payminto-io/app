@@ -1,17 +1,23 @@
 "use client";
 
 import { QRCodeSVG } from "qrcode.react";
-import { Clock3 } from "lucide-react";
-import type { ChainLeg, Money } from "@/lib/model";
+import { isTempo, type ChainLeg, type Money } from "@/lib/model";
 import { formatAmount } from "@/lib/money";
-import { Amount, CopyField, Countdown, cx, useCopy } from "./ui";
+import { TempoPay } from "./tempo-pay";
+import { Amount, CopyField, useCopy, WaitingBar } from "./ui";
 
 /**
  * Address, exact amount and QR for a chain leg. Shared by awaiting and under
  * paid. QR is always on white so scanners get contrast (references.md, Base
- * App receive).
+ * App receive). A Tempo leg renders TempoPay instead: fixed merchant address
+ * plus the memo that identifies the payment.
  */
 export function ChainPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?: Money; onExpire?: () => void; note?: React.ReactNode }) {
+  if (isTempo(chain.network)) return <TempoPay chain={chain} due={due} onExpire={onExpire} note={note} />;
+  return <AddressPay chain={chain} due={due} onExpire={onExpire} note={note} />;
+}
+
+function AddressPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?: Money; onExpire?: () => void; note?: React.ReactNode }) {
   const [copied, copy] = useCopy();
   const amount = due ?? chain.due;
 
@@ -44,13 +50,7 @@ export function ChainPay({ chain, due, onExpire, note }: { chain: ChainLeg; due?
         </p>
       </div>
 
-      <div className={cx("flex items-center justify-between gap-4 rounded-sm bg-surface-sunken px-3 py-2.5")}>
-        <span className="inline-flex items-center gap-2 text-body-sm text-ink-soft">
-          <Clock3 size={16} strokeWidth={1.75} />
-          {note ?? "Waiting for your transfer"}
-        </span>
-        <Countdown until={chain.quoteExpiresAt} label="Expires in" onExpire={onExpire} />
-      </div>
+      <WaitingBar until={chain.quoteExpiresAt} onExpire={onExpire} note={note} />
     </div>
   );
 }
