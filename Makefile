@@ -13,7 +13,8 @@ frontend:
 	cd frontend && npm run dev -- -p 3003
 
 checkout:
-	cd checkout && PAYMINTO_API_URL=http://localhost:8090/api/v1 npm run dev
+	# Keep checkout development on Webpack after the reported Turbopack Google font failure.
+	cd checkout && PAYMINTO_API_URL=http://localhost:8090/api/v1 npm run dev -- --webpack
 
 landing:
 	cd landing && npm run dev -- -p 3001
