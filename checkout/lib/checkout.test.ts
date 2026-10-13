@@ -35,6 +35,22 @@ describe("state mapping", () => {
     expect(assigned.chain?.networkName).toBe("Solana");
   });
 
+  it("shows the Solana owner that wallets use to derive the receiving token account", () => {
+    const solana = fromApi({ ...base, depositAddress: "deposit-token-account", depositOwnerAddress: "deposit-wallet-owner", blockchainCode: "SOLANA", currencyCode: "USDC" }, methods, now);
+    expect(solana.chain?.address).toBe("deposit-wallet-owner");
+    expect(viewState(solana)).toBe("awaiting");
+  });
+
+  it("keeps another network's deposit address even when an unexpected owner field is provided", () => {
+    const evm = fromApi({ ...base, depositAddress: "0xdeposit", depositOwnerAddress: "unexpected-owner", blockchainCode: "BASE", currencyCode: "USDC" }, methods, now);
+    expect(evm.chain?.address).toBe("0xdeposit");
+  });
+
+  it("retains Solana compatibility when an older API omits the owner field", () => {
+    const solana = fromApi({ ...base, depositAddress: "deposit-token-account", blockchainCode: "SOLANA", currencyCode: "USDC" }, methods, now);
+    expect(solana.chain?.address).toBe("deposit-token-account");
+  });
+
   it("offers card only when the API says so and groups stablecoin networks", () => {
     const model = fromApi(base, methods, now);
     expect(model.methods.card).toBe(false);
