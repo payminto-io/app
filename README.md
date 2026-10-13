@@ -18,11 +18,13 @@ See [all links and legacy media](website.md).
 
 The current showcase is for [Colosseum's Crypto World's Fair](https://colosseum.com/worldsfair), with Solana and Tempo as the relevant ecosystem tracks.
 Read the [project details and disclosures](docs/WORLDS_FAIR.md) and [demo walkthrough](DEMO.md).
+The [end-to-end use cases](docs/USE_CASES.md) explain merchant creation, payer checkout, Solana/Tempo confirmation, accounting, reusable-link limits, and API integrations.
+They also assess inherited Ethereum L1 support and the source/configuration limits for Arbitrum and Robinhood Chain.
 
 | Track | Implementation and evidence |
 | --- | --- |
-| [Solana](tracks/solana/README.md) | USDC and USDT deposit detection, ledger posting, and crash-safe sweeps; the existing public test deployment advertises Solana USDC. |
-| [Tempo](tracks/tempo/README.md) | Memo-tagged TIP-20 payments on Moderato testnet, wallet checkout, and PostgreSQL ledger regression tests; an original owner-run 1.5 pathUSD payment was credited through a local backend. |
+| [Solana](tracks/solana/README.md) | USDC and USDT deposit detection, ledger posting, and crash-safe sweeps; a later local-validator recording shows a 25-token local USDC test-mint invoice and sweep. |
+| [Tempo](tracks/tempo/README.md) | Memo-tagged TIP-20 payments on Moderato testnet, wallet checkout, and PostgreSQL ledger regression tests; recorded local-backend payments include the original 1.5 pathUSD proof and a later 12.5 pathUSD checkout run. |
 
 ## What is implemented
 
@@ -35,7 +37,8 @@ Read the [project details and disclosures](docs/WORLDS_FAIR.md) and [demo walkth
 
 Tempo supports Moderato testnet only and refuses live money configuration.
 Card and UPI connectors, custody adapters, cross-rail routing, conversion, and a complete one-command deployment remain unfinished or unmerged.
-The inherited MCP server exposes the backend API to AI agents.
+The backend REST API supports merchant integrations; inherited MCP tool definitions and a widget remain unfinished integration surfaces.
+The v1 invoice flow, legacy reusable-link creator, and v2 switch fee-snapshot/posting path have different capabilities, described in [the use-case guide](docs/USE_CASES.md#8-explain-fees-and-the-payment-switch-accurately).
 Configured CI gates cover backend, dashboard, checkout, contracts, and Tempo PostgreSQL regressions; local verification is separate from a hosted CI run.
 
 ## Prior work and AI use
@@ -46,6 +49,7 @@ Earlier Bitcoin, EVM, and Tron clients, the MCP server, and widget are prior wor
 Post-import work includes the ledger, fees, switch, payment links, Solana work, UI, docs, and the October 13 IST Tempo feature and QA.
 Claude Code and Codex contributed to development, review, testing, and documentation.
 The [detailed disclosure](docs/WORLDS_FAIR.md#prior-work-and-ai-disclosure) separates these contributions.
+The founder reports sharing the project with hackers in Hong Kong and Singapore for developer feedback.
 
 ## Run locally
 
@@ -85,7 +89,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for dashboard, contract, and other packag
 | `frontend/`, `checkout/`, `landing/` | Merchant dashboard, hosted checkout, and product website. |
 | `mcp-server/`, `widget/` | Inherited agent API surface and embeddable widget. |
 | `contracts/`, `cre/` | Retained EVM contracts and optional attestation implementation. |
-| `docs/WORLDS_FAIR.md`, `tracks/` | Current project details, disclosures, and Solana/Tempo evidence. |
+| `docs/USE_CASES.md`, `docs/WORLDS_FAIR.md`, `tracks/` | Current use cases, project details, disclosures, and Solana/Tempo evidence. |
 | `.scratch/payments-v1/` | Development specification and historical execution tickets. |
 
 MIT, see [LICENSE](LICENSE), with separately licensed dependencies and notices preserved.

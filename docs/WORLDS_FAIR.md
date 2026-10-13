@@ -3,7 +3,7 @@
 Project name: **Payminto**.
 This is the current project-detail document for [Colosseum's Crypto World's Fair](https://colosseum.com/worldsfair), focused on Solana and Tempo.
 The [official event rules](https://colosseum.com/legal/Crypto%20World%27s%20Fair%20Hackathon%20Rules.pdf) identify both ecosystem tracks.
-Implementation status below describes the locally integrated release verified on October 13, 2026, based on commit `b38df13`.
+Implementation status below describes the locally integrated source at `465ca2e` on October 13, 2026, with later local recording evidence described separately.
 A local integration is separate from the public deployment and from a completed portal submission.
 
 ## All product URLs
@@ -25,14 +25,23 @@ Payminto lets merchants operate their own payment gateway rather than reconcile 
 The Go API, merchant dashboard, payment links, and hosted checkout share an append-only double-entry ledger.
 Versioned fee rules preserve the calculation used on each payment; intents and attempts make provider operations idempotent and unknown outcomes reconcilable.
 The intended users are online merchants, marketplaces, and fintech teams accepting stablecoins alongside their existing payment providers.
-The TypeScript MCP server is an inherited API surface for AI agents.
+The backend REST API supports merchant integrations.
+Inherited MCP tool definitions require an attached transport before a working AI-client connection can be claimed; the widget also needs integration with the issued-invoice checkout.
+The founder reports sharing the project with hackers in Hong Kong and Singapore for developer feedback.
+Specific event participation, dates, official acceptance, residence, and regional prize eligibility have not been established by that statement.
+
+The [end-to-end use cases](USE_CASES.md) trace invoice creation, payer selection, chain/token/recipient checks, confirmation, journals, partial/extra payments, and merchant reconciliation.
+They distinguish working single-invoice checkout from the reusable-link API and unfinished hosted `/l` integration, and separate v1 invoices from v2 switch fee snapshots and postings.
 
 ## Current chain integrations
 
 | Rail | Implemented flow | Evidence and limits |
 | --- | --- | --- |
-| [Solana](../tracks/solana/README.md) | USDC/USDT addresses, signature detection, finality checks, deposit journals, and recoverable sweeps. | Recorded RPC fixtures and local-validator tests exist; the public test deployment advertises USDC. |
-| [Tempo](../tracks/tempo/README.md) | Moderato TIP-20 `transferWithMemo`, issued invoice-leg validation, shared merchant address, exact token amounts, wallet checkout, and deduplicated deposit journals. | Original owner-run real Moderato payment plus later local unit/browser/PostgreSQL verification; public release unverified. |
+| [Solana](../tracks/solana/README.md) | USDC/USDT addresses, signature detection, finality checks, deposit journals, and recoverable sweeps. | Recorded RPC fixtures, local-validator tests, and a later recorded 25-token local USDC test-mint invoice/sweep; the existing public test deployment advertises USDC. |
+| [Tempo](../tracks/tempo/README.md) | Moderato TIP-20 `transferWithMemo`, issued invoice-leg validation, shared merchant address, exact token amounts, wallet checkout, and deduplicated deposit journals. | Original 1.5 pathUSD proof, later 12.5 pathUSD local checkout recording, and local unit/browser/PostgreSQL verification; public release unverified. |
+| Ethereum L1 | Inherited EVM adapter plus Ethereum/Sepolia chain, token, and RPC seed configuration. | Prior work; no fresh Ethereum payment proof in the current recordings. |
+| Arbitrum | Inherited EVM chain recognition and checkout naming. | No Arbitrum chain/token/RPC seed rows in the audited current seeds, or demonstrated configured payment. |
+| Robinhood Chain | No chain-specific implementation/configuration found in the audited source. | Submission selection does not establish an implemented integration. |
 
 Tempo configuration requires test mode and testnet, verifies chain 42431, and supports the seeded PATHUSD and ALPHAUSD assets.
 Receipt success and an invoice memo alone are insufficient: token, recipient, merchant ownership, and the issued payment leg must match before credit.
@@ -59,6 +68,21 @@ The explorer transaction is real-network evidence; the invoice and journal value
 This document does not present them as a fresh payment on the subsequently integrated public deployment.
 [Tempo details](../tracks/tempo/README.md) link the relevant code and regression tests.
 
+## Later local product recordings
+
+The recording bundle contains `solana-localnet-flow.mp4` and `tempo-moderato-flow.mp4`, with step screenshots and `local-demo/EVIDENCE.md`.
+These recordings show the local gateway's merchant creation, customer checkout, and payment-result screens.
+Tempo transfers in these recordings were submitted externally while checkout awaited confirmation; the browser-wallet button was tested separately with controlled test wallets.
+The Solana invoice is `b7eda30a-ac7d-4e41-95aa-5c4f7b01506b` for 25 units of a custom six-decimal local-validator test mint.
+The recorded transfer and landed sweep have separate journals; later independent inspection found the deposit token account closed and 25 tokens in the hot wallet.
+Historical Solana transaction/status queries no longer returned those signatures, so the old receipts could not be independently reconstructed from that validator at review time.
+This is local-chain evidence, not Circle USDC, devnet, or mainnet evidence.
+
+The later Tempo invoice is `3da2ecad-f409-4d3b-9356-966030f52073` for 12.5 pathUSD on Moderato.
+Its [transaction](https://explore.testnet.tempo.xyz/tx/0x406a5a9f529666fc04b8c609f187d09b3c419d9a3caa04e114100ce701d1cf8f) was independently checked through RPC for receipt success, token amount, recipient, and invoice memo; the local invoice reported `FILLED` and the recording manifest records the corresponding deposit journal.
+Full identifiers and evidence limits are in [the recorded-demonstrations table](USE_CASES.md#12-recorded-demonstrations-and-evidence-levels).
+These local video assets do not establish a public Tempo deployment or a hosted submission-video URL.
+
 ## Verification and unfinished work
 
 Local checks of the integrated release covered backend build, vet, lint, race/unit tests, disposable PostgreSQL Tempo replay/rollback/overpayment tests, and checkout tests, typecheck, lint, and build.
@@ -68,7 +92,8 @@ The [CI workflow](../.github/workflows/ci.yml) includes a required Tempo Postgre
 A hosted CI result requires the integrated commits to be pushed.
 
 Card and UPI connectors, custody adapters, routing across rails, conversion at receipt, and complete deployment automation remain unfinished or unmerged.
-The latest public Tempo rollout, new payment evidence on that release, and current submission media remain outstanding.
+The latest public Tempo rollout and new payment evidence on that public release remain outstanding.
+Local product recordings exist; public hosting and the final submission demo/pitch media still require supplied URLs.
 Existing EVM contracts and optional attestation code are retained in the repository, outside this Solana/Tempo showcase.
 No new traction, client names, funding status, or mainnet date is claimed.
 
@@ -89,5 +114,5 @@ Human ownership and agent-assisted implementation are disclosed together.
 
 [DEMO.md](../DEMO.md) supplies a recording outline and separates sample previews from real payment evidence.
 Submission preparation recorded a demo-video limit of 3 minutes and founder-pitch limit of 2 minutes, hosted on YouTube, Loom, or Vimeo.
-Current video URLs, a reviewed Payminto-branded deck, and judge access instructions still need to be supplied.
+Current hosted video URLs, a founder pitch, a reviewed Payminto-branded deck, and judge access instructions still need to be supplied.
 The earlier deck and launch motion graphic are [legacy assets](../website.md#legacy-media-archive).
